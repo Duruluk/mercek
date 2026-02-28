@@ -14,16 +14,14 @@ import io.mockk.mockk
 import junit.framework.TestCase.assertFalse
 import junit.framework.TestCase.assertTrue
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import mozilla.components.browser.state.action.TabListAction
 import mozilla.components.browser.state.selector.privateTabs
 import mozilla.components.browser.state.state.BrowserState
+import mozilla.components.browser.state.state.TabSessionState
 import mozilla.components.browser.state.state.createTab
 import mozilla.components.browser.state.store.BrowserStore
-import mozilla.components.support.test.ext.joinBlocking
-import mozilla.components.support.test.libstate.ext.waitUntilIdle
-import mozilla.components.support.test.rule.MainCoroutineRule
-import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mozilla.fenix.browser.browsingmode.BrowsingMode
@@ -34,8 +32,15 @@ import org.mozilla.fenix.components.appstate.AppState
 @RunWith(AndroidJUnit4::class)
 class PrivateBrowsingLockFeatureTest {
 
-    @get:Rule
-    val coroutinesTestRule = MainCoroutineRule()
+    private val testDispatcher = StandardTestDispatcher()
+    private val regularTabs: List<TabSessionState> = listOf(
+        createTab("https://www.firefox.com", id = "firefox"),
+        createTab("https://www.mozilla.org", id = "mozilla"),
+    )
+    private val mixedTabs: List<TabSessionState> = listOf(
+        createTab("https://www.firefox.com", id = "firefox", private = true),
+        createTab("https://www.mozilla.org", id = "mozilla"),
+    )
 
     // zero tabs cases
     @Test
@@ -43,51 +48,31 @@ class PrivateBrowsingLockFeatureTest {
         val isFeatureEnabled = true
         val mode = BrowsingMode.Normal
 
-        val appStore = AppStore(initialState = AppState(mode = mode, isPrivateScreenLocked = true))
-        val browserStore = BrowserStore(
-            BrowserState(
-                tabs = listOf(
-                    createTab("https://www.firefox.com", id = "firefox", private = true),
-                    createTab("https://www.mozilla.org", id = "mozilla"),
-                ),
-                selectedTabId = "mozilla",
-            ),
-        )
-        createFeature(browserStore = browserStore, appStore = appStore, storage = createStorage(isFeatureEnabled = isFeatureEnabled))
-        appStore.waitUntilIdle()
+        val appStore = createAppStore(mode, isPrivateScreenLocked = true)
+        val browserStore = createBrowserStore(mixedTabs)
+        createFeature(appStore, browserStore, createStorage(isFeatureEnabled))
 
         assertTrue(appStore.state.isPrivateScreenLocked)
 
-        browserStore.dispatch(TabListAction.RemoveAllPrivateTabsAction).joinBlocking()
-        appStore.waitUntilIdle()
+        browserStore.dispatch(TabListAction.RemoveAllPrivateTabsAction)
+        testDispatcher.scheduler.advanceUntilIdle()
 
         assertFalse(appStore.state.isPrivateScreenLocked)
     }
 
     @Test
     fun `GIVEN feature is enabled and mode is private WHEN authenticated and number of private tabs reaches zero THEN private mode is unchanged`() {
-        val isFeatureEnabled = true
         val mode = BrowsingMode.Private
 
-        val appStore = AppStore(initialState = AppState(mode = mode))
-        val browserStore = BrowserStore(
-            BrowserState(
-                tabs = listOf(
-                    createTab("https://www.firefox.com", id = "firefox", private = true),
-                    createTab("https://www.mozilla.org", id = "mozilla"),
-                ),
-                selectedTabId = "mozilla",
-            ),
-        )
+        val appStore = createAppStore(mode)
+        val browserStore = createBrowserStore(mixedTabs)
         val useCase = PrivateBrowsingLockUseCases.AuthenticatedUseCase(appStore)
 
         useCase.invoke()
-        appStore.waitUntilIdle()
 
         assertFalse(appStore.state.isPrivateScreenLocked)
 
-        browserStore.dispatch(TabListAction.RemoveAllPrivateTabsAction).joinBlocking()
-        appStore.waitUntilIdle()
+        browserStore.dispatch(TabListAction.RemoveAllPrivateTabsAction)
 
         assertFalse(appStore.state.isPrivateScreenLocked)
     }
@@ -97,23 +82,13 @@ class PrivateBrowsingLockFeatureTest {
         val isFeatureEnabled = false
         val mode = BrowsingMode.Normal
 
-        val appStore = AppStore(initialState = AppState(mode = mode))
-        val browserStore = BrowserStore(
-            BrowserState(
-                tabs = listOf(
-                    createTab("https://www.firefox.com", id = "firefox", private = true),
-                    createTab("https://www.mozilla.org", id = "mozilla"),
-                ),
-                selectedTabId = "mozilla",
-            ),
-        )
+        val appStore = createAppStore(mode)
+        val browserStore = createBrowserStore(mixedTabs)
         createFeature(browserStore = browserStore, appStore = appStore, storage = createStorage(isFeatureEnabled = isFeatureEnabled))
-        appStore.waitUntilIdle()
 
         assertFalse(appStore.state.isPrivateScreenLocked)
 
-        browserStore.dispatch(TabListAction.RemoveAllPrivateTabsAction).joinBlocking()
-        appStore.waitUntilIdle()
+        browserStore.dispatch(TabListAction.RemoveAllPrivateTabsAction)
 
         assertFalse(appStore.state.isPrivateScreenLocked)
     }
@@ -124,22 +99,12 @@ class PrivateBrowsingLockFeatureTest {
         val mode = BrowsingMode.Private
 
         val appStore = AppStore(initialState = AppState(mode = mode))
-        val browserStore = BrowserStore(
-            BrowserState(
-                tabs = listOf(
-                    createTab("https://www.firefox.com", id = "firefox", private = true),
-                    createTab("https://www.mozilla.org", id = "mozilla"),
-                ),
-                selectedTabId = "mozilla",
-            ),
-        )
-        createFeature(browserStore = browserStore, appStore = appStore, storage = createStorage(isFeatureEnabled = isFeatureEnabled))
-        appStore.waitUntilIdle()
+        val browserStore = createBrowserStore(mixedTabs)
+        createFeature(appStore, browserStore, createStorage(isFeatureEnabled))
 
         assertFalse(appStore.state.isPrivateScreenLocked)
 
-        browserStore.dispatch(TabListAction.RemoveAllPrivateTabsAction).joinBlocking()
-        appStore.waitUntilIdle()
+        browserStore.dispatch(TabListAction.RemoveAllPrivateTabsAction)
 
         assertFalse(appStore.state.isPrivateScreenLocked)
     }
@@ -150,18 +115,9 @@ class PrivateBrowsingLockFeatureTest {
         val isFeatureEnabled = true
         val mode = BrowsingMode.Private
 
-        val appStore = AppStore(initialState = AppState(mode = mode, isPrivateScreenLocked = true))
-        val browserStore = BrowserStore(
-        BrowserState(
-            tabs = listOf(
-                createTab("https://www.firefox.com", id = "firefox", private = true),
-                createTab("https://www.mozilla.org", id = "mozilla"),
-            ),
-            selectedTabId = "mozilla",
-        ),
-        )
-        createFeature(browserStore = browserStore, appStore = appStore, storage = createStorage(isFeatureEnabled = isFeatureEnabled))
-        appStore.waitUntilIdle()
+        val appStore = createAppStore(mode, isPrivateScreenLocked = true)
+        val browserStore = createBrowserStore(mixedTabs)
+        createFeature(appStore, browserStore, createStorage(isFeatureEnabled))
 
         assertTrue(appStore.state.isPrivateScreenLocked)
     }
@@ -171,18 +127,9 @@ class PrivateBrowsingLockFeatureTest {
         val isFeatureEnabled = true
         val mode = BrowsingMode.Normal
 
-        val appStore = AppStore(initialState = AppState(mode = mode, isPrivateScreenLocked = true))
-        val browserStore = BrowserStore(
-            BrowserState(
-                tabs = listOf(
-                    createTab("https://www.firefox.com", id = "firefox", private = true),
-                    createTab("https://www.mozilla.org", id = "mozilla"),
-                ),
-                selectedTabId = "mozilla",
-            ),
-        )
-        createFeature(browserStore = browserStore, appStore = appStore, storage = createStorage(isFeatureEnabled = isFeatureEnabled))
-        appStore.waitUntilIdle()
+        val appStore = createAppStore(mode, isPrivateScreenLocked = true)
+        val browserStore = createBrowserStore(mixedTabs)
+        createFeature(appStore, browserStore, createStorage(isFeatureEnabled))
 
         assertTrue(appStore.state.isPrivateScreenLocked)
     }
@@ -192,18 +139,9 @@ class PrivateBrowsingLockFeatureTest {
         val isFeatureEnabled = false
         val mode = BrowsingMode.Private
 
-        val appStore = AppStore(initialState = AppState(mode = mode))
-        val browserStore = BrowserStore(
-            BrowserState(
-                tabs = listOf(
-                    createTab("https://www.firefox.com", id = "firefox", private = true),
-                    createTab("https://www.mozilla.org", id = "mozilla"),
-                ),
-                selectedTabId = "mozilla",
-            ),
-        )
-        createFeature(browserStore = browserStore, appStore = appStore, storage = createStorage(isFeatureEnabled = isFeatureEnabled))
-        appStore.waitUntilIdle()
+        val appStore = createAppStore(mode)
+        val browserStore = createBrowserStore(mixedTabs)
+        createFeature(appStore, browserStore, createStorage(isFeatureEnabled))
 
         assertFalse(appStore.state.isPrivateScreenLocked)
     }
@@ -213,18 +151,9 @@ class PrivateBrowsingLockFeatureTest {
         val isFeatureEnabled = false
         val mode = BrowsingMode.Normal
 
-        val appStore = AppStore(initialState = AppState(mode = mode))
-        val browserStore = BrowserStore(
-            BrowserState(
-                tabs = listOf(
-                    createTab("https://www.firefox.com", id = "firefox", private = true),
-                    createTab("https://www.mozilla.org", id = "mozilla"),
-                ),
-                selectedTabId = "mozilla",
-            ),
-        )
-        createFeature(browserStore = browserStore, appStore = appStore, storage = createStorage(isFeatureEnabled = isFeatureEnabled))
-        appStore.waitUntilIdle()
+        val appStore = createAppStore(mode)
+        val browserStore = createBrowserStore(mixedTabs)
+        createFeature(appStore, browserStore, createStorage(isFeatureEnabled))
 
         assertFalse(appStore.state.isPrivateScreenLocked)
     }
@@ -234,17 +163,9 @@ class PrivateBrowsingLockFeatureTest {
         val isFeatureEnabled = true
         val mode = BrowsingMode.Private
 
-        val appStore = AppStore(initialState = AppState(mode = mode))
-        val browserStore = BrowserStore(
-            BrowserState(
-                tabs = listOf(
-                    createTab("https://www.mozilla.org", id = "mozilla"),
-                ),
-                selectedTabId = "mozilla",
-            ),
-        )
-        createFeature(browserStore = browserStore, appStore = appStore, storage = createStorage(isFeatureEnabled = isFeatureEnabled))
-        appStore.waitUntilIdle()
+        val appStore = createAppStore(mode)
+        val browserStore = createBrowserStore(regularTabs)
+        createFeature(appStore, browserStore, createStorage(isFeatureEnabled))
 
         assertFalse(appStore.state.isPrivateScreenLocked)
     }
@@ -254,17 +175,9 @@ class PrivateBrowsingLockFeatureTest {
         val isFeatureEnabled = true
         val mode = BrowsingMode.Normal
 
-        val appStore = AppStore(initialState = AppState(mode = mode))
-        val browserStore = BrowserStore(
-            BrowserState(
-                tabs = listOf(
-                    createTab("https://www.mozilla.org", id = "mozilla"),
-                ),
-                selectedTabId = "mozilla",
-            ),
-        )
-        createFeature(browserStore = browserStore, appStore = appStore, storage = createStorage(isFeatureEnabled = isFeatureEnabled))
-        appStore.waitUntilIdle()
+        val appStore = createAppStore(mode)
+        val browserStore = createBrowserStore(regularTabs)
+        createFeature(appStore, browserStore, createStorage(isFeatureEnabled))
 
         assertFalse(appStore.state.isPrivateScreenLocked)
     }
@@ -328,22 +241,12 @@ class PrivateBrowsingLockFeatureTest {
         val isFeatureEnabled = true
         val mode = BrowsingMode.Private
 
-        val appStore = AppStore(initialState = AppState(mode = mode))
-        val browserStore = BrowserStore(
-            BrowserState(
-                tabs = listOf(
-                    createTab("https://www.firefox.com", id = "firefox", private = true),
-                    createTab("https://www.mozilla.org", id = "mozilla"),
-                ),
-                selectedTabId = "mozilla",
-            ),
-        )
-        val feature = createFeature(browserStore = browserStore, appStore = appStore, storage = createStorage(isFeatureEnabled = isFeatureEnabled))
-        appStore.waitUntilIdle()
+        val appStore = createAppStore(mode)
+        val browserStore = createBrowserStore(mixedTabs)
+        val feature = createFeature(appStore, browserStore, createStorage(isFeatureEnabled))
 
         // imitate user passing auth
-        appStore.dispatch(AppAction.PrivateBrowsingLockAction.UpdatePrivateBrowsingLock(isLocked = false)).joinBlocking()
-        appStore.waitUntilIdle()
+        appStore.dispatch(AppAction.PrivateBrowsingLockAction.UpdatePrivateBrowsingLock(isLocked = false))
 
         assertTrue(appStore.state.mode == mode)
         assertFalse(appStore.state.isPrivateScreenLocked)
@@ -352,7 +255,6 @@ class PrivateBrowsingLockFeatureTest {
         every { activity.isChangingConfigurations } returns false
 
         feature.onStop(activity)
-        appStore.waitUntilIdle()
 
         assertTrue(appStore.state.isPrivateScreenLocked)
     }
@@ -362,22 +264,12 @@ class PrivateBrowsingLockFeatureTest {
         val isFeatureEnabled = true
         val mode = BrowsingMode.Normal
 
-        val appStore = AppStore(initialState = AppState(mode = mode))
-        val browserStore = BrowserStore(
-            BrowserState(
-                tabs = listOf(
-                    createTab("https://www.firefox.com", id = "firefox", private = true),
-                    createTab("https://www.mozilla.org", id = "mozilla"),
-                ),
-                selectedTabId = "mozilla",
-            ),
-        )
-        val feature = createFeature(browserStore = browserStore, appStore = appStore, storage = createStorage(isFeatureEnabled = isFeatureEnabled))
-        appStore.waitUntilIdle()
+        val appStore = createAppStore(mode)
+        val browserStore = createBrowserStore(mixedTabs)
+        val feature = createFeature(appStore, browserStore, createStorage(isFeatureEnabled))
 
         // imitate user passing auth
-        appStore.dispatch(AppAction.PrivateBrowsingLockAction.UpdatePrivateBrowsingLock(isLocked = false)).joinBlocking()
-        appStore.waitUntilIdle()
+        appStore.dispatch(AppAction.PrivateBrowsingLockAction.UpdatePrivateBrowsingLock(isLocked = false))
 
         assertTrue(appStore.state.mode == mode)
         assertFalse(appStore.state.isPrivateScreenLocked)
@@ -386,7 +278,6 @@ class PrivateBrowsingLockFeatureTest {
         every { activity.isChangingConfigurations } returns false
 
         feature.onStop(activity)
-        appStore.waitUntilIdle()
 
         assertTrue(appStore.state.mode == mode)
         assertTrue(appStore.state.isPrivateScreenLocked)
@@ -397,17 +288,9 @@ class PrivateBrowsingLockFeatureTest {
         val isFeatureEnabled = true
         val mode = BrowsingMode.Private
 
-        val appStore = AppStore(initialState = AppState(mode = mode))
-        val browserStore = BrowserStore(
-            BrowserState(
-                tabs = listOf(
-                    createTab("https://www.mozilla.org", id = "mozilla"),
-                ),
-                selectedTabId = "mozilla",
-            ),
-        )
-        val feature = createFeature(browserStore = browserStore, appStore = appStore, storage = createStorage(isFeatureEnabled = isFeatureEnabled))
-        appStore.waitUntilIdle()
+        val appStore = createAppStore(mode)
+        val browserStore = createBrowserStore(regularTabs)
+        val feature = createFeature(appStore, browserStore, createStorage(isFeatureEnabled))
 
         assertTrue(appStore.state.mode == mode)
         assertFalse(appStore.state.isPrivateScreenLocked)
@@ -416,7 +299,6 @@ class PrivateBrowsingLockFeatureTest {
         every { activity.isChangingConfigurations } returns false
 
         feature.onStop(activity)
-        appStore.waitUntilIdle()
 
         assertFalse(appStore.state.isPrivateScreenLocked)
     }
@@ -426,17 +308,9 @@ class PrivateBrowsingLockFeatureTest {
         val isFeatureEnabled = true
         val mode = BrowsingMode.Normal
 
-        val appStore = AppStore(initialState = AppState(mode = mode))
-        val browserStore = BrowserStore(
-            BrowserState(
-                tabs = listOf(
-                    createTab("https://www.mozilla.org", id = "mozilla"),
-                ),
-                selectedTabId = "mozilla",
-            ),
-        )
+        val appStore = createAppStore(mode)
+        val browserStore = createBrowserStore(regularTabs)
         val feature = createFeature(browserStore = browserStore, appStore = appStore, storage = createStorage(isFeatureEnabled = isFeatureEnabled))
-        appStore.waitUntilIdle()
 
         assertTrue(appStore.state.mode == mode)
         assertFalse(appStore.state.isPrivateScreenLocked)
@@ -445,7 +319,6 @@ class PrivateBrowsingLockFeatureTest {
         every { activity.isChangingConfigurations } returns false
 
         feature.onStop(activity)
-        appStore.waitUntilIdle()
 
         assertFalse(appStore.state.isPrivateScreenLocked)
     }
@@ -455,18 +328,9 @@ class PrivateBrowsingLockFeatureTest {
         val isFeatureEnabled = false
         val mode = BrowsingMode.Private
 
-        val appStore = AppStore(initialState = AppState(mode = mode))
-        val browserStore = BrowserStore(
-            BrowserState(
-                tabs = listOf(
-                    createTab("https://www.firefox.com", id = "firefox", private = true),
-                    createTab("https://www.mozilla.org", id = "mozilla"),
-                ),
-                selectedTabId = "mozilla",
-            ),
-        )
-        val feature = createFeature(browserStore = browserStore, appStore = appStore, storage = createStorage(isFeatureEnabled = isFeatureEnabled))
-        appStore.waitUntilIdle()
+        val appStore = createAppStore(mode)
+        val browserStore = createBrowserStore(mixedTabs)
+        val feature = createFeature(appStore, browserStore, createStorage(isFeatureEnabled))
 
         assertTrue(appStore.state.mode == mode)
         assertFalse(appStore.state.isPrivateScreenLocked)
@@ -475,7 +339,6 @@ class PrivateBrowsingLockFeatureTest {
         every { activity.isChangingConfigurations } returns false
 
         feature.onStop(activity)
-        appStore.waitUntilIdle()
 
         assertFalse(appStore.state.isPrivateScreenLocked)
     }
@@ -485,18 +348,9 @@ class PrivateBrowsingLockFeatureTest {
         val isFeatureEnabled = false
         val mode = BrowsingMode.Normal
 
-        val appStore = AppStore(initialState = AppState(mode = mode))
-        val browserStore = BrowserStore(
-            BrowserState(
-                tabs = listOf(
-                    createTab("https://www.firefox.com", id = "firefox", private = true),
-                    createTab("https://www.mozilla.org", id = "mozilla"),
-                ),
-                selectedTabId = "mozilla",
-            ),
-        )
-        val feature = createFeature(browserStore = browserStore, appStore = appStore, storage = createStorage(isFeatureEnabled = isFeatureEnabled))
-        appStore.waitUntilIdle()
+        val appStore = createAppStore(mode)
+        val browserStore = createBrowserStore(mixedTabs)
+        val feature = createFeature(appStore, browserStore, createStorage(isFeatureEnabled))
 
         assertTrue(appStore.state.mode == mode)
         assertFalse(appStore.state.isPrivateScreenLocked)
@@ -505,7 +359,6 @@ class PrivateBrowsingLockFeatureTest {
         every { activity.isChangingConfigurations } returns false
 
         feature.onStop(activity)
-        appStore.waitUntilIdle()
 
         assertFalse(appStore.state.isPrivateScreenLocked)
     }
@@ -520,27 +373,16 @@ class PrivateBrowsingLockFeatureTest {
         val mode = BrowsingMode.Private
 
         val appStore = AppStore(initialState = AppState(mode = mode))
-        val browserStore = BrowserStore(
-            BrowserState(
-                tabs = listOf(
-                    createTab("https://www.firefox.com", id = "firefox", private = true),
-                    createTab("https://www.mozilla.org", id = "mozilla"),
-                ),
-                selectedTabId = "mozilla",
-            ),
-        )
+        val browserStore = createBrowserStore(mixedTabs)
         val useCase = PrivateBrowsingLockUseCases.AuthenticatedUseCase(appStore)
         val feature = createFeature(browserStore = browserStore, appStore = appStore, storage = createStorage(isFeatureEnabled = isFeatureEnabled))
-        appStore.waitUntilIdle()
 
         useCase.invoke()
-        appStore.waitUntilIdle()
 
         val activity = mockk<AppCompatActivity>(relaxed = true)
         every { activity.isChangingConfigurations } returns true
 
         feature.onStop(activity)
-        appStore.waitUntilIdle()
 
         assertFalse(appStore.state.isPrivateScreenLocked)
     }
@@ -550,25 +392,15 @@ class PrivateBrowsingLockFeatureTest {
         val isFeatureEnabled = true
 
         val appStore = AppStore(initialState = AppState(openInFirefoxRequested = false))
-        val browserStore = BrowserStore(
-            BrowserState(
-                tabs = listOf(
-                    createTab("https://www.firefox.com", id = "firefox", private = true),
-                    createTab("https://www.mozilla.org", id = "mozilla"),
-                ),
-                selectedTabId = "mozilla",
-            ),
-        )
-        val feature = createFeature(browserStore = browserStore, appStore = appStore, storage = createStorage(isFeatureEnabled = isFeatureEnabled))
-        appStore.waitUntilIdle()
+        val browserStore = createBrowserStore(mixedTabs)
+        val feature = createFeature(appStore, browserStore, createStorage(isFeatureEnabled))
 
-        appStore.dispatch(AppAction.OpenInFirefoxStarted).joinBlocking()
-        appStore.waitUntilIdle()
+        appStore.dispatch(AppAction.OpenInFirefoxStarted)
+        testDispatcher.scheduler.advanceUntilIdle()
 
         val activity = mockk<AppCompatActivity>(relaxed = true)
 
         feature.onStop(activity)
-        appStore.waitUntilIdle()
 
         assertFalse(appStore.state.isPrivateScreenLocked)
     }
@@ -579,27 +411,17 @@ class PrivateBrowsingLockFeatureTest {
         val isFeatureEnabled = true
         val mode = BrowsingMode.Private
 
-        val appStore = AppStore(initialState = AppState(mode = mode, isPrivateScreenLocked = true))
-        val browserStore = BrowserStore(
-            BrowserState(
-                tabs = listOf(
-                    createTab("https://www.firefox.com", id = "firefox", private = true),
-                    createTab("https://www.mozilla.org", id = "mozilla"),
-                ),
-                selectedTabId = "mozilla",
-            ),
-        )
-        val storage = createStorage(isFeatureEnabled = isFeatureEnabled)
+        val appStore = createAppStore(mode, isPrivateScreenLocked = true)
+        val browserStore = createBrowserStore(mixedTabs)
+        val storage = createStorage(isFeatureEnabled)
 
-        val feature = createFeature(browserStore = browserStore, appStore = appStore, storage = storage)
-        appStore.waitUntilIdle()
+        val feature = createFeature(appStore, browserStore, storage)
 
         assertTrue(appStore.state.isPrivateScreenLocked)
 
         // verify that disabled feature state unlocks private mode
         val sharedPrefUpdate = false
         storage.listener?.invoke(sharedPrefUpdate)
-        appStore.waitUntilIdle()
 
         assertTrue(browserStore.state.privateTabs.isNotEmpty())
         assertFalse(appStore.state.isPrivateScreenLocked)
@@ -609,13 +431,12 @@ class PrivateBrowsingLockFeatureTest {
         every { activity.isChangingConfigurations } returns false
 
         feature.onStop(activity)
-        appStore.waitUntilIdle()
 
         assertTrue(browserStore.state.privateTabs.isNotEmpty())
         assertFalse(appStore.state.isPrivateScreenLocked)
 
         // verify that going to normal mode doesn't lock private mode
-        appStore.dispatch(AppAction.BrowsingModeManagerModeChanged(mode = BrowsingMode.Normal)).joinBlocking()
+        appStore.dispatch(AppAction.BrowsingModeManagerModeChanged(mode = BrowsingMode.Normal))
 
         assertTrue(browserStore.state.privateTabs.isNotEmpty())
         assertFalse(appStore.state.isPrivateScreenLocked)
@@ -626,27 +447,17 @@ class PrivateBrowsingLockFeatureTest {
         val isFeatureEnabled = false
         val mode = BrowsingMode.Normal
 
-        val appStore = AppStore(initialState = AppState(mode = mode))
-        val browserStore = BrowserStore(
-            BrowserState(
-                tabs = listOf(
-                    createTab("https://www.firefox.com", id = "firefox", private = true),
-                    createTab("https://www.mozilla.org", id = "mozilla"),
-                ),
-                selectedTabId = "mozilla",
-            ),
-        )
-        val storage = createStorage(isFeatureEnabled = isFeatureEnabled)
+        val appStore = createAppStore(mode)
+        val browserStore = createBrowserStore(mixedTabs)
+        val storage = createStorage(isFeatureEnabled)
 
-        createFeature(browserStore = browserStore, appStore = appStore, storage = storage)
-        appStore.waitUntilIdle()
+        createFeature(appStore, browserStore, storage)
 
         assertFalse(appStore.state.isPrivateScreenLocked)
 
         // verify that disabled feature state unlocks private mode
         val sharedPrefUpdate = true
         storage.listener?.invoke(sharedPrefUpdate)
-        appStore.waitUntilIdle()
 
         assertTrue(browserStore.state.privateTabs.isNotEmpty())
         assertTrue(appStore.state.isPrivateScreenLocked)
@@ -657,27 +468,17 @@ class PrivateBrowsingLockFeatureTest {
         val isFeatureEnabled = false
         val mode = BrowsingMode.Private
 
-        val appStore = AppStore(initialState = AppState(mode = mode))
-        val browserStore = BrowserStore(
-            BrowserState(
-                tabs = listOf(
-                    createTab("https://www.firefox.com", id = "firefox", private = true),
-                    createTab("https://www.mozilla.org", id = "mozilla"),
-                ),
-                selectedTabId = "mozilla",
-            ),
-        )
-        val storage = createStorage(isFeatureEnabled = isFeatureEnabled)
+        val appStore = createAppStore(mode)
+        val browserStore = createBrowserStore(mixedTabs)
+        val storage = createStorage(isFeatureEnabled)
 
-        createFeature(browserStore = browserStore, appStore = appStore, storage = storage)
-        appStore.waitUntilIdle()
+        createFeature(appStore, browserStore, storage)
 
         assertFalse(appStore.state.isPrivateScreenLocked)
 
         // verify that disabled feature state unlocks private mode
         val sharedPrefUpdate = true
         storage.listener?.invoke(sharedPrefUpdate)
-        appStore.waitUntilIdle()
 
         assertTrue(browserStore.state.privateTabs.isNotEmpty())
         assertFalse(appStore.state.isPrivateScreenLocked)
@@ -689,33 +490,21 @@ class PrivateBrowsingLockFeatureTest {
         val isFeatureEnabled = true
         val mode = BrowsingMode.Private
 
-        val appStore = AppStore(initialState = AppState(mode = mode, isPrivateScreenLocked = true))
-        val browserStore = BrowserStore(
-            BrowserState(
-                tabs = listOf(
-                    createTab("https://www.firefox.com", id = "firefox", private = true),
-                    createTab("https://www.mozilla.org", id = "mozilla"),
-                ),
-                selectedTabId = "mozilla",
-            ),
-        )
-        val storage = createStorage(isFeatureEnabled = isFeatureEnabled)
+        val appStore = createAppStore(mode, isPrivateScreenLocked = true)
+        val browserStore = createBrowserStore(mixedTabs)
 
-        createFeature(browserStore = browserStore, appStore = appStore, storage = storage)
-        appStore.waitUntilIdle()
+        createFeature(appStore, browserStore, createStorage(isFeatureEnabled))
 
         assertTrue(appStore.state.isPrivateScreenLocked)
 
         // imitate user passing auth
-        appStore.dispatch(AppAction.PrivateBrowsingLockAction.UpdatePrivateBrowsingLock(isLocked = false)).joinBlocking()
-        appStore.waitUntilIdle()
+        appStore.dispatch(AppAction.PrivateBrowsingLockAction.UpdatePrivateBrowsingLock(isLocked = false))
 
         assertTrue(appStore.state.mode == BrowsingMode.Private)
         assertFalse(appStore.state.isPrivateScreenLocked)
 
         // verify that going to normal mode doesn't lock private mode
-        appStore.dispatch(AppAction.BrowsingModeManagerModeChanged(mode = BrowsingMode.Normal)).joinBlocking()
-        appStore.waitUntilIdle()
+        appStore.dispatch(AppAction.BrowsingModeManagerModeChanged(mode = BrowsingMode.Normal))
 
         assertTrue(appStore.state.mode == BrowsingMode.Normal)
         assertFalse(appStore.state.isPrivateScreenLocked)
@@ -763,7 +552,25 @@ class PrivateBrowsingLockFeatureTest {
         appStore = appStore,
         browserStore = browserStore,
         storage = storage,
+        mainDispatcher = testDispatcher,
     )
 
     private fun createStorage(isFeatureEnabled: Boolean = true) = MockedPrivateBrowsingLockStorage(isFeatureEnabled)
+
+    private fun createBrowserStore(tabs: List<TabSessionState>) = BrowserStore(
+        BrowserState(
+            tabs = tabs,
+            selectedTabId = "mozilla",
+        ),
+    )
+
+    private fun createAppStore(
+        mode: BrowsingMode,
+        isPrivateScreenLocked: Boolean = false,
+    ) = AppStore(
+        initialState = AppState(
+            mode = mode,
+            isPrivateScreenLocked = isPrivateScreenLocked,
+        ),
+    )
 }

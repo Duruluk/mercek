@@ -43,10 +43,11 @@ class PropertyTest : public ::testing::TestWithParam<ParamType> {
   static UniquePtr<VideoInfo> sAVCInfo;
   static UniquePtr<VideoInfo> sVP9Info;
 };
-MOZ_RUNINIT RefPtr<PDMFactory> PropertyTest::sFactory;
-MOZ_RUNINIT RefPtr<TaskQueue> PropertyTest::sTaskQueue;
-MOZ_RUNINIT UniquePtr<VideoInfo> PropertyTest::sAVCInfo;
-MOZ_RUNINIT UniquePtr<VideoInfo> PropertyTest::sVP9Info;
+
+constinit RefPtr<PDMFactory> PropertyTest::sFactory;
+constinit RefPtr<TaskQueue> PropertyTest::sTaskQueue;
+constinit UniquePtr<VideoInfo> PropertyTest::sAVCInfo;
+constinit UniquePtr<VideoInfo> PropertyTest::sVP9Info;
 
 void CheckEquals(VideoInfo& aVideoInfo, MDD::PropertyName aPropertyName,
                  const Maybe<MDD::PropertyValue>&& aExpectedValue,

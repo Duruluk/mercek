@@ -325,11 +325,11 @@ fn fill_screen(exposed: &hal::ExposedAdapter<hal::api::Gles>, width: u32, height
             },
             depth_slice: None,
             resolve_target: None,
-            ops: hal::AttachmentOps::STORE,
+            ops: hal::AttachmentOps::STORE | hal::AttachmentOps::LOAD_CLEAR,
             clear_value: wgpu_types::Color::BLUE,
         })],
         depth_stencil_attachment: None,
-        multiview: None,
+        multiview_mask: None,
         timestamp_writes: None,
         occlusion_query_set: None,
     };

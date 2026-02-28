@@ -7,7 +7,7 @@
 
 newtab-page-title = Ischeda noa
 newtab-settings-button =
-    .title = Personaliza sa pàgina de s'ischeda noa
+    .title = Personaliza sa pàgina de s’ischeda noa
 newtab-customize-panel-icon-button =
     .title = Personaliza custa pàgina
 newtab-customize-panel-icon-button-label = Personaliza
@@ -17,8 +17,8 @@ newtab-personalize-settings-icon-label =
 newtab-settings-dialog-label =
     .aria-label = Cunfiguratzione
 newtab-personalize-icon-label =
-    .title = Personaliza s'ischeda noa
-    .aria-label = Personaliza s'ischeda noa
+    .title = Personaliza s’ischeda noa
+    .aria-label = Personaliza s’ischeda noa
 newtab-personalize-dialog-label =
     .aria-label = Personaliza
 newtab-logo-and-wordmark =
@@ -155,7 +155,7 @@ newtab-privacy-modal-paragraph-2 =
     Paris a su de t'ammustrare istòrias geniosas, t'ammustramus fintzas cuntenutos rilevantes e curados in manera primorosa,
     dae is patrotzinadores nostros. Non ti preocupes, <strong>sa cronologia tua non lassat mai sa còpia personale tua de { -brand-product-name }</strong>: no dda bidimus, e no dda bident
     nemmancu is patrotzinadores nostros.
-newtab-privacy-modal-link = Impara comente funtzionat sa riservadesa in s'ischeda noa
+newtab-privacy-modal-link = Impara comente funtzionat sa riservadesa in s’ischeda noa
 
 ##
 
@@ -328,18 +328,16 @@ newtab-custom-recent-subtitle = Una seletzione de sitos e cuntenutos reghentes
 newtab-custom-weather-toggle =
     .label = Tempus
     .description = Is previsiones de oe in curtzu
-newtab-custom-trending-search-toggle =
-    .label = Chircas populares
-    .description = Argumentos populares e chircados a s’ispissu
 newtab-custom-widget-weather-toggle =
     .label = Tempus
-newtab-custom-widget-trending-search-toggle =
-    .label = Chircas populares
 newtab-custom-widget-lists-toggle =
     .label = Listas
 newtab-custom-widget-timer-toggle =
     .label = Temporizadore
 newtab-custom-widget-section-title = Widgets
+newtab-custom-widget-section-toggle =
+    .label = Widgets
+newtab-widget-manage-title = Widgets
 # Tooltip for close button
 newtab-custom-close-menu-button =
     .title = Serra
@@ -406,7 +404,7 @@ newtab-wallpaper-abstract-purple-green = Isfumadura de lughe tanada e birde
 newtab-wallpaper-abstract-blue-purple-waves = Formas a undas biaitas e tanadas
 newtab-wallpaper-abstract-black-waves = Formas a undas nieddas
 
-## Celestial
+## Firefox
 
 newtab-wallpaper-category-title-photographs = Fotografias
 newtab-wallpaper-beach-at-sunrise = Ispiàgia in s'arbeschidòrgiu
@@ -426,7 +424,7 @@ newtab-wallpaper-blue-flowers = Fotografia ammanniada de frores iscuguddados a f
 #   $webpage_string (String) - The name of the webpage where the photo is located.
 newtab-wallpaper-attribution = Fotografia de <a data-l10n-name="name-link">{ $author_string }</a> subra <a data-l10n-name="webpage-link">{ $webpage_string }</a>
 newtab-wallpaper-feature-highlight-header = Proa un’istrichiddu de colore
-newtab-wallpaper-feature-highlight-content = Dona a s'ischeda noa una bisura frisca cun isfundos.
+newtab-wallpaper-feature-highlight-content = Dona a s’ischeda noa una bisura frisca cun isfundos.
 newtab-wallpaper-feature-highlight-button = Apo cumprèndidu
 # Tooltip for dismiss button
 feature-highlight-dismiss-button =
@@ -435,6 +433,10 @@ feature-highlight-dismiss-button =
 feature-highlight-wallpaper =
     .title = { -newtab-wallpaper-feature-highlight-header }
     .aria-label = { -newtab-wallpaper-feature-highlight-content }
+
+## Firefox
+
+newtab-wallpaper-category-title-firefox = { -brand-product-name }
 
 ## Celestial
 
@@ -477,8 +479,21 @@ newtab-weather-menu-change-temperature-units-fahrenheit = Passa a Fahrenheit
 newtab-weather-menu-change-temperature-units-celsius = Passa a Celsius
 newtab-weather-menu-hide-weather = Cua su tempus in s’ischeda noa
 newtab-weather-menu-learn-more = Àteras informatziones
+newtab-weather-menu-detect-my-location = Rileva sa positzione mia
 # This message is shown if user is working offline
 newtab-weather-error-not-available = Is datos de su tempus non sunt a disponimentu immoe.
+newtab-weather-opt-in-see-weather = Boles bìdere su tempus in sa positzione tua?
+newtab-weather-opt-in-not-now =
+    .label = Immoe nono
+newtab-weather-opt-in-yes =
+    .label = Eja
+# We'll be showing static (fake) weather data if the user has not opted in to using their location
+newtab-weather-static-city = New York
+# Variables:
+#   $provider (string) - Service provider for weather data
+newtab-weather-see-forecast-description =
+    .title = Càstia is previsiones in { $provider }
+    .aria-description = { $provider } ∙ Patrotzinadu
 
 ## Topic Labels
 
@@ -583,7 +598,7 @@ newtab-download-mobile-highlight-image =
 newtab-shortcuts-highlight-title = Is preferidos tuos a unu clic
 newtab-shortcuts-highlight-subtitle = Agiunghe unu curtzadòrgiu pro mantènnere is sitos preferidos tuos a unu clic isceti.
 
-## Strings for reporting ads and content
+## Strings for reporting issues with ads and content
 
 newtab-report-content-why-reporting-this =
     .label = Pro ite ses sinnalende custu?
@@ -605,17 +620,6 @@ newtab-report-cancel = Annulla
 newtab-report-submit = Imbia
 newtab-toast-thanks-for-reporting =
     .message = Gràtzias de sa sinnalatzione.
-
-## Strings for trending searches
-
-newtab-trending-searches-show-trending =
-    .title = Ammustra is chircas populares
-newtab-trending-searches-hide-trending =
-    .title = Cua is chircas populares
-newtab-trending-searches-learn-more = Àteras informatziones
-newtab-trending-searches-dismiss = Cua is chircas populares
-# "Trending searches refers to popular searches from search engines
-newtab-trending-searches-title = Chircas populares
 
 ## Strings for task / to-do list productivity widget
 
@@ -645,6 +649,9 @@ newtab-widget-lists-input-menu-move-up = Move in artu
 newtab-widget-lists-input-menu-move-down = Move in bàsciu
 newtab-widget-lists-input-menu-delete = Cantzella
 newtab-widget-lists-input-menu-edit = Modifica
+# the + symbol emphasises the functionality of adding a new list
+newtab-widget-lists-dropdown-create =
+    .label = + Crea una lista noa
 newtab-widget-lists-name-label-default =
     .label = Lista de tareas
 newtab-widget-lists-name-placeholder-default =
@@ -664,10 +671,6 @@ newtab-widget-timer-mode-focus =
     .label = Cuntzentratzione
 newtab-widget-timer-mode-break =
     .label = Pàusa
-newtab-widget-timer-play =
-    .title = Avia
-newtab-widget-timer-pause =
-    .title = Pàusa
 newtab-widget-timer-label-play =
     .label = Avia
 newtab-widget-timer-label-pause =
@@ -678,8 +681,6 @@ newtab-widget-timer-menu-notifications = Disativa is notìficas
 newtab-widget-timer-menu-notifications-on = Ativa is notìficas
 newtab-widget-timer-menu-hide = Cua su temporizadore
 newtab-widget-timer-menu-learn-more = Àteras informatziones
-# Message that appears when widgets are full-height. This reminds users that there is more New Tab content to see if they scroll
-newtab-widget-keep-scrolling = Iscurre pro àteros cuntenutos
 newtab-widget-message-title = Mantene sa cuntzentratzione cun listas e cun unu temporizadore integradu
 # to-dos stands for "things to do".
 newtab-widget-message-copy = Dae is promemòrias lestros a is fainas de ònnia die, dae is sessiones de cuntzentratzione a cussas de pasada: mantene s’atentzione e rispeta is oràrios.

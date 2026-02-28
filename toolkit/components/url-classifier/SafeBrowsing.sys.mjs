@@ -92,6 +92,21 @@ const FEATURES = [
     },
   },
   {
+    name: "globalCache",
+    list: ["urlclassifier.globalCacheTable"],
+    enabled() {
+      return Services.prefs.getBoolPref(
+        "browser.safebrowsing.globalCache.enabled"
+      );
+    },
+    update() {
+      return Services.prefs.getBoolPref(
+        "browser.safebrowsing.features.globalCache.update",
+        this.enabled()
+      );
+    },
+  },
+  {
     name: "trackingAnnotation",
     list: [
       "urlclassifier.trackingAnnotationTable",
@@ -310,6 +325,25 @@ const FEATURES = [
     update() {
       return Services.prefs.getBoolPref(
         "browser.safebrowsing.features.antifraud.annotate.update",
+        this.enabled()
+      );
+    },
+  },
+  {
+    name: "harmfuladdon-protection",
+    list: [
+      "urlclassifier.features.harmfuladdon.blocklistTables",
+      "urlclassifier.features.harmfuladdon.entitylistTables",
+    ],
+    enabled() {
+      return Services.prefs.getBoolPref(
+        "privacy.trackingprotection.harmfuladdon.enabled",
+        false
+      );
+    },
+    update() {
+      return Services.prefs.getBoolPref(
+        "browser.safebrowsing.features.harmfuladdon.update",
         this.enabled()
       );
     },

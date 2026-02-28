@@ -21,6 +21,8 @@
 #include "api/scoped_refptr.h"
 #include "api/units/time_delta.h"
 #include "api/units/timestamp.h"
+#include "api/video/color_space.h"
+#include "api/video/corruption_detection/frame_instrumentation_data.h"
 #include "api/video/encoded_frame.h"
 #include "api/video/i420_buffer.h"
 #include "api/video/video_codec_type.h"
@@ -29,7 +31,6 @@
 #include "api/video/video_frame_type.h"
 #include "api/video/video_timing.h"
 #include "api/video_codecs/video_decoder.h"
-#include "common_video/frame_instrumentation_data.h"
 #include "common_video/include/corruption_score_calculator.h"
 #include "common_video/test/utilities.h"
 #include "modules/video_coding/include/video_coding_defines.h"
@@ -220,8 +221,8 @@ TEST_F(GenericDecoderTest, IsLowLatencyStreamActivatedByPlayoutDelay) {
 TEST_F(GenericDecoderTest, CallCalculateCorruptionScoreInDecoded) {
   constexpr uint32_t kRtpTimestamp = 1;
   FrameInfo frame_info;
-  frame_info.frame_instrumentation_data =
-      FrameInstrumentationData{.sequence_index = 1};
+  frame_info.frame_instrumentation_data.emplace();
+  frame_info.frame_instrumentation_data->SetSequenceIndex(1);
   frame_info.rtp_timestamp = kRtpTimestamp;
   frame_info.decode_start = Timestamp::Zero();
   frame_info.content_type = VideoContentType::SCREENSHARE;
@@ -235,9 +236,69 @@ TEST_F(GenericDecoderTest, CallCalculateCorruptionScoreInDecoded) {
   EXPECT_CALL(corruption_score_calculator_,
               CalculateCorruptionScore(
                   Property(&VideoFrame::rtp_timestamp, Eq(kRtpTimestamp)),
-                  Field(&FrameInstrumentationData::sequence_index, Eq(1)),
+                  Property(&FrameInstrumentationData::sequence_index, Eq(1)),
                   VideoContentType::SCREENSHARE));
   vcm_callback_.Decoded(video_frame);
+}
+
+TEST_F(GenericDecoderTest, UsesMappedColorSpaceIfSet) {
+  constexpr uint32_t kRtpTimestamp = 1;
+  const ColorSpace kMappedColorSpace(webrtc::ColorSpace::PrimaryID::kSMPTE240M,
+                                     webrtc::ColorSpace::TransferID::kSMPTE240M,
+                                     webrtc::ColorSpace::MatrixID::kSMPTE240M,
+                                     webrtc::ColorSpace::RangeID::kLimited);
+  const ColorSpace kDecoderColorSpace(
+      webrtc::ColorSpace::PrimaryID::kBT2020,
+      webrtc::ColorSpace::TransferID::kBT2020_10,
+      webrtc::ColorSpace::MatrixID::kBT2020_CL,
+      webrtc::ColorSpace::RangeID::kFull);
+
+  FrameInfo frame_info;
+  frame_info.rtp_timestamp = kRtpTimestamp;
+  frame_info.decode_start = Timestamp::Zero();
+  frame_info.content_type = VideoContentType::UNSPECIFIED;
+  frame_info.frame_type = VideoFrameType::kVideoFrameKey;
+  frame_info.color_space = kMappedColorSpace;
+
+  VideoFrame video_frame = VideoFrame::Builder()
+                               .set_video_frame_buffer(I420Buffer::Create(5, 5))
+                               .set_rtp_timestamp(kRtpTimestamp)
+                               .set_color_space(kDecoderColorSpace)
+                               .build();
+  vcm_callback_.Map(std::move(frame_info));
+  vcm_callback_.Decoded(video_frame);
+
+  std::optional<VideoFrame> decoded_frame = user_callback_.PopLastFrame();
+  ASSERT_TRUE(decoded_frame.has_value());
+  EXPECT_EQ(decoded_frame->color_space(), kMappedColorSpace);
+}
+
+TEST_F(GenericDecoderTest, UsesDecoderColorSpaceIfNoneMapped) {
+  constexpr uint32_t kRtpTimestamp = 1;
+  const ColorSpace kDecoderColorSpace(
+      webrtc::ColorSpace::PrimaryID::kBT2020,
+      webrtc::ColorSpace::TransferID::kBT2020_10,
+      webrtc::ColorSpace::MatrixID::kBT2020_CL,
+      webrtc::ColorSpace::RangeID::kFull);
+
+  FrameInfo frame_info;
+  frame_info.rtp_timestamp = kRtpTimestamp;
+  frame_info.decode_start = Timestamp::Zero();
+  frame_info.content_type = VideoContentType::UNSPECIFIED;
+  frame_info.frame_type = VideoFrameType::kVideoFrameKey;
+  frame_info.color_space = std::nullopt;
+
+  VideoFrame video_frame = VideoFrame::Builder()
+                               .set_video_frame_buffer(I420Buffer::Create(5, 5))
+                               .set_rtp_timestamp(kRtpTimestamp)
+                               .set_color_space(kDecoderColorSpace)
+                               .build();
+  vcm_callback_.Map(std::move(frame_info));
+  vcm_callback_.Decoded(video_frame);
+
+  std::optional<VideoFrame> decoded_frame = user_callback_.PopLastFrame();
+  ASSERT_TRUE(decoded_frame.has_value());
+  EXPECT_EQ(decoded_frame->color_space(), kDecoderColorSpace);
 }
 
 }  // namespace video_coding

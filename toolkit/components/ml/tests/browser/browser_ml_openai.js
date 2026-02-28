@@ -251,3 +251,122 @@ add_task(async function test_openai_client_tools_streaming() {
     await stopMockOpenAI(mockServer);
   }
 });
+
+/**
+ * Test that fxAccountToken is properly passed to the OpenAI client
+ */
+add_task(async function test_openai_fxaccount_token() {
+  const records = [
+    {
+      ...BASE_ENGINE_OPTIONS,
+      id: "74a71cfd-1734-44e6-85c0-69cf3e874138",
+    },
+  ];
+  const { cleanup } = await setup({ records });
+
+  // Mock server that checks for fxAccount token in headers
+  let capturedFxaHeader = null;
+  let capturedServiceTypeHeader = null;
+  const { server: mockServer, port } = startMockOpenAI({
+    echo: "Response with FxA token",
+    onRequest: req => {
+      try {
+        if (req.hasHeader("authorization")) {
+          capturedFxaHeader = req.getHeader("authorization");
+        }
+        if (req.hasHeader("service-type")) {
+          capturedServiceTypeHeader = req.getHeader("service-type");
+        }
+      } catch (e) {
+        info("Failed to get header: " + e);
+      }
+    },
+  });
+
+  const fxAccountToken = "test_fxa_token_12345";
+  const apiKey = "test-api-key";
+
+  const engineInstance = await createEngine({
+    ...BASE_ENGINE_OPTIONS,
+    apiKey,
+    baseURL: `http://localhost:${port}/v1`,
+    backend: "openai",
+  });
+
+  const request = {
+    args: [
+      {
+        role: "user",
+        content: "Test request with FxA token",
+      },
+    ],
+    fxAccountToken,
+  };
+
+  try {
+    info("Run the inference with fxAccountToken");
+    const result = await engineInstance.run(request);
+
+    Assert.equal(
+      result.finalOutput,
+      "This is a mock summary for testing end-to-end flow.",
+      "Should get expected response"
+    );
+
+    // Verify that the FxA token was sent in the request headers
+    const expectedValue = `Bearer ${apiKey}`;
+
+    Assert.equal(
+      capturedFxaHeader,
+      expectedValue,
+      `FxA token should be included in request headers. Expected: ${expectedValue}, Got: ${capturedFxaHeader}`
+    );
+
+    Assert.equal(
+      capturedServiceTypeHeader,
+      "ai",
+      "service-type header should be 'ai' when FxA token is provided"
+    );
+
+    info("Test without fxAccountToken - should not include header");
+
+    // Create another engine without fxAccountToken
+    const engineWithoutToken = await createEngine({
+      ...BASE_ENGINE_OPTIONS,
+      apiKey: "test-api-key",
+      baseURL: `http://localhost:${port}/v1`,
+      backend: "openai",
+      // No fxAccountToken
+    });
+
+    capturedFxaHeader = null;
+    capturedServiceTypeHeader = null;
+    const requestWithoutToken = {
+      args: [
+        {
+          role: "user",
+          content: "Test request with FxA token",
+        },
+      ],
+      // No fxAccountToken
+    };
+    await engineWithoutToken.run(requestWithoutToken);
+
+    // Verify Authorization header is the API key when no FxA token is provided
+    Assert.equal(
+      capturedFxaHeader,
+      "Bearer test-api-key",
+      "Authorization should fall back to API key when no FxA token is provided"
+    );
+
+    Assert.equal(
+      capturedServiceTypeHeader,
+      "ai",
+      "service-type header should be present"
+    );
+  } finally {
+    await EngineProcess.destroyMLEngine();
+    await cleanup();
+    await stopMockOpenAI(mockServer);
+  }
+});

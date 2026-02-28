@@ -1,15 +1,16 @@
 package org.mozilla.fenix.ui
 
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
+import androidx.test.espresso.Espresso.closeSoftKeyboard
 import org.junit.Rule
 import org.junit.Test
-import org.mozilla.fenix.R
-import org.mozilla.fenix.customannotations.SmokeTest
 import org.mozilla.fenix.helpers.DataGenerationHelper.getStringResource
 import org.mozilla.fenix.helpers.HomeActivityTestRule
 import org.mozilla.fenix.helpers.MatcherHelper
 import org.mozilla.fenix.helpers.MatcherHelper.itemContainingText
-import org.mozilla.fenix.helpers.TestAssetHelper
+import org.mozilla.fenix.helpers.TestAssetHelper.getGenericAsset
+import org.mozilla.fenix.helpers.TestAssetHelper.promptAsset
+import org.mozilla.fenix.helpers.TestHelper.waitForAppWindowToBeUpdated
 import org.mozilla.fenix.helpers.TestSetup
 import org.mozilla.fenix.helpers.perf.DetectMemoryLeaksRule
 import org.mozilla.fenix.ui.robots.clickPageObject
@@ -35,16 +36,18 @@ class PromptTest : TestSetup() {
 
     @Test
     fun verifyBeforeUnloadPrompt() {
-        val defaultWebPage = TestAssetHelper.getGenericAsset(mockWebServer, 1)
-        val promptWebPage = TestAssetHelper.getPromptAsset(mockWebServer)
+        val defaultWebPage = mockWebServer.getGenericAsset(1)
+        val promptWebPage = mockWebServer.promptAsset
 
-        navigationToolbar {
+        navigationToolbar(composeTestRule) {
         }.enterURLAndEnterToBrowser(promptWebPage.url) {
-            clickPageObject(MatcherHelper.itemWithResId("nameInput"))
+            clickPageObject(composeTestRule, MatcherHelper.itemWithResId("nameInput"))
         }
 
-        navigationToolbar {
-        }.enterURL(defaultWebPage.url) {
+        navigationToolbar(composeTestRule) {
+            closeSoftKeyboard()
+            waitForAppWindowToBeUpdated()
+        }.enterURLAndEnterToBrowser(defaultWebPage.url) {
             verifyBeforeUnloadPromptExists()
         }
     }

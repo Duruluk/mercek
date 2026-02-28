@@ -20,6 +20,11 @@ data object TermsOfUsePromptState : State
 sealed interface TermsOfUsePromptAction : Action {
 
     /**
+     * Triggered when the prompt is created.
+     */
+    data object OnPromptCreated : TermsOfUsePromptAction
+
+    /**
      * Triggered when the prompt has been displayed.
      *
      * @property surface The [Surface] that the prompt was displayed on.
@@ -79,9 +84,10 @@ sealed interface TermsOfUsePromptAction : Action {
  * A [Store] that holds the [TermsOfUsePromptState].
  */
 class TermsOfUsePromptStore(
+    initialState: TermsOfUsePromptState = TermsOfUsePromptState,
     middleware: List<Middleware<TermsOfUsePromptState, TermsOfUsePromptAction>>,
 ) : Store<TermsOfUsePromptState, TermsOfUsePromptAction>(
-    initialState = TermsOfUsePromptState,
+    initialState = initialState,
     reducer = { _, _ -> TermsOfUsePromptState },
     middleware = middleware,
 )

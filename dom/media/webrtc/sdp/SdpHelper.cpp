@@ -6,8 +6,6 @@
 
 #include "sdp/SdpHelper.h"
 
-#include <string.h>
-
 #include <set>
 
 #include "nsDebug.h"
@@ -433,7 +431,7 @@ nsresult SdpHelper::GetMsids(const SdpMediaSection& msection,
     auto& ssrcs = msection.GetAttributeList().GetSsrc().mSsrcs;
 
     for (auto i = ssrcs.begin(); i != ssrcs.end(); ++i) {
-      if (i->attribute.find("msid:") == 0) {
+      if (i->attribute.starts_with("msid:")) {
         std::string streamId;
         std::string trackId;
         nsresult rv = ParseMsid(i->attribute, &streamId, &trackId);
@@ -497,7 +495,7 @@ std::string SdpHelper::GetCNAME(const SdpMediaSection& msection) const {
   if (msection.GetAttributeList().HasAttribute(SdpAttribute::kSsrcAttribute)) {
     auto& ssrcs = msection.GetAttributeList().GetSsrc().mSsrcs;
     for (auto i = ssrcs.begin(); i != ssrcs.end(); ++i) {
-      if (i->attribute.find("cname:") == 0) {
+      if (i->attribute.starts_with("cname:")) {
         return i->attribute.substr(6);
       }
     }

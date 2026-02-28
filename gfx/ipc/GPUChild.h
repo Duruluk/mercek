@@ -33,7 +33,8 @@ class GPUChild final : public mozilla::ipc::CrashReporterHelper<GPUChild>,
 
   explicit GPUChild(GPUProcessHost* aHost);
 
-  void Init();
+  using InitPromiseType = MozPromise<Ok, Ok, true>;
+  RefPtr<InitPromiseType> Init();
 
   bool IsGPUReady() const { return mGPUReady; }
 
@@ -58,7 +59,6 @@ class GPUChild final : public mozilla::ipc::CrashReporterHelper<GPUChild>,
   void OnVarChanged(const nsTArray<GfxVarUpdate>& aVar) override;
 
   // PGPUChild overrides.
-  mozilla::ipc::IPCResult RecvInitComplete(const GPUDeviceData& aData);
   mozilla::ipc::IPCResult RecvDeclareStable();
   mozilla::ipc::IPCResult RecvReportCheckerboard(const uint32_t& aSeverity,
                                                  const nsCString& aLog);
@@ -97,6 +97,7 @@ class GPUChild final : public mozilla::ipc::CrashReporterHelper<GPUChild>,
   mozilla::ipc::IPCResult RecvUpdateMediaCodecsSupported(
       const media::MediaCodecsSupported& aSupported);
   mozilla::ipc::IPCResult RecvFOGData(ByteBuf&& aBuf);
+  mozilla::ipc::IPCResult RecvReportGLStrings(GfxInfoGLStrings&& aStrings);
 
   bool SendRequestMemoryReport(const uint32_t& aGeneration,
                                const bool& aAnonymize,
@@ -107,6 +108,8 @@ class GPUChild final : public mozilla::ipc::CrashReporterHelper<GPUChild>,
 
  private:
   virtual ~GPUChild();
+
+  void OnInitComplete(const GPUDeviceData& aData);
 
   GPUProcessHost* mHost;
   UniquePtr<MemoryReportRequestHost> mMemoryReportRequest;

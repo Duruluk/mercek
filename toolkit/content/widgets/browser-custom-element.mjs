@@ -405,6 +405,15 @@ export class MozBrowser extends MozElements.MozElementMixin(XULFrameElement) {
     this.construct();
   }
 
+  connectedMoveCallback() {
+    // No-op: Allows callers to move <browser> element in the DOM tree
+    // without destruct() + construct(). This here is merely an optimization.
+    //
+    // For the content to be available (and not unexpectedly destroyed),
+    // XULFrameElement::BindToTree and XULFrameElement::UnbindToTree skips
+    // frame loader construction/reconstruction on move (bug 2007742).
+  }
+
   disconnectedCallback() {
     this.destroy();
   }
@@ -1845,29 +1854,28 @@ export class MozBrowser extends MozElements.MozElementMixin(XULFrameElement) {
   /**
    * Gets a screenshot of this browser as an ImageBitmap.
    *
-   * @param {Number} x
+   * @param {number} x
    *   The x coordinate of the region from the underlying document to capture
    *   as a screenshot. This is ignored if fullViewport is true.
-   * @param {Number} y
+   * @param {number} y
    *   The y coordinate of the region from the underlying document to capture
    *   as a screenshot. This is ignored if fullViewport is true.
-   * @param {Number} w
+   * @param {number} w
    *   The width of the region from the underlying document to capture as a
    *   screenshot. This is ignored if fullViewport is true.
-   * @param {Number} h
+   * @param {number} h
    *   The height of the region from the underlying document to capture as a
    *   screenshot. This is ignored if fullViewport is true.
-   * @param {Number} scale
+   * @param {number} scale
    *   The scale factor for the captured screenshot. See the documentation for
    *   WindowGlobalParent.drawSnapshot for more detail.
-   * @param {String} backgroundColor
+   * @param {string} backgroundColor
    *   The default background color for the captured screenshot. See the
    *   documentation for WindowGlobalParent.drawSnapshot for more detail.
    * @param {boolean|undefined} fullViewport
    *   True if the viewport rect should be captured. If this is true, the
    *   x, y, w and h parameters are ignored. Defaults to false.
-   * @returns {Promise}
-   * @resolves {ImageBitmap}
+   * @returns {Promise<ImageBitmap>}
    */
   async drawSnapshot(x, y, w, h, scale, backgroundColor, fullViewport = false) {
     let rect = fullViewport ? null : new DOMRect(x, y, w, h);

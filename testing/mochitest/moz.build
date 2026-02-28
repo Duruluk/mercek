@@ -34,6 +34,7 @@ FINAL_TARGET_FILES.content += [
     "redirect.html",
     "server.js",
     "shutdown-leaks-collector.js",
+    "ShutdownLeakPathFinder.sys.mjs",
     "ShutdownLeaksCollector.sys.mjs",
 ]
 
@@ -117,6 +118,7 @@ TEST_HARNESS_FILES.testing.mochitest += [
     "runjunit.py",
     "runtests.py",
     "runtestsremote.py",
+    "runtestsremoteios.py",
     "server.js",
     "start_desktop.js",
 ]

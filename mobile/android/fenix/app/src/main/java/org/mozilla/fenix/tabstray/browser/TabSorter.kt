@@ -10,8 +10,8 @@ import mozilla.components.browser.state.state.isActive
 import mozilla.components.browser.tabstray.TabsTray
 import mozilla.components.feature.tabs.tabstray.TabsFeature
 import org.mozilla.fenix.ext.maxActiveTime
-import org.mozilla.fenix.tabstray.TabsTrayAction
-import org.mozilla.fenix.tabstray.TabsTrayStore
+import org.mozilla.fenix.tabstray.redux.action.TabsTrayAction
+import org.mozilla.fenix.tabstray.redux.store.TabsTrayStore
 import org.mozilla.fenix.utils.Settings
 
 /**

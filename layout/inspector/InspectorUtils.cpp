@@ -6,6 +6,7 @@
 
 #include "mozilla/dom/InspectorUtils.h"
 
+#include "AnchorPositioningUtils.h"
 #include "ChildIterator.h"
 #include "Units.h"
 #include "gfxTextRun.h"
@@ -54,6 +55,7 @@
 #include "nsGlobalWindowInner.h"
 #include "nsGridContainerFrame.h"
 #include "nsIContentInlines.h"
+#include "nsIFrameInlines.h"
 #include "nsLayoutUtils.h"
 #include "nsNameSpaceManager.h"
 #include "nsPresContext.h"
@@ -245,6 +247,9 @@ void InspectorUtils::GetChildrenForNode(nsINode& aNode,
     }
   }
   nsIContent* parent = aNode.AsContent();
+  if (auto* node = nsLayoutUtils::GetBackdropPseudo(parent)) {
+    aResult.AppendElement(node);
+  }
   if (auto* node = nsLayoutUtils::GetMarkerPseudo(parent)) {
     aResult.AppendElement(node);
   }
@@ -286,8 +291,11 @@ class ReadOnlyInspectorDeclaration final : public nsDOMCSSDeclaration {
   void GetPropertyValue(const nsACString& aPropName, nsACString& aValue) final {
     Servo_DeclarationBlock_GetPropertyValue(mRaw, &aPropName, &aValue);
   }
-  void GetPropertyValue(nsCSSPropertyID aId, nsACString& aValue) final {
-    Servo_DeclarationBlock_GetPropertyValueById(mRaw, aId, &aValue);
+  void GetPropertyValue(NonCustomCSSPropertyId aId, nsACString& aValue) final {
+    Servo_DeclarationBlock_GetPropertyValueByNonCustomId(mRaw, aId, &aValue);
+  }
+  bool HasLonghandProperty(const nsACString& aPropName) final {
+    return Servo_DeclarationBlock_HasLonghandProperty(mRaw, &aPropName);
   }
   void IndexedGetter(uint32_t aIndex, bool& aFound,
                      nsACString& aPropName) final {
@@ -302,7 +310,7 @@ class ReadOnlyInspectorDeclaration final : public nsDOMCSSDeclaration {
                    ErrorResult& aRv) final {
     aRv.ThrowInvalidModificationError("Can't mutate this declaration");
   }
-  void SetPropertyValue(nsCSSPropertyID aId, const nsACString& aValue,
+  void SetPropertyValue(NonCustomCSSPropertyId aId, const nsACString& aValue,
                         nsIPrincipal* aSubjectPrincipal,
                         ErrorResult& aRv) final {
     aRv.ThrowInvalidModificationError("Can't mutate this declaration");
@@ -446,8 +454,7 @@ void InspectorUtils::GetMatchingCSSRules(
     GlobalObject& aGlobalObject, Element& aElement, const nsAString& aPseudo,
     bool aIncludeVisitedStyle, bool aWithStartingStyle,
     nsTArray<OwningCSSRuleOrInspectorDeclaration>& aResult) {
-  auto pseudo = nsCSSPseudoElements::ParsePseudoElement(
-      aPseudo, CSSEnabledState::ForAllContent);
+  auto pseudo = PseudoStyleRequest::Parse(aPseudo);
   if (!pseudo) {
     return;
   }
@@ -565,15 +572,16 @@ static uint32_t CollectAtRules(ServoCSSRuleList& aRuleList,
     // so the DevTools team gets notified and can decide if it should be
     // displayed.
     switch (rule->Type()) {
+      case StyleCssRuleType::CustomMedia:
       case StyleCssRuleType::Media:
       case StyleCssRuleType::Supports:
       case StyleCssRuleType::LayerBlock:
+      case StyleCssRuleType::PositionTry:
       case StyleCssRuleType::Property:
       case StyleCssRuleType::Container: {
         (void)aResult.AppendElement(OwningNonNull(*rule), fallible);
         break;
       }
-      case StyleCssRuleType::CustomMedia:
       case StyleCssRuleType::Style:
       case StyleCssRuleType::Import:
       case StyleCssRuleType::Document:
@@ -589,7 +597,6 @@ static uint32_t CollectAtRules(ServoCSSRuleList& aRuleList,
       case StyleCssRuleType::FontPaletteValues:
       case StyleCssRuleType::Scope:
       case StyleCssRuleType::StartingStyle:
-      case StyleCssRuleType::PositionTry:
       case StyleCssRuleType::NestedDeclarations:
         break;
     }
@@ -626,7 +633,7 @@ void InspectorUtils::GetCSSPropertyNames(GlobalObject& aGlobalObject,
                                      : CSSEnabledState::ForAllContent;
 
   auto appendProperty = [enabledState, &aResult](uint32_t prop) {
-    nsCSSPropertyID cssProp = nsCSSPropertyID(prop);
+    NonCustomCSSPropertyId cssProp = NonCustomCSSPropertyId(prop);
     if (nsCSSProps::IsEnabled(cssProp, enabledState)) {
       aResult.AppendElement(
           NS_ConvertASCIItoUTF16(nsCSSProps::GetStringValue(cssProp)));
@@ -635,7 +642,7 @@ void InspectorUtils::GetCSSPropertyNames(GlobalObject& aGlobalObject,
 
   uint32_t prop = 0;
   for (; prop < eCSSProperty_COUNT_no_shorthands; ++prop) {
-    if (!nsCSSProps::PropHasFlags(nsCSSPropertyID(prop),
+    if (!nsCSSProps::PropHasFlags(NonCustomCSSPropertyId(prop),
                                   CSSPropFlags::Inaccessible)) {
       appendProperty(prop);
     }
@@ -659,10 +666,10 @@ void InspectorUtils::GetCSSPropertyNames(GlobalObject& aGlobalObject,
 void InspectorUtils::GetCSSPropertyPrefs(GlobalObject& aGlobalObject,
                                          nsTArray<PropertyPref>& aResult) {
   for (const auto* src = nsCSSProps::kPropertyPrefTable;
-       src->mPropID != eCSSProperty_UNKNOWN; src++) {
+       src->mPropId != eCSSProperty_UNKNOWN; src++) {
     PropertyPref& dest = *aResult.AppendElement();
     dest.mName.Assign(
-        NS_ConvertASCIItoUTF16(nsCSSProps::GetStringValue(src->mPropID)));
+        NS_ConvertASCIItoUTF16(nsCSSProps::GetStringValue(src->mPropId)));
     dest.mPref.AssignASCII(src->mPref);
   }
 }
@@ -672,26 +679,26 @@ void InspectorUtils::GetSubpropertiesForCSSProperty(GlobalObject& aGlobal,
                                                     const nsACString& aProperty,
                                                     nsTArray<nsString>& aResult,
                                                     ErrorResult& aRv) {
-  nsCSSPropertyID propertyID = nsCSSProps::LookupProperty(aProperty);
+  NonCustomCSSPropertyId propertyId = nsCSSProps::LookupProperty(aProperty);
 
-  if (propertyID == eCSSProperty_UNKNOWN) {
+  if (propertyId == eCSSProperty_UNKNOWN) {
     aRv.Throw(NS_ERROR_FAILURE);
     return;
   }
 
-  if (propertyID == eCSSPropertyExtra_variable) {
+  if (propertyId == eCSSPropertyExtra_variable) {
     aResult.AppendElement(NS_ConvertUTF8toUTF16(aProperty));
     return;
   }
 
-  if (!nsCSSProps::IsShorthand(propertyID)) {
+  if (!nsCSSProps::IsShorthand(propertyId)) {
     nsString* name = aResult.AppendElement();
-    CopyASCIItoUTF16(nsCSSProps::GetStringValue(propertyID), *name);
+    CopyASCIItoUTF16(nsCSSProps::GetStringValue(propertyId), *name);
     return;
   }
 
-  for (const nsCSSPropertyID* props =
-           nsCSSProps::SubpropertyEntryFor(propertyID);
+  for (const NonCustomCSSPropertyId* props =
+           nsCSSProps::SubpropertyEntryFor(propertyId);
        *props != eCSSProperty_UNKNOWN; ++props) {
     nsString* name = aResult.AppendElement();
     CopyASCIItoUTF16(nsCSSProps::GetStringValue(*props), *name);
@@ -951,17 +958,17 @@ static ElementState GetStatesForPseudoClass(const nsAString& aStatePseudo) {
 /* static */
 void InspectorUtils::GetCSSPseudoElementNames(GlobalObject& aGlobalObject,
                                               nsTArray<nsString>& aResult) {
-  const auto kPseudoCount =
-      static_cast<size_t>(PseudoStyleType::CSSPseudoElementsEnd);
+  const auto kPseudoCount = static_cast<size_t>(PseudoStyleType::MAX);
   for (size_t i = 0; i < kPseudoCount; ++i) {
     PseudoStyleType type = static_cast<PseudoStyleType>(i);
-    if (!nsCSSPseudoElements::IsEnabled(type, CSSEnabledState::ForAllContent)) {
+    if (type == PseudoStyleType::NotPseudo ||
+        !Servo_PseudoStyleType_EnabledForAllContent(type)) {
       continue;
     }
     auto& string = *aResult.AppendElement();
     // Use two semi-colons (though internally we use one).
     string.Append(u':');
-    nsAtom* atom = nsCSSPseudoElements::GetPseudoAtom(type);
+    const nsStaticAtom* atom = PseudoStyle::GetAtom(type);
     string.Append(nsDependentAtomString(atom));
   }
 }
@@ -1064,12 +1071,6 @@ bool InspectorUtils::IsBlockContainer(GlobalObject&, Element& aElement) {
   if (!frame) {
     return false;
   }
-
-  // For fieldset elements, we need to check the inner frame.
-  if (nsFieldSetFrame* fieldsetFrame = do_QueryFrame(frame)) {
-    frame = fieldsetFrame->GetInner();
-  }
-
   if (frame->IsBlockFrameOrSubclass()) {
     return true;
   }
@@ -1086,7 +1087,6 @@ bool InspectorUtils::IsBlockContainer(GlobalObject&, Element& aElement) {
       return true;
     }
   }
-
   return false;
 }
 
@@ -1381,6 +1381,59 @@ uint16_t InspectorUtils::GetGridContainerType(GlobalObject&,
     result |= InspectorUtils_Binding::GRID_SUBGRID_COL;
   }
   return result;
+}
+
+void InspectorUtils::GetAnchorFor(GlobalObject&, Element& aElement,
+                                  const nsAString& aName,
+                                  Nullable<InspectorAnchorElement>& aResult) {
+  auto* frame = aElement.GetPrimaryFrame(FlushType::Frames);
+  if (!frame || !frame->IsAbsolutelyPositioned()) {
+    return;
+  }
+
+  nsIFrame* anchor = nullptr;
+  RefPtr<nsAtom> name;
+  ScopedNameRef scopedName{nullptr, StyleCascadeLevel::Default()};
+  InspectorAnchorType type = InspectorAnchorType::Explicit;
+  if (aName.IsEmpty()) {
+    // Anchor name, otherwise implicit anchor.
+    const auto& positionAnchor = frame->StylePosition()->mPositionAnchor;
+    if (positionAnchor.value.IsIdent()) {
+      scopedName = {positionAnchor.value.AsIdent().AsAtom(),
+                    positionAnchor.scope};
+    } else {
+      auto implicit = AnchorPositioningUtils::GetAnchorPosImplicitAnchor(frame);
+      anchor = implicit.mAnchorFrame;
+      if (!anchor) {
+        return;
+      }
+      switch (implicit.mKind) {
+        case AnchorPositioningUtils::ImplicitAnchorKind::None:
+          break;
+        case AnchorPositioningUtils::ImplicitAnchorKind::Popover:
+          type = InspectorAnchorType::Popover;
+          break;
+        case AnchorPositioningUtils::ImplicitAnchorKind::PseudoElement:
+          type = InspectorAnchorType::Pseudo_element;
+          break;
+      }
+      auto& result = aResult.SetValue();
+      result.mElement = *anchor->GetContent()->AsElement();
+      result.mType = type;
+      return;
+    }
+  } else {
+    // TODO(emilio): Allow looking up names from other trees.
+    name = NS_Atomize(aName);
+    scopedName = {name, StyleCascadeLevel::Default()};
+  }
+  anchor = frame->PresShell()->GetAnchorPosAnchor(scopedName, frame);
+  if (!anchor) {
+    return;
+  }
+  auto& result = aResult.SetValue();
+  result.mElement = *anchor->GetContent()->AsElement();
+  result.mType = type;
 }
 
 }  // namespace mozilla::dom

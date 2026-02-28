@@ -1,5 +1,9 @@
 "use strict";
 
+const { AWScreenUtils } = ChromeUtils.importESModule(
+  "resource:///modules/aboutwelcome/AWScreenUtils.sys.mjs"
+);
+
 const TEST_DEFAULT_CONTENT = [
   {
     id: "AW_STEP1",
@@ -89,6 +93,12 @@ add_task(async function test_aboutwelcome_mr_template_easy_setup_default() {
     ["browser.shell.checkDefaultBrowser", true],
     ["messaging-system-action.showEmbeddedImport", false]
   );
+  // Prevent Smart Window screens from rendering
+  sandbox
+    .stub(AWScreenUtils, "evaluateScreenTargeting")
+    .callThrough()
+    .withArgs(sinon.match(/smart_window/))
+    .resolves(false);
   sandbox.stub(ShellService, "doesAppNeedPin").returns(true);
   sandbox.stub(ShellService, "isDefaultBrowser").returns(false);
 
@@ -125,6 +135,12 @@ add_task(async function test_aboutwelcome_mr_template_easy_setup_needs_pin() {
     ["browser.shell.checkDefaultBrowser", true],
     ["messaging-system-action.showEmbeddedImport", false]
   );
+  // Prevent Smart Window screens from rendering
+  sandbox
+    .stub(AWScreenUtils, "evaluateScreenTargeting")
+    .callThrough()
+    .withArgs(sinon.match(/smart_window/))
+    .resolves(false);
   sandbox.stub(ShellService, "doesAppNeedPin").returns(true);
   sandbox.stub(ShellService, "isDefaultBrowser").returns(true);
 
@@ -162,6 +178,12 @@ add_task(
       ["browser.shell.checkDefaultBrowser", true],
       ["messaging-system-action.showEmbeddedImport", false]
     );
+    // Prevent Smart Window screens from rendering
+    sandbox
+      .stub(AWScreenUtils, "evaluateScreenTargeting")
+      .callThrough()
+      .withArgs(sinon.match(/smart_window/))
+      .resolves(false);
     sandbox.stub(ShellService, "doesAppNeedPin").returns(false);
     sandbox.stub(ShellService, "doesAppNeedStartMenuPin").returns(false);
     sandbox.stub(ShellService, "isDefaultBrowser").returns(false);
@@ -200,6 +222,12 @@ add_task(async function test_aboutwelcome_mr_template_easy_setup_only_import() {
     ["browser.shell.checkDefaultBrowser", true],
     ["messaging-system-action.showEmbeddedImport", false]
   );
+  // Prevent Smart Window screens from rendering
+  sandbox
+    .stub(AWScreenUtils, "evaluateScreenTargeting")
+    .callThrough()
+    .withArgs(sinon.match(/smart_window/))
+    .resolves(false);
   sandbox.stub(ShellService, "doesAppNeedPin").returns(false);
   sandbox.stub(ShellService, "doesAppNeedStartMenuPin").returns(false);
   sandbox.stub(ShellService, "isDefaultBrowser").returns(true);

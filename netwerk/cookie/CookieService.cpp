@@ -257,8 +257,6 @@ nsresult CookieService::Init() {
 
   nsCOMPtr<nsIObserverService> os = services::GetObserverService();
   NS_ENSURE_STATE(os);
-  os->AddObserver(this, "profile-before-change", true);
-  os->AddObserver(this, "profile-do-change", true);
   os->AddObserver(this, "last-pb-context-exited", true);
   os->AddObserver(this, "browser-delayed-startup-finished", true);
 
@@ -309,26 +307,7 @@ CookieService::~CookieService() {
 NS_IMETHODIMP
 CookieService::Observe(nsISupports* /*aSubject*/, const char* aTopic,
                        const char16_t* /*aData*/) {
-  // check the topic
-  if (!strcmp(aTopic, "profile-before-change")) {
-    // The profile is about to change,
-    // or is going away because the application is shutting down.
-
-    // Close the default DB connection and null out our CookieStorages before
-    // changing.
-    CloseCookieStorages();
-
-  } else if (!strcmp(aTopic, "profile-do-change")) {
-    NS_ASSERTION(!mPersistentStorage, "shouldn't have a default CookieStorage");
-    NS_ASSERTION(!mPrivateStorage, "shouldn't have a private CookieStorage");
-
-    // the profile has already changed; init the db from the new location.
-    // if we are in the private browsing state, however, we do not want to read
-    // data into it - we should instead put it into the default state, so it's
-    // ready for us if and when we switch back to it.
-    InitCookieStorages();
-
-  } else if (!strcmp(aTopic, "browser-delayed-startup-finished")) {
+  if (!strcmp(aTopic, "browser-delayed-startup-finished")) {
     mThirdPartyCookieBlockingExceptions.Initialize();
 
     RunOnShutdown([self = RefPtr{this}] {
@@ -342,6 +321,20 @@ CookieService::Observe(nsISupports* /*aSubject*/, const char* aTopic,
     mPrivateStorage = CookiePrivateStorage::Create();
   }
 
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+CookieService::TestCloseCookieDB() {
+  CloseCookieStorages();
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+CookieService::TestOpenCookieDB() {
+  MOZ_ASSERT(!mPersistentStorage, "shouldn't have a default CookieStorage");
+  MOZ_ASSERT(!mPrivateStorage, "shouldn't have a private CookieStorage");
+  InitCookieStorages();
   return NS_OK;
 }
 
@@ -726,46 +719,10 @@ CookieService::Add(const nsACString& aHost, const nsACString& aPath,
   }
 
   nsCOMPtr<nsICookieValidation> validation;
-  nsresult rv =
-      AddInternal(nullptr, aHost, aPath, aName, aValue, aIsSecure, aIsHttpOnly,
-                  aIsSession, aExpiry, &attrs, aSameSite, aSchemeMap,
-                  aIsPartitioned, /* from-http: */ true, nullptr,
-                  /* reject when invalid: */ true, getter_AddRefs(validation));
-  if (rv != NS_ERROR_ILLEGAL_VALUE || !validation ||
-      CookieValidation::Cast(validation)->Result() ==
-          nsICookieValidation::eOK) {
-    validation.forget(aValidation);
-    return rv;
-  }
-
-  validation.forget(aValidation);
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-CookieService::AddForAddOn(const nsACString& aHost, const nsACString& aPath,
-                           const nsACString& aName, const nsACString& aValue,
-                           bool aIsSecure, bool aIsHttpOnly, bool aIsSession,
-                           int64_t aExpiry,
-                           JS::Handle<JS::Value> aOriginAttributes,
-                           int32_t aSameSite, nsICookie::schemeType aSchemeMap,
-                           bool aIsPartitioned, JSContext* aCx,
-                           nsICookieValidation** aValidation) {
-  NS_ENSURE_ARG_POINTER(aCx);
-  NS_ENSURE_ARG_POINTER(aValidation);
-
-  OriginAttributes attrs;
-
-  if (!aOriginAttributes.isObject() || !attrs.Init(aCx, aOriginAttributes)) {
-    return NS_ERROR_INVALID_ARG;
-  }
-
-  nsCOMPtr<nsICookieValidation> validation;
   nsresult rv = AddInternal(nullptr, aHost, aPath, aName, aValue, aIsSecure,
                             aIsHttpOnly, aIsSession, aExpiry, &attrs, aSameSite,
-                            aSchemeMap, aIsPartitioned, /* from-http: */
-                            true, nullptr, /* reject when invalid: */ false,
-                            getter_AddRefs(validation));
+                            aSchemeMap, aIsPartitioned, /* from-http: */ true,
+                            nullptr, getter_AddRefs(validation));
   if (rv != NS_ERROR_ILLEGAL_VALUE || !validation ||
       CookieValidation::Cast(validation)->Result() ==
           nsICookieValidation::eOK) {
@@ -789,8 +746,7 @@ CookieService::AddNative(nsIURI* aCookieURI, const nsACString& aHost,
   return AddInternal(aCookieURI, aHost, aPath, aName, aValue, aIsSecure,
                      aIsHttpOnly, aIsSession, aExpiry, aOriginAttributes,
                      aSameSite, aSchemeMap, aIsPartitioned, aFromHttp,
-                     aOperationID,
-                     /* reject when invalid: */ true, aValidation);
+                     aOperationID, aValidation);
 }
 
 nsresult CookieService::AddInternal(
@@ -799,8 +755,7 @@ nsresult CookieService::AddInternal(
     bool aIsHttpOnly, bool aIsSession, int64_t aExpiry,
     OriginAttributes* aOriginAttributes, int32_t aSameSite,
     nsICookie::schemeType aSchemeMap, bool aIsPartitioned, bool aFromHttp,
-    const nsID* aOperationID, bool aRejectWhenInvalid,
-    nsICookieValidation** aValidation) {
+    const nsID* aOperationID, nsICookieValidation** aValidation) {
   NS_ENSURE_ARG_POINTER(aValidation);
 
   if (NS_WARN_IF(!aOriginAttributes)) {
@@ -834,7 +789,7 @@ nsresult CookieService::AddInternal(
 
   RefPtr<CookieValidation> cv = CookieValidation::Validate(cookieData);
 
-  if (aRejectWhenInvalid && cv->Result() != nsICookieValidation::eOK) {
+  if (cv->Result() != nsICookieValidation::eOK) {
     cv.forget(aValidation);
     return NS_ERROR_ILLEGAL_VALUE;
   }

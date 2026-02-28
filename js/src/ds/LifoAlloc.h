@@ -1179,7 +1179,7 @@ class MOZ_NON_TEMPORARY_CLASS LifoAllocScope {
 enum Fallibility { Fallible, Infallible };
 
 template <Fallibility fb>
-class LifoAllocPolicy {
+class LifoAllocPolicy : public AllocPolicyBase {
   LifoAlloc& alloc_;
 
  public:
@@ -1230,9 +1230,12 @@ class LifoAllocPolicy {
   }
   template <typename T>
   void free_(T* p, size_t numElems) {}
-  void reportAllocOverflow() const {}
   [[nodiscard]] bool checkSimulatedOOM() const {
     return fb == Infallible || !js::oom::ShouldFailWithOOM();
+  }
+
+  bool operator==(const LifoAllocPolicy<fb>& other) const {
+    return &alloc_ == &other.alloc_;
   }
 };
 

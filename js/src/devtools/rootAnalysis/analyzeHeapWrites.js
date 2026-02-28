@@ -11,6 +11,10 @@ loadRelativeToScript('annotations.js');
 loadRelativeToScript('callgraph.js');
 loadRelativeToScript('dumpCFG.js');
 
+// This analysis is currently broken. Use a dummy value here to be able to pass
+// the correct arguments to getCallees().
+var typeInfo = {};
+
 ///////////////////////////////////////////////////////////////////////////////
 // Annotations
 ///////////////////////////////////////////////////////////////////////////////
@@ -961,7 +965,7 @@ function process(entry, body, addCallee)
 
         var location = get_location(body.PPoint[edge.Index[0] - 1].Location);
 
-        var callees = getCallees(edge);
+        var callees = getCallees(typeInfo, edge);
         for (var callee of callees) {
             switch (callee.kind) {
             case "direct":

@@ -50,7 +50,8 @@ add_task(async function ui() {
     results: [result],
     priority: 1,
   });
-  UrlbarProvidersManager.registerProvider(provider);
+  let providersManager = ProvidersManager.getInstanceForSap("urlbar");
+  providersManager.registerProvider(provider);
 
   await UrlbarTestUtils.promiseAutocompleteResultPopup({
     value: "test",
@@ -118,7 +119,7 @@ add_task(async function ui() {
   Assert.ok(BrowserTestUtils.isHidden(action));
 
   await UrlbarTestUtils.promisePopupClose(window);
-  UrlbarProvidersManager.unregisterProvider(provider);
+  providersManager.unregisterProvider(provider);
 });
 
 add_task(async function learn_more() {
@@ -134,6 +135,7 @@ add_task(async function learn_more() {
             titleL10n: { id: "urlbar-search-tips-confirm" },
             descriptionL10n: {
               id: "firefox-suggest-onboarding-main-accept-option-label",
+              parseMarkup: true,
             },
             descriptionLearnMoreTopic: topic,
           },
@@ -141,7 +143,8 @@ add_task(async function learn_more() {
       ],
       priority: 1,
     });
-    UrlbarProvidersManager.registerProvider(provider);
+    let providersManager = ProvidersManager.getInstanceForSap("urlbar");
+    providersManager.registerProvider(provider);
 
     info("Open urlbar view and find learn more link from 1st row");
     await UrlbarTestUtils.promiseAutocompleteResultPopup({
@@ -153,7 +156,10 @@ add_task(async function learn_more() {
     let learnMoreLink = row.querySelector(
       ".urlbarView-row-body-description > a"
     );
-    Assert.equal(!!learnMoreLink, !!topic);
+    Assert.ok(
+      learnMoreLink,
+      "The descriptionL10n contains a learn-more link, so the element should have a learn-more link"
+    );
 
     if (topic) {
       info("Activate learn more link and check");
@@ -182,6 +188,6 @@ add_task(async function learn_more() {
     }
 
     await UrlbarTestUtils.promisePopupClose(window);
-    UrlbarProvidersManager.unregisterProvider(provider);
+    providersManager.unregisterProvider(provider);
   }
 });

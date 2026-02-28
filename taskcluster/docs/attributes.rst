@@ -90,6 +90,18 @@ or the following alias:
 
 Like ``run_on_projects``, the same behavior applies if it is set to an empty list.
 
+run_on_git_branches
+===================
+
+On a given project, the git branches where this task should be in the target
+task set.  This is how requirements like "only run on this branch" get implemented.
+These are either the regular expression of a branch (e.g.: ``GECKOVIEW_\d+_RELBRANCH``)
+or the following alias:
+
+ * `all` -- everywhere (the default)
+
+Like ``run_on_projects``, the same behavior applies if it is set to an empty list.
+
 task_duplicates
 ===============
 
@@ -118,6 +130,11 @@ used for different kinds of builds that target the same platform.  Values are
 
  * ``debug``
  * ``opt``
+
+ccov
+====
+
+Marks tasks related to code coverage collection.
 
 test_platform
 =============
@@ -251,6 +268,12 @@ stanzas for jobs.
 toolchain-artifact
 ==================
 For toolchain jobs, this is the path to the artifact for that toolchain.
+
+toolchain-resources
+===================
+For toolchain jobs, this is the list of paths that contribute to the toolchain's
+digest hash. These include the build script, any resources specified in the task
+definition, and the tooltool manifest (if present).
 
 toolchain-extract
 =================

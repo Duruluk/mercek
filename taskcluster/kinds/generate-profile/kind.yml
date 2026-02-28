@@ -5,6 +5,7 @@
 loader: taskgraph.loader.transform:loader
 
 kind-dependencies:
+    - fetch
     - toolchain
     - instrumented-build
 
@@ -18,11 +19,15 @@ transforms:
 
 
 task-defaults:
+    run-on-repo-type: [hg]
     treeherder:
         symbol: Bpgo(run)
         kind: build
         tier: 1
     use-python: default
+    fetches:
+        fetch:
+            - pgo-extended-corpus
 
 tasks:
     linux64-shippable/opt:
@@ -34,7 +39,7 @@ tasks:
             job-name: linux64-profile
         treeherder:
             platform: linux64-shippable/opt
-        worker-type: b-linux-gcp
+        worker-type: b-linux
         worker:
             chain-of-trust: true
             env:
@@ -65,7 +70,7 @@ tasks:
             job-name: android-x86_64-profile
         treeherder:
             platform: android-x86_64-shippable/opt
-        worker-type: b-linux-kvm-gcp
+        worker-type: b-linux-kvm
         worker:
             chain-of-trust: true
             max-run-time: 2700
@@ -96,6 +101,8 @@ tasks:
                 - linux64-minidump-stackwalk
                 - linux64-hostutils
                 - android-sdk-linux
+                - linux64-embedded-uniffi-bindgen
+                - linux64-nimbus-fml
                 - android34-system-image-x86_64-linux
                 - android34-avd-x86_64-linux
 
@@ -108,7 +115,7 @@ tasks:
             job-name: android-aarch64-profile
         treeherder:
             platform: android-aarch64-shippable/opt
-        worker-type: b-linux-kvm-gcp
+        worker-type: b-linux-kvm
         worker:
             chain-of-trust: true
             max-run-time: 2700
@@ -139,6 +146,8 @@ tasks:
                 - linux64-minidump-stackwalk
                 - linux64-hostutils
                 - android-sdk-linux
+                - linux64-embedded-uniffi-bindgen
+                - linux64-nimbus-fml
                 - android34-system-image-x86_64-linux
                 - android34-avd-x86_64-linux
 
@@ -151,7 +160,7 @@ tasks:
             job-name: android-arm-profile
         treeherder:
             platform: android-armv7-shippable/opt
-        worker-type: b-linux-kvm-gcp
+        worker-type: b-linux-kvm
         worker:
             chain-of-trust: true
             max-run-time: 2700
@@ -182,6 +191,8 @@ tasks:
                 - linux64-minidump-stackwalk
                 - linux64-hostutils
                 - android-sdk-linux
+                - linux64-embedded-uniffi-bindgen
+                - linux64-nimbus-fml
                 - android30-system-image-x86-linux
                 - android30-avd-x86-linux
 
@@ -257,7 +268,7 @@ tasks:
         worker-type: b-win-aarch64
         worker:
             chain-of-trust: true
-            max-run-time: 2400
+            max-run-time: 3600
             env:
                 UPLOAD_PATH: "artifacts"
             artifacts:

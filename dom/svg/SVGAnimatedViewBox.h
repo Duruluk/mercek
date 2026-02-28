@@ -7,10 +7,12 @@
 #ifndef DOM_SVG_SVGANIMATEDVIEWBOX_H_
 #define DOM_SVG_SVGANIMATEDVIEWBOX_H_
 
+#include <memory>
+
 #include "SVGAttrTearoffTable.h"
 #include "mozilla/SMILAttr.h"
-#include "mozilla/UniquePtr.h"
 #include "mozilla/dom/SVGAnimatedRect.h"
+#include "mozilla/gfx/Point.h"
 #include "nsCycleCollectionParticipant.h"
 #include "nsError.h"
 
@@ -36,6 +38,8 @@ struct SVGViewBox {
   SVGViewBox operator*(const float m) const {
     return SVGViewBox(x * m, y * m, width * m, height * m);
   }
+
+  gfx::Size Size() const { return gfx::Size(width, height); }
 
   bool IsFinite() const {
     if (none) {
@@ -70,7 +74,7 @@ class SVGAnimatedViewBox {
   SVGAnimatedViewBox& operator=(const SVGAnimatedViewBox& aOther) {
     mBaseVal = aOther.mBaseVal;
     if (aOther.mAnimVal) {
-      mAnimVal = MakeUnique<SVGViewBox>(*aOther.mAnimVal);
+      mAnimVal = std::make_unique<SVGViewBox>(*aOther.mAnimVal);
     }
     mHasBaseVal = aOther.mHasBaseVal;
     return *this;
@@ -99,7 +103,20 @@ class SVGAnimatedViewBox {
   }
 
   const SVGViewBox& GetBaseValue() const { return mBaseVal; }
-  void SetBaseValue(const SVGViewBox& aRect, SVGElement* aSVGElement);
+  void SetBaseX(float aX, SVGElement* aSVGElement) {
+    SetBaseField(aX, aSVGElement, mBaseVal.x);
+  }
+  void SetBaseY(float aY, SVGElement* aSVGElement) {
+    SetBaseField(aY, aSVGElement, mBaseVal.y);
+  }
+  void SetBaseWidth(float aWidth, SVGElement* aSVGElement) {
+    SetBaseField(aWidth, aSVGElement, mBaseVal.width);
+  }
+  void SetBaseHeight(float aHeight, SVGElement* aSVGElement) {
+    SetBaseField(aHeight, aSVGElement, mBaseVal.height);
+  }
+  void SetBaseValue(const SVGViewBox& aRect, SVGElement* aSVGElement,
+                    bool aDoSetAttr);
   const SVGViewBox& GetAnimValue() const {
     return mAnimVal ? *mAnimVal : mBaseVal;
   }
@@ -116,11 +133,13 @@ class SVGAnimatedViewBox {
 
   already_AddRefed<dom::SVGRect> ToDOMAnimVal(SVGElement* aSVGElement);
 
-  UniquePtr<SMILAttr> ToSMILAttr(SVGElement* aSVGElement);
+  std::unique_ptr<SMILAttr> ToSMILAttr(SVGElement* aSVGElement);
 
  private:
+  void SetBaseField(float aHeight, SVGElement* aSVGElement, float& aElement);
+
+  std::unique_ptr<SVGViewBox> mAnimVal;
   SVGViewBox mBaseVal;
-  UniquePtr<SVGViewBox> mAnimVal;
   bool mHasBaseVal;
 
  public:

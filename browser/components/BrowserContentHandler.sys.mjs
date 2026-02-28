@@ -107,6 +107,7 @@ const OVERRIDE_NEW_MSTONE = 2;
 const OVERRIDE_NEW_BUILD_ID = 3;
 /**
  * Determines whether a home page override is needed.
+ *
  * @param {boolean} [updateMilestones=true]
  *   True if we should update the milestone prefs after comparing those prefs
  *   with the current platform version and build ID.
@@ -186,6 +187,7 @@ function needHomepageOverride(updateMilestones = true) {
 /**
  * Gets the override page for the first run after the application has been
  * updated.
+ *
  * @param  update
  *         The nsIUpdate for the update that has been applied.
  * @param  defaultOverridePage
@@ -367,7 +369,7 @@ function openPreferences(cmdLine) {
   openBrowserWindow(cmdLine, lazy.gSystemPrincipal, "about:preferences");
 }
 
-async function doSearch(searchTerm, cmdLine) {
+async function doSearch(searchText, cmdLine) {
   // XXXbsmedberg: use handURIToExistingBrowser to obey tabbed-browsing
   // preferences, but need nsIBrowserDOMWindow extensions
   // Open the window immediately as BrowserContentHandler needs to
@@ -379,14 +381,16 @@ async function doSearch(searchTerm, cmdLine) {
     subject => subject == win
   );
 
-  lazy.SearchUIUtils.loadSearchFromCommandLine(
-    win,
-    searchTerm,
-    lazy.PrivateBrowsingUtils.isInTemporaryAutoStartMode ||
+  lazy.SearchUIUtils.loadSearch({
+    window: win,
+    searchText,
+    usePrivateWindow:
+      lazy.PrivateBrowsingUtils.isInTemporaryAutoStartMode ||
       lazy.PrivateBrowsingUtils.isWindowPrivate(win),
-    lazy.gSystemPrincipal,
-    win.gBrowser.selectedBrowser.policyContainer
-  ).catch(console.error);
+    triggeringPrincipal: lazy.gSystemPrincipal,
+    policyContainer: win.gBrowser.selectedBrowser.policyContainer,
+    sapSource: "system",
+  }).catch(console.error);
 }
 
 function spinForLastUpdateInstalled() {
@@ -832,6 +836,7 @@ nsBrowserContentHandler.prototype = {
              * or equal to the maxVersion set by the experiment, we'll try to use
              * the experiment override URL instead of the default or the
              * update-provided URL. Additional policy checks are done in
+             *
              * @see getPostUpdateOverridePage
              */
             const nimbusOverrideUrl = Services.urlFormatter.formatURLPref(

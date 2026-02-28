@@ -6,11 +6,13 @@ package org.mozilla.fenix.webcompat.middleware
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
 import mozilla.components.browser.state.selector.selectedTab
 import mozilla.components.browser.state.state.BrowserState
 import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.lib.state.Middleware
-import mozilla.components.lib.state.MiddlewareContext
+import mozilla.components.lib.state.Store
+import org.json.JSONObject
 import org.mozilla.fenix.GleanMetrics.BrokenSiteReport
 import org.mozilla.fenix.GleanMetrics.BrokenSiteReportBrowserInfo
 import org.mozilla.fenix.GleanMetrics.BrokenSiteReportBrowserInfoApp
@@ -48,7 +50,7 @@ class WebCompatReporterSubmissionMiddleware(
 ) : Middleware<WebCompatReporterState, WebCompatReporterAction> {
 
     override fun invoke(
-        context: MiddlewareContext<WebCompatReporterState, WebCompatReporterAction>,
+        store: Store<WebCompatReporterState, WebCompatReporterAction>,
         next: (WebCompatReporterAction) -> Unit,
         action: WebCompatReporterAction,
     ) {
@@ -57,48 +59,110 @@ class WebCompatReporterSubmissionMiddleware(
         when (action) {
             is WebCompatReporterAction.SendReportClicked -> {
                 scope.launch {
-                    val webCompatInfo = webCompatReporterRetrievalService.retrieveInfo()
-
-                    webCompatInfo?.let {
-                        val enteredUrlMatchesTabUrl = context.state.enteredUrl == webCompatInfo.url
-                        if (enteredUrlMatchesTabUrl) {
-                            setTabAntiTrackingMetrics(
-                                antiTracking = webCompatInfo.antitracking,
-                                sendBlockedUrls = context.state.includeEtpBlockedUrls,
-                            )
-                            setTabFrameworksMetrics(frameworks = webCompatInfo.frameworks)
-                            setTabLanguageMetrics(languages = webCompatInfo.languages)
-                            setTabUserAgentMetrics(userAgent = webCompatInfo.userAgent)
-                        }
-
-                        setBrowserInfoMetrics(browserInfo = webCompatInfo.browser)
-                        setDevicePixelRatioMetrics(devicePixelRatio = webCompatInfo.devicePixelRatio)
-                    }
-                    setUrlMetrics(url = context.state.enteredUrl)
-                    setReasonMetrics(reason = context.state.reason)
-                    setDescriptionMetrics(description = context.state.problemDescription)
-                    setExperimentMetrics()
-
-                    Pings.brokenSiteReport.submit()
-                    context.store.dispatch(WebCompatReporterAction.ReportSubmitted)
-                    appStore.dispatch(AppAction.WebCompatAction.WebCompatReportSent)
+                    handleSendReport(store)
                 }
             }
-            is WebCompatReporterAction.SendMoreInfoClicked -> {
+            is WebCompatReporterAction.OpenPreviewClicked -> {
                 scope.launch {
-                    webCompatReporterMoreInfoSender.sendMoreWebCompatInfo(
-                        reason = context.state.reason,
-                        problemDescription = context.state.problemDescription,
-                        enteredUrl = context.state.enteredUrl,
-                        tabUrl = context.state.tabUrl,
-                        engineSession = browserStore.state.selectedTab?.engineState?.engineSession,
-                    )
-
-                    context.store.dispatch(WebCompatReporterAction.SendMoreInfoSubmitted)
+                    handleOpenPreviewClicked(store)
+                }
+            }
+            is WebCompatReporterAction.AddMoreInfoClicked -> {
+                scope.launch {
+                    handleSendMoreInfoClicked(store)
                 }
             }
             else -> {}
         }
+    }
+
+    private suspend fun handleSendReport(store: Store<WebCompatReporterState, WebCompatReporterAction>) {
+        val webCompatInfo = webCompatReporterRetrievalService.retrieveInfo()
+
+        webCompatInfo?.let {
+            val enteredUrlMatchesTabUrl = store.state.enteredUrl == webCompatInfo.url
+            if (enteredUrlMatchesTabUrl) {
+                setTabAntiTrackingMetrics(
+                    antiTracking = webCompatInfo.antitracking,
+                    sendBlockedUrls = store.state.includeEtpBlockedUrls,
+                )
+                setTabFrameworksMetrics(frameworks = webCompatInfo.frameworks)
+                setTabLanguageMetrics(languages = webCompatInfo.languages)
+                setTabUserAgentMetrics(userAgent = webCompatInfo.userAgent)
+            }
+
+            setBrowserInfoMetrics(browserInfo = webCompatInfo.browser)
+            setDevicePixelRatioMetrics(devicePixelRatio = webCompatInfo.devicePixelRatio)
+        }
+        setUrlMetrics(url = store.state.enteredUrl)
+        setReasonMetrics(reason = store.state.reason)
+        setDescriptionMetrics(description = store.state.problemDescription)
+        setExperimentMetrics()
+
+        Pings.brokenSiteReport.submit()
+        store.dispatch(WebCompatReporterAction.ReportSubmitted)
+        appStore.dispatch(AppAction.WebCompatAction.WebCompatReportSent)
+    }
+
+    private suspend fun handleOpenPreviewClicked(
+        store: Store<WebCompatReporterState, WebCompatReporterAction>,
+    ) {
+        val webCompatInfo = webCompatReporterRetrievalService.retrieveInfo()
+
+        val webCompatJSON = generatePreviewJSON(store.state, webCompatInfo)
+
+        store.dispatch(WebCompatReporterAction.PreviewJSONUpdated(webCompatJSON.toString()))
+    }
+
+    private fun generatePreviewJSON(
+        state: WebCompatReporterState,
+        webCompatInfo: WebCompatInfoDto?,
+    ): JSONObject {
+        return if (webCompatInfo == null) {
+            JSONObject().apply {
+                put("enteredUrl", state.enteredUrl)
+                put("reason", state.reason)
+                put("problemDescription", state.problemDescription)
+            }
+        } else {
+            val webCompatString = Json.encodeToString(webCompatInfo)
+            val webCompatJSON = JSONObject(webCompatString).apply {
+                put("enteredUrl", state.enteredUrl)
+                put("reason", state.reason)
+                put("problemDescription", state.problemDescription)
+            }
+
+            // Note: we are removing the fields from the JSON here because when the user edits the URL in the
+            // reporter, the tab-scoped diagnostics we collected (anti-tracking info, detected frameworks,
+            // page languages, and the tab’s user agent) describe the *currently selected tab*, not the URL
+            // the user chose to report. Browser/device info is kept because it is not origin-scoped.
+            // If the entered URL matches the tab URL, we keep these fields since they accurately describe
+            // the page being reported.
+            if (state.enteredUrl != webCompatInfo.url) {
+                webCompatJSON.apply {
+                    remove("antitracking")
+                    remove("frameworks")
+                    remove("languages")
+                    remove("userAgent")
+                }
+            }
+
+            webCompatJSON
+        }
+    }
+
+    private suspend fun handleSendMoreInfoClicked(
+        store: Store<WebCompatReporterState, WebCompatReporterAction>,
+    ) {
+        webCompatReporterMoreInfoSender.sendMoreWebCompatInfo(
+            reason = store.state.reason,
+            problemDescription = store.state.problemDescription,
+            enteredUrl = store.state.enteredUrl,
+            tabUrl = store.state.tabUrl,
+            engineSession = browserStore.state.selectedTab?.engineState?.engineSession,
+        )
+
+        store.dispatch(WebCompatReporterAction.SendMoreInfoSubmitted)
     }
 
     private fun setTabAntiTrackingMetrics(

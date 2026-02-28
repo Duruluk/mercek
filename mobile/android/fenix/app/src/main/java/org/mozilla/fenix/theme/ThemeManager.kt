@@ -13,6 +13,7 @@ import android.view.Window
 import androidx.annotation.AnyRes
 import androidx.annotation.StyleRes
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.colorResource
 import mozilla.components.support.ktx.android.content.getColorFromAttr
@@ -24,6 +25,7 @@ import org.mozilla.fenix.HomeActivity
 import org.mozilla.fenix.R
 import org.mozilla.fenix.browser.browsingmode.BrowsingMode
 import org.mozilla.fenix.customtabs.ExternalAppBrowserActivity
+import com.google.android.material.R as materialR
 
 abstract class ThemeManager {
 
@@ -96,8 +98,14 @@ abstract class ThemeManager {
             return typedValue.resourceId
         }
 
+        /**
+         * Resolves the attribute to a color.
+         *
+         * @param attribute The attribute to resolve.
+         * @return The [Color] of the resolved attribute.
+         */
         @Composable
-        fun resolveAttributeColor(attribute: Int): androidx.compose.ui.graphics.Color {
+        fun resolveAttributeColor(attribute: Int): Color {
             val resourceId = resolveAttribute(attribute, LocalContext.current)
             return colorResource(resourceId)
         }
@@ -120,7 +128,7 @@ abstract class ThemeManager {
         }
 
         private fun updateNavigationBar(window: Window, context: Context) {
-            window.setNavigationBarColorCompat(context.getColorFromAttr(R.attr.layer1))
+            window.setNavigationBarColorCompat(context.getColorFromAttr(materialR.attr.colorSurface))
         }
 
         private fun setStatusBarColor(

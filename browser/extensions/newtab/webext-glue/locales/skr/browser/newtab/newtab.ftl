@@ -345,7 +345,7 @@ newtab-wallpaper-abstract-orange = مالٹا شکلاں
 newtab-wallpaper-gradient-orange = میلان نارنجی تے غلابی
 newtab-wallpaper-abstract-blue-purple = نیلے تے جامنی رنگ دیاں شکلاں
 
-## Celestial
+## Firefox
 
 newtab-wallpaper-category-title-photographs = فوٹو
 newtab-wallpaper-beach-at-sunrise = ݙین٘ہ ابھرݨ ویلے ساحل
@@ -399,6 +399,11 @@ newtab-weather-menu-hide-weather = نویں ٹیب تے موسم لکاؤ
 newtab-weather-menu-learn-more = ٻیا سِکھو
 # This message is shown if user is working offline
 newtab-weather-error-not-available = عیں ایں ویلے موسم ڈیٹا دستیاب کائنی۔
+# Variables:
+#   $provider (string) - Service provider for weather data
+newtab-weather-see-forecast-description =
+    .title = { $provider } وچ پیش گوئی ݙیکھو
+    .aria-description = { $provider } ∙سپانسر تھیا
 
 ## Topic Labels
 

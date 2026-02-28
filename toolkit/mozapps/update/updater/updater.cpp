@@ -333,7 +333,7 @@ class Thread {
 static NS_tchar gPatchDirPath[MAXPATHLEN];
 static NS_tchar gInstallDirPath[MAXPATHLEN];
 static NS_tchar gWorkingDirPath[MAXPATHLEN];
-MOZ_RUNINIT static ArchiveReader gArchiveReader;
+constinit static ArchiveReader gArchiveReader;
 static bool gSucceeded = false;
 static bool sStagedUpdate = false;
 static bool sReplaceRequest = false;
@@ -365,7 +365,7 @@ static const int kCallbackIndex = 8;
 
 // This string contains the MAR channel IDs that are later extracted by one of
 // the `ReadMARChannelIDsFrom` variants.
-MOZ_RUNINIT static MARChannelStringTable gMARStrings;
+constinit static MARChannelStringTable gMARStrings;
 
 // Normally, we run updates as a result of user action (the user started Firefox
 // or clicked a "Restart to Update" button). But there are some cases when
@@ -706,7 +706,7 @@ static int ensure_remove_recursive(const NS_tchar* path,
     return rv;
   }
 
-  while ((entry = NS_treaddir(dir)) != 0) {
+  while ((entry = NS_treaddir(dir)) != nullptr) {
     if (NS_tstrcmp(entry->d_name, NS_T(".")) &&
         NS_tstrcmp(entry->d_name, NS_T(".."))) {
       NS_tchar childPath[MAXPATHLEN];
@@ -970,7 +970,7 @@ static int ensure_copy_recursive(const NS_tchar* path, const NS_tchar* dest,
     return READ_ERROR;
   }
 
-  while ((entry = NS_treaddir(dir)) != 0) {
+  while ((entry = NS_treaddir(dir)) != nullptr) {
     if (NS_tstrcmp(entry->d_name, NS_T(".")) &&
         NS_tstrcmp(entry->d_name, NS_T(".."))) {
       NS_tchar childPath[MAXPATHLEN];
@@ -2195,7 +2195,7 @@ int AddIfNotFile::Parse(NS_tchar* line) {
 int AddIfNotFile::Prepare() {
   // If the test file exists, then skip this action.
   if (!NS_taccess(mTestFile.get(), F_OK)) {
-    mTestFile = NULL;
+    mTestFile = nullptr;
     return OK;
   }
 
@@ -5135,7 +5135,7 @@ int AddPreCompleteActions(ActionList* list) {
 
   int rv;
   NS_tchar* line;
-  while ((line = mstrtok(kNL, &rb)) != 0) {
+  while ((line = mstrtok(kNL, &rb)) != nullptr) {
     // skip comments
     if (*line == NS_T('#')) {
       continue;
@@ -5210,7 +5210,7 @@ int DoUpdate() {
   ActionList list;
   NS_tchar* line;
   bool isFirstAction = true;
-  while ((line = mstrtok(kNL, &rb)) != 0) {
+  while ((line = mstrtok(kNL, &rb)) != nullptr) {
     // skip comments
     if (*line == NS_T('#')) {
       continue;

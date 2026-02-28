@@ -133,7 +133,10 @@ add_task(async function test_onAction_INIT() {
 
   sandbox.stub(feed, "isEnabled").returns(true);
 
-  sandbox.stub(feed, "_fetchHelper").resolves([WEATHER_SUGGESTION]);
+  sandbox.stub(feed, "_fetchHelper").resolves({
+    suggestions: [WEATHER_SUGGESTION],
+    hourlyForecasts: [],
+  });
   feed.locationData = locationData;
   feed.store = {
     dispatch: sinon.spy(),
@@ -162,6 +165,7 @@ add_task(async function test_onAction_INIT() {
         type: actionTypes.WEATHER_UPDATE,
         data: {
           suggestions: [WEATHER_SUGGESTION],
+          hourlyForecasts: [],
           lastUpdated: dateNowTestValue,
           locationData,
         },
@@ -333,41 +337,58 @@ add_task(async function test_fetch_weather_with_geolocation() {
       },
     },
     {
+      // Test city-state fallback: Singapore (no region field)
+      geolocation: {
+        country_code: "SG",
+        region_code: null,
+        region: null,
+        city: "Singapore",
+      },
+      expected: {
+        country: "SG",
+        region: "Singapore", // City used as fallback for region
+        city: "Singapore",
+      },
+    },
+    {
+      // Test city-state fallback: Monaco (no region field)
+      geolocation: {
+        country_code: "MC",
+        city: "Monaco",
+      },
+      expected: {
+        country: "MC",
+        region: "Monaco", // City used as fallback for region
+        city: "Monaco",
+      },
+    },
+    {
       geolocation: {
         country_code: "TestCountry",
       },
-      expected: {
-        country: "TestCountry",
-      },
+      expected: false,
     },
     {
       geolocation: {
         region_code: "TestRegionCode",
       },
-      expected: {
-        region: "TestRegionCode",
-      },
+      expected: false,
     },
     {
       geolocation: {
         region: "TestRegion",
       },
-      expected: {
-        region: "TestRegion",
-        city: "TestRegion",
-      },
+      expected: false,
     },
     {
       geolocation: {
         city: "TestCity",
       },
-      expected: {
-        city: "TestCity",
-      },
+      expected: false,
     },
     {
       geolocation: {},
-      expected: {},
+      expected: false,
     },
     {
       geolocation: null,
@@ -392,10 +413,10 @@ add_task(async function test_fetch_weather_with_geolocation() {
         return { Prefs: { values: {} } };
       },
     };
-    feed.merino = { fetch: () => {} };
+    feed.merino = feed.MerinoClient();
 
     // Stub merino client
-    let stub = sandbox.stub(feed.merino, "fetch").resolves(["result"]);
+    let stub = sandbox.stub(feed.merino, "fetchWeatherReport").resolves(null);
     let cleanupGeolocationStub =
       GeolocationTestUtils.stubGeolocation(geolocation);
 
@@ -404,10 +425,11 @@ add_task(async function test_fetch_weather_with_geolocation() {
     if (expected) {
       sinon.assert.calledOnce(stub);
       sinon.assert.calledWith(stub, {
-        otherParams: { request_type: "weather", source: "newtab", ...expected },
-        providers: ["accuweather"],
-        query: "",
+        source: "newtab",
+        locationName: undefined,
+        ...expected,
         timeoutMs: 7000,
+        endpointUrl: undefined,
       });
     } else {
       sinon.assert.notCalled(stub);
@@ -496,4 +518,249 @@ add_task(async function test_detect_location_with_geolocation() {
     await cleanupGeolocationStub();
     sandbox.restore();
   }
+});
+
+// Creates a WeatherFeed with stubbed merino methods and a virtual setTimeout
+// so that _fetchHelper retry behavior can be driven synchronously.
+
+function setupFetchHelperHarness(sandbox, outcomes, hourlyOutcomes = null) {
+  // Prevent the "next fetch" scheduling inside fetchHelper().
+  sandbox.stub(WeatherFeed.prototype, "restartFetchTimer").returns(undefined);
+
+  // Stub setTimeout to capture the retry callback without actually waiting.
+  // triggerRetry() fires it on demand so the test controls timing exactly.
+  let timeoutCallback = null;
+  const setTimeoutStub = sandbox
+    .stub(WeatherFeed.prototype, "setTimeout")
+    .callsFake(cb => {
+      timeoutCallback = cb;
+      return 1;
+    });
+
+  const feed = new WeatherFeed();
+
+  // When testing hourly retries, enable the forecast widget so _fetchHelper
+  // calls fetchHourlyForecasts inside its Promise.all.
+  // weather.display and widgets.system.weatherForecast.enabled are the two
+  // flags _fetchHelper checks to decide whether to call fetchHourlyForecasts.
+  const prefValues =
+    hourlyOutcomes !== null
+      ? {
+          "weather.display": "detailed",
+          "widgets.system.weatherForecast.enabled": true,
+        }
+      : {};
+
+  feed.store = {
+    dispatch: sinon.spy(),
+    getState() {
+      return { Prefs: { values: prefValues } };
+    },
+  };
+
+  const fetchStub = sinon.stub();
+  outcomes.forEach((outcome, index) => {
+    if (outcome === "reject") {
+      fetchStub.onCall(index).rejects(new Error(`fail${index}`));
+    } else if (outcome === "resolve") {
+      fetchStub.onCall(index).resolves({ city_name: "RetryCity" });
+    }
+  });
+
+  feed.merino = { fetchWeatherReport: fetchStub };
+
+  if (hourlyOutcomes !== null) {
+    const fetchHourlyStub = sinon.stub();
+    hourlyOutcomes.forEach((outcome, index) => {
+      if (outcome === "reject") {
+        fetchHourlyStub.onCall(index).rejects(new Error(`hourlyFail${index}`));
+      } else if (outcome === "resolve") {
+        fetchHourlyStub.onCall(index).resolves([{ hour: 0 }]);
+      }
+    });
+    feed.merino.fetchHourlyForecasts = fetchHourlyStub;
+  }
+
+  return {
+    feed,
+    setTimeoutStub,
+    triggerRetry: () => timeoutCallback && timeoutCallback(),
+  };
+}
+
+add_task(async function test_fetchHelper_retry_resolve() {
+  const sandbox = sinon.createSandbox();
+
+  const { feed, setTimeoutStub, triggerRetry } = setupFetchHelperHarness(
+    sandbox,
+    ["reject", "resolve"]
+  );
+
+  // After retry success, fetchHelper should resolve to RetryCity.
+  const promise = feed._fetchHelper(1, "q");
+
+  // Two microtask turns are needed: one for Promise.all to process the
+  // rejection, and one for the catch block to run and call setTimeout.
+  await Promise.resolve();
+  await Promise.resolve();
+
+  Assert.equal(feed.merino.fetchWeatherReport.callCount, 1);
+  Assert.equal(setTimeoutStub.callCount, 1);
+  Assert.ok(
+    setTimeoutStub.calledWith(sinon.match.func, 60 * 1000),
+    "retry waits 60s (virtually)"
+  );
+
+  // Fire the retry.
+  triggerRetry();
+  const results = await promise;
+
+  Assert.equal(
+    feed.merino.fetchWeatherReport.callCount,
+    2,
+    "retried exactly once"
+  );
+  Assert.deepEqual(
+    results,
+    { suggestions: [{ city_name: "RetryCity" }], hourlyForecasts: [] },
+    "returned retry result"
+  );
+
+  sandbox.restore();
+});
+
+add_task(async function test_fetchHelper_retry_reject() {
+  const sandbox = sinon.createSandbox();
+
+  const { feed, setTimeoutStub, triggerRetry } = setupFetchHelperHarness(
+    sandbox,
+    ["reject", "reject"]
+  );
+
+  // After retry also fails, fetchHelper should resolve to [].
+  const promise = feed._fetchHelper(1, "q");
+
+  // Two microtask turns are needed: one for Promise.all to process the
+  // rejection, and one for the catch block to run and call setTimeout.
+  await Promise.resolve();
+  await Promise.resolve();
+
+  Assert.equal(feed.merino.fetchWeatherReport.callCount, 1);
+  Assert.equal(setTimeoutStub.callCount, 1);
+  Assert.ok(
+    setTimeoutStub.calledWith(sinon.match.func, 60 * 1000),
+    "retry waits 60s (virtually)"
+  );
+
+  // Fire the retry.
+  triggerRetry();
+  const results = await promise;
+
+  Assert.equal(
+    feed.merino.fetchWeatherReport.callCount,
+    2,
+    "retried exactly once then gave up"
+  );
+  Assert.deepEqual(
+    results,
+    { suggestions: [], hourlyForecasts: [] },
+    "returns empty object after exhausting retries"
+  );
+
+  sandbox.restore();
+});
+
+add_task(async function test_fetchHelper_hourly_retry_resolve() {
+  const sandbox = sinon.createSandbox();
+
+  const { feed, setTimeoutStub, triggerRetry } = setupFetchHelperHarness(
+    sandbox,
+    ["resolve", "resolve"],
+    ["reject", "resolve"]
+  );
+
+  const promise = feed._fetchHelper(1, "q");
+
+  // Two microtask turns are needed: one for Promise.all to process the
+  // rejection, and one for the catch block to run and call setTimeout.
+  await Promise.resolve();
+  await Promise.resolve();
+
+  Assert.equal(feed.merino.fetchWeatherReport.callCount, 1);
+  Assert.equal(feed.merino.fetchHourlyForecasts.callCount, 1);
+  Assert.equal(setTimeoutStub.callCount, 1);
+  Assert.ok(
+    setTimeoutStub.calledWith(sinon.match.func, 60 * 1000),
+    "retry waits 60s (virtually)"
+  );
+
+  triggerRetry();
+  const results = await promise;
+
+  Assert.equal(
+    feed.merino.fetchWeatherReport.callCount,
+    2,
+    "report retried exactly once"
+  );
+  Assert.equal(
+    feed.merino.fetchHourlyForecasts.callCount,
+    2,
+    "hourly retried exactly once"
+  );
+  Assert.deepEqual(
+    results,
+    {
+      suggestions: [{ city_name: "RetryCity" }],
+      hourlyForecasts: [{ hour: 0 }],
+    },
+    "returned retry result with hourly forecasts"
+  );
+
+  sandbox.restore();
+});
+
+add_task(async function test_fetchHelper_hourly_retry_reject() {
+  const sandbox = sinon.createSandbox();
+
+  const { feed, setTimeoutStub, triggerRetry } = setupFetchHelperHarness(
+    sandbox,
+    ["resolve", "resolve"],
+    ["reject", "reject"]
+  );
+
+  const promise = feed._fetchHelper(1, "q");
+
+  // Two microtask turns are needed: one for Promise.all to process the
+  // rejection, and one for the catch block to run and call setTimeout.
+  await Promise.resolve();
+  await Promise.resolve();
+
+  Assert.equal(feed.merino.fetchWeatherReport.callCount, 1);
+  Assert.equal(feed.merino.fetchHourlyForecasts.callCount, 1);
+  Assert.equal(setTimeoutStub.callCount, 1);
+  Assert.ok(
+    setTimeoutStub.calledWith(sinon.match.func, 60 * 1000),
+    "retry waits 60s (virtually)"
+  );
+
+  triggerRetry();
+  const results = await promise;
+
+  Assert.equal(
+    feed.merino.fetchWeatherReport.callCount,
+    2,
+    "report retried exactly once then gave up"
+  );
+  Assert.equal(
+    feed.merino.fetchHourlyForecasts.callCount,
+    2,
+    "hourly retried exactly once then gave up"
+  );
+  Assert.deepEqual(
+    results,
+    { suggestions: [], hourlyForecasts: [] },
+    "returns empty object after exhausting retries"
+  );
+
+  sandbox.restore();
 });

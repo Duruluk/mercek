@@ -349,7 +349,7 @@ add_task(async function buttons() {
           url: mainResultUrl,
           helpUrl: mainResultHelpUrl,
           helpL10n: {
-            id: "urlbar-result-menu-learn-more-about-firefox-suggest",
+            id: "urlbar-result-menu-learn-more",
           },
           isBlockable: true,
         },
@@ -364,7 +364,8 @@ add_task(async function buttons() {
     ],
   });
 
-  UrlbarProvidersManager.registerProvider(provider);
+  let providersManager = ProvidersManager.getInstanceForSap("urlbar");
+  providersManager.registerProvider(provider);
 
   let assertResultMenuOpen = () => {
     Assert.equal(
@@ -489,7 +490,10 @@ add_task(async function buttons() {
         }
 
         // Mouseup and check the selection.
+        // XXX: See bug 2016839
+        AccessibilityUtils.setEnv({ labelRule: false });
         EventUtils.synthesizeMouseAtCenter(upElement, { type: "mouseup" });
+        AccessibilityUtils.resetEnv();
         Assert.ok(
           !downElement.hasAttribute("selected"),
           "Mousedown element should not be selected after mouseup"
@@ -530,7 +534,7 @@ add_task(async function buttons() {
     }
   }
 
-  UrlbarProvidersManager.unregisterProvider(provider);
+  providersManager.unregisterProvider(provider);
 });
 
 async function waitForElements(selectors) {

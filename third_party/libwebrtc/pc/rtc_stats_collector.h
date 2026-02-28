@@ -29,6 +29,7 @@
 #include "api/scoped_refptr.h"
 #include "api/stats/rtc_stats_collector_callback.h"
 #include "api/stats/rtc_stats_report.h"
+#include "api/task_queue/task_queue_base.h"
 #include "api/units/timestamp.h"
 #include "call/call.h"
 #include "pc/peer_connection_internal.h"
@@ -223,6 +224,7 @@ class RTCStatsCollector : public RefCountInterface {
       Timestamp timestamp,
       const std::map<std::string, TransportStats>& transport_stats_by_name,
       const std::map<std::string, CertificateStatsPair>& transport_cert_stats,
+      const Call::Stats& call_stats,
       RTCStatsReport* report) const;
 
   // Helper function to stats-producing functions.
@@ -248,9 +250,10 @@ class RTCStatsCollector : public RefCountInterface {
       scoped_refptr<RtpReceiverInternal> receiver_selector);
 
   PeerConnectionInternal* const pc_;
+  const bool is_unified_plan_;
   const Environment env_;
   const bool stats_timestamp_with_environment_clock_;
-  Thread* const signaling_thread_;
+  TaskQueueBase* const signaling_thread_;
   Thread* const worker_thread_;
   Thread* const network_thread_;
 

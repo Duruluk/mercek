@@ -6,8 +6,6 @@
 #ifndef WEBGLCONTEXT_H_
 #define WEBGLCONTEXT_H_
 
-#include <stdarg.h>
-
 #include <bitset>
 #include <memory>
 
@@ -77,6 +75,7 @@ class WebGLSync;
 class WebGLTexture;
 class WebGLTransformFeedback;
 class WebGLVertexArray;
+class WebGL2Context;
 
 namespace dom {
 class Document;
@@ -1023,6 +1022,8 @@ class WebGLContext : public VRefCounted, public SupportsWeakPtr {
   // WebGL 2 specifics (implemented in WebGL2Context.cpp)
  public:
   virtual bool IsWebGL2() const { return false; }
+
+  virtual WebGL2Context* AsWebGL2() { return nullptr; }
 
   struct FailureReason {
     nsCString key;  // For reporting.

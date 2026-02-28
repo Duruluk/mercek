@@ -15,6 +15,7 @@
 #include "mozIStorageCompletionCallback.h"
 #include "mozIStorageStatement.h"
 #include "mozIStorageStatementCallback.h"
+#include "nsIAsyncShutdown.h"
 
 class mozIStorageAsyncStatement;
 class mozIStorageService;
@@ -24,10 +25,14 @@ class nsIEffectiveTLDService;
 namespace mozilla {
 namespace net {
 
-class CookiePersistentStorage final : public CookieStorage {
+class CookiePersistentStorage final : public CookieStorage,
+                                      public nsIAsyncShutdownBlocker {
  public:
   // Result codes for TryInitDB() and Read().
   enum OpenDBResult { RESULT_OK, RESULT_RETRY, RESULT_FAILURE };
+
+  NS_DECL_ISUPPORTS_INHERITED
+  NS_DECL_NSIASYNCSHUTDOWNBLOCKER
 
   static already_AddRefed<CookiePersistentStorage> Create();
 
@@ -85,6 +90,7 @@ class CookiePersistentStorage final : public CookieStorage {
 
  private:
   CookiePersistentStorage();
+  ~CookiePersistentStorage() = default;
 
   static void UpdateCookieInList(Cookie* aCookie, int64_t aLastAccessed,
                                  mozIStorageBindingParamsArray* aParamsArray);
@@ -155,6 +161,9 @@ class CookiePersistentStorage final : public CookieStorage {
   nsCOMPtr<mozIStorageStatementCallback> mUpdateListener;
   nsCOMPtr<mozIStorageStatementCallback> mRemoveListener;
   nsCOMPtr<mozIStorageCompletionCallback> mCloseListener;
+
+  nsCOMPtr<nsIAsyncShutdownClient> mShutdownBarrier;
+  void RemoveShutdownBlocker();
 };
 
 }  // namespace net

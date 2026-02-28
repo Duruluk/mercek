@@ -252,7 +252,7 @@ partial interface Navigator {
 
 // http://webaudio.github.io/web-midi-api/#requestmidiaccess
 partial interface Navigator {
-  [NewObject, Func="Navigator::HasMidiSupport"]
+  [UseCounter, NewObject, Func="Navigator::HasMidiSupport"]
   Promise<MIDIAccess> requestMIDIAccess(optional MIDIOptions options = {});
 
   // Deprecated. Use mediaDevices.getUserMedia instead.

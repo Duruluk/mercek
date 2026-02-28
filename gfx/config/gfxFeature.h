@@ -33,7 +33,6 @@ namespace gfx {
   _(WEBRENDER_DCOMP_PRESENT, Feature, "WebRender DirectComposition")         \
   _(WEBRENDER_SCISSORED_CACHE_CLEARS, Feature,                               \
     "WebRender scissored cache clears")                                      \
-  _(OMTP, Feature, "Off Main Thread Painting")                               \
   _(WEBGPU, Feature, "WebGPU")                                               \
   _(X11_EGL, Feature, "X11 EGL")                                             \
   _(DMABUF, Feature, "DMABUF")                                               \
@@ -62,6 +61,7 @@ namespace gfx {
   _(WMF_HW_DRM, Feature, "Windows Media Foundation hardware DRM")            \
   _(GL_NORM16_TEXTURES, Feature, "OpenGL normalized 16-bit texture formats") \
   _(WEBGPU_EXTERNAL_TEXTURE, Feature, "WebGPU external textures")            \
+  _(MESA_THREADING, Feature, "Mesa glthread enabled")                        \
   /* Add new entries above this comment */
 
 enum class Feature : uint32_t {

@@ -54,10 +54,9 @@ export class UrlbarProviderHistoryUrlHeuristic extends UrlbarProvider {
   /**
    * Starts querying.
    *
-   * @param {object} queryContext The query context object
-   * @param {Function} addCallback Callback invoked by the provider to add a new
-   *        result.
-   * @returns {Promise} resolved when the query stops.
+   * @param {UrlbarQueryContext} queryContext
+   * @param {(provider: UrlbarProvider, result: UrlbarResult) => void} addCallback
+   *   Callback invoked by the provider to add a new result.
    */
   async startQuery(queryContext, addCallback) {
     const instance = this.queryInstance;
@@ -113,11 +112,14 @@ export class UrlbarProviderHistoryUrlHeuristic extends UrlbarProvider {
       type: UrlbarUtils.RESULT_TYPE.URL,
       source: UrlbarUtils.RESULT_SOURCE.HISTORY,
       heuristic: true,
-      ...lazy.UrlbarResult.payloadAndSimpleHighlights(queryContext.tokens, {
-        url: [inputedURL, UrlbarUtils.HIGHLIGHT.TYPED],
-        title: [title, UrlbarUtils.HIGHLIGHT.NONE],
+      payload: {
+        url: inputedURL,
+        title,
         icon: UrlbarUtils.getIconForUrl(resultSet[0].getResultByName("url")),
-      }),
+      },
+      highlights: {
+        url: UrlbarUtils.HIGHLIGHT.TYPED,
+      },
     });
   }
 }

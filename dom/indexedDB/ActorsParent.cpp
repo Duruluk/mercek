@@ -17,7 +17,6 @@
 #include <iterator>
 #include <new>
 #include <numeric>
-#include <tuple>
 #include <type_traits>
 #include <utility>
 
@@ -1327,6 +1326,7 @@ class DatabaseConnection::UpdateRefcountFunction::FileInfoEntry final {
     }
   }
   void DecBySavepointDelta() { mDelta -= mSavepointDelta; }
+  void ResetSavepointDelta() { mSavepointDelta = 0; }
   SafeRefPtr<DatabaseFileInfo> ReleaseFileInfo() {
     return std::move(mFileInfo);
   }
@@ -1522,10 +1522,6 @@ class ConnectionPool final {
   ~ConnectionPool();
 
   static void IdleTimerCallback(nsITimer* aTimer, void* aClosure);
-
-  static uint32_t SerialNumber() { return ++sSerialNumber; }
-
-  static uint32_t sSerialNumber;
 
   void Cleanup();
 
@@ -7631,6 +7627,7 @@ void DatabaseConnection::UpdateRefcountFunction::RollbackSavepoint() {
 
   for (const auto& entry : mSavepointEntriesIndex.Values()) {
     entry->DecBySavepointDelta();
+    entry->ResetSavepointDelta();
   }
 
   mInSavepoint = false;
@@ -8227,14 +8224,9 @@ bool ConnectionPool::ScheduleTransaction(TransactionInfo& aTransactionInfo,
   }
 
   if (!dbInfo.mEventTarget) {
-    const uint32_t serialNumber = SerialNumber();
-    const nsCString serialName =
-        nsPrintfCString("IndexedDB #%" PRIu32, serialNumber);
-
-    dbInfo.mEventTarget =
-        TaskQueue::Create(do_AddRef(mIOTarget), serialName.get());
+    dbInfo.mEventTarget = TaskQueue::Create(do_AddRef(mIOTarget), "IndexedDB");
     MOZ_ASSERT(dbInfo.mEventTarget);
-    IDB_DEBUG_LOG(("ConnectionPool created task queue %" PRIu32, serialNumber));
+    IDB_DEBUG_LOG(("ConnectionPool created task queue IndexedDB"));
   }
 
   // The number of active operations equals the number of databases minus idle
@@ -8731,8 +8723,6 @@ nsresult ConnectionPool::FinishCallbackWrapper::Run() {
 
   return NS_OK;
 }
-
-uint32_t ConnectionPool::sSerialNumber = 0u;
 
 #ifdef DEBUG
 
@@ -10640,8 +10630,8 @@ already_AddRefed<PBackgroundIDBCursorParent> TransactionBase::AllocCursor(
   if (NS_AUUF_OR_WARN_IF(!objectStoreMetadata)) {
     return nullptr;
   }
-  if (aTrustParams && NS_AUUF_OR_WARN_IF(!VerifyRequestParams(
-                          commonParams.optionalKeyRange()))) {
+  if (!aTrustParams && NS_AUUF_OR_WARN_IF(!VerifyRequestParams(
+                           commonParams.optionalKeyRange()))) {
     return nullptr;
   }
   direction = commonParams.direction();
@@ -15087,6 +15077,12 @@ nsresult FactoryOp::DirectoryWorkDone() {
   MOZ_ASSERT(gFactoryOps);
 
   // See if this FactoryOp needs to wait.
+  // FactoryOps are stored in gFactoryOps in the order they are created,
+  // and currently there are three different FactoryOps that gets stored
+  // i.e. OpenDatabaseOp, DeleteDatabaseOp, and GetDatabasesOp.
+  // We iterate over the gFactoryOps list here and put this operation
+  // into a waiting state if there is any existing operation that it needs
+  // to wait for as done by MustWaitFor().
   const bool blocked = [&self = *this] {
     bool foundThis = false;
     bool blocked = false;
@@ -15260,13 +15256,15 @@ bool FactoryOp::MustWaitFor(const FactoryOp& aExistingOp) {
     return false;
   }
 
-  // If the database ids don't overlap, the op can proceed.
-  if (!aExistingOp.mDatabaseId.isNothing() && !mDatabaseId.isNothing() &&
+  // If the database ids don't overlap, the op doesn't need to wait.
+  if (aExistingOp.mDatabaseId.isSome() && mDatabaseId.isSome() &&
       aExistingOp.mDatabaseId.ref() != mDatabaseId.ref()) {
     return false;
   }
 
-  return true;
+  // mDatabaseId being nothing means that this is GetDatabasesOp which
+  // must be serialized with other GetDatabaseOps.
+  return aExistingOp.mDatabaseId.isNothing() == mDatabaseId.isNothing();
 }
 
 // Run() assumes that the caller holds a strong reference to the object that
@@ -15977,22 +15975,11 @@ nsresult OpenDatabaseOp::BeginVersionChange() {
   MOZ_ASSERT(!info->mWaitingFactoryOp);
   MOZ_ASSERT(info->mMetadata == mMetadata);
 
-  auto transaction = MakeSafeRefPtr<VersionChangeTransaction>(this);
-
-  if (NS_WARN_IF(!transaction->CopyDatabaseMetadata())) {
-    return NS_ERROR_OUT_OF_MEMORY;
-  }
-
-  MOZ_ASSERT(info->mMetadata != mMetadata);
-  mMetadata = info->mMetadata.clonePtr();
-
   const Maybe<uint64_t> newVersion = Some(mRequestedVersion);
 
   QM_TRY(MOZ_TO_RESULT(SendVersionChangeMessages(
       info, mDatabase.maybeDeref(), mMetadata->mCommonMetadata.version(),
       newVersion)));
-
-  mVersionChangeTransaction = std::move(transaction);
 
   if (mMaybeBlockedDatabases.IsEmpty()) {
     // We don't need to wait on any databases, just jump to the transaction
@@ -16028,16 +16015,37 @@ void OpenDatabaseOp::SendBlockedNotification() {
 nsresult OpenDatabaseOp::DispatchToWorkThread() {
   AssertIsOnOwningThread();
   MOZ_ASSERT(mState == State::WaitingForTransactionsToComplete);
-  MOZ_ASSERT(mVersionChangeTransaction);
-  MOZ_ASSERT(mVersionChangeTransaction->GetMode() ==
-             IDBTransaction::Mode::VersionChange);
   MOZ_ASSERT(mMaybeBlockedDatabases.IsEmpty());
+  // There's no other place which creates a version change transaction
+  // and sets mVersionChangeTransaction.
+  MOZ_ASSERT(!mVersionChangeTransaction);
 
   if (NS_WARN_IF(QuotaClient::IsShuttingDownOnBackgroundThread()) ||
       IsActorDestroyed() || mDatabase->IsInvalidated()) {
     IDB_REPORT_INTERNAL_ERR();
     return NS_ERROR_DOM_INDEXEDDB_UNKNOWN_ERR;
   }
+
+  DatabaseActorInfo* info;
+  MOZ_ALWAYS_TRUE(gLiveDatabaseHashtable->Get(mDatabaseId.ref(), &info));
+
+  MOZ_ASSERT(info->mLiveDatabases.contains(mDatabase.unsafeGetRawPtr()));
+  MOZ_ASSERT(!info->mWaitingFactoryOp);
+  MOZ_ASSERT(info->mMetadata == mMetadata);
+
+  auto transaction = MakeSafeRefPtr<VersionChangeTransaction>(this);
+
+  if (NS_WARN_IF(!transaction->CopyDatabaseMetadata())) {
+    return NS_ERROR_OUT_OF_MEMORY;
+  }
+
+  MOZ_ASSERT(info->mMetadata != mMetadata);
+  mMetadata = info->mMetadata.clonePtr();
+
+  mVersionChangeTransaction = std::move(transaction);
+
+  MOZ_ASSERT(mVersionChangeTransaction->GetMode() ==
+             IDBTransaction::Mode::VersionChange);
 
   mState = State::DatabaseWorkVersionChange;
 
@@ -19146,7 +19154,8 @@ nsresult ObjectStoreAddOrPutRequestOp::DoDatabaseWork(
 
         // Update index keys if primary key is preserved in child.
         for (auto& updateInfo : mParams.indexUpdateInfos()) {
-          updateInfo.value().MaybeUpdateAutoIncrementKey(autoIncrementNum);
+          QM_TRY(
+              updateInfo.value().MaybeUpdateAutoIncrementKey(autoIncrementNum));
         }
       } else if (key.IsFloat()) {
         double numericKey = key.ToFloat();

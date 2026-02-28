@@ -417,11 +417,6 @@ browsertime-benchmark-speedometer-mobile:
                     android-hw-a55.*shippable.*: [trunk]
                     default: []
             geckoview: []
-            cstm-car-m:
-                by-test-platform:
-                    android-hw-p6.*shippable.*: []
-                    android-hw-s24.*shippable.*: []
-                    default: [mozilla-central]
             default: []
     treeherder-symbol: Btime(sp)
     mozharness:
@@ -448,7 +443,6 @@ browsertime-benchmark-speedometer3-mobile:
                     android-hw-s24.*shippable.*: [mozilla-central]
                     default: []
             geckoview: []
-            cstm-car-m: [mozilla-central]
             chrome-m:
                 by-test-platform:
                     android-hw-p6.*shippable.*: [mozilla-central]
@@ -518,12 +512,7 @@ browsertime-benchmark-jetstream3:
     treeherder-symbol: Btime()
     tier:
         by-app:
-            # Bug 1971608
-            # For now, keep js3 on tier 3 to minimize potential alerts
-            # due to now running on autoland.
-            # Bump to tier 1 or 2 once more development has been done on
-            # js3.
-            fenix: 3
+            fenix: 2
             default: 3
 
 browsertime-benchmark-unity-webgl-mobile:
@@ -572,11 +561,15 @@ browsertime-trr-performance-m:
         apps: [fenix]
         run-visual-metrics: false
         subtests:
-            - trr-clou-m
-            - trr-next-m
-            - trr-natv-m
-            - trr-w-cl-m
-            - trr-w-ne-m
+            - dns-multi
+            - dns-native
+            - dns-usatdy
+            - trr-cloudf
+            - trr-multi
+            - trr-next
+            - trr-usatdy
+            - trr-w-clou
+            - trr-w-next
 
     description: Raptor (browsertime) trr performance tests, mobile
     max-run-time: 600

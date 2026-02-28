@@ -535,10 +535,10 @@ void JitZone::traceWeak(JSTracer* trc, Zone* zone) {
   baselineCacheIRStubCodes_.traceWeak(trc);
   inlinedCompilations_.traceWeak(trc);
 
-  TraceWeakEdge(trc, &lastStubFoldingBailoutChild_,
-                "JitZone::lastStubFoldingBailoutChild_");
-  TraceWeakEdge(trc, &lastStubFoldingBailoutParent_,
-                "JitZone::lastStubFoldingBailoutParent_");
+  TraceWeakEdge(trc, &lastStubFoldingBailoutInner_,
+                "JitZone::lastStubFoldingBailoutInner_");
+  TraceWeakEdge(trc, &lastStubFoldingBailoutOuter_,
+                "JitZone::lastStubFoldingBailoutOuter_");
 }
 
 void JitZone::addSizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf,
@@ -920,7 +920,7 @@ void IonScript::Destroy(JS::GCContext* gcx, IonScript* script) {
   // nursery objects list or constants list in the store buffer. Because this
   // can be called during sweeping when discarding JIT code, we have to lock the
   // store buffer when we find a pointer that's (still) in the nursery.
-  mozilla::Maybe<gc::AutoLockStoreBuffer> lock;
+  mozilla::Maybe<gc::AutoLockSweepingLock> lock;
   for (size_t i = 0, len = script->numNurseryObjects(); i < len; i++) {
     JSObject* obj = script->nurseryObjects()[i];
     if (lock.isNothing() && IsInsideNursery(obj)) {
@@ -1084,6 +1084,21 @@ bool OptimizeMIR(MIRGenerator* mir) {
     }
   }
 
+  if (!JitOptions.disableRecoverIns &&
+      mir->optimizationInfo().scalarReplacementEnabled() &&
+      !JitOptions.disableObjectKeysScalarReplacement) {
+    JitSpewCont(JitSpew_Escape, "\n");
+    if (!ReplaceObjectKeys(mir, graph)) {
+      return false;
+    }
+    mir->spewPass("Replace ObjectKeys");
+    AssertGraphCoherency(graph);
+
+    if (mir->shouldCancel("Replace ObjectKeys")) {
+      return false;
+    }
+  }
+
   if (!mir->compilingWasm() && !JitOptions.disableIteratorIndices) {
     if (!OptimizeIteratorIndices(mir, graph)) {
       return false;
@@ -1184,6 +1199,18 @@ bool OptimizeMIR(MIRGenerator* mir) {
       if (mir->shouldCancel("Eliminate dead resume point operands")) {
         return false;
       }
+    }
+  }
+
+  if (mir->compilingWasm()) {
+    if (!OptimizeWasmCasts(graph)) {
+      return false;
+    }
+    mir->spewPass("Optimize Wasm tests and casts");
+    AssertExtendedGraphCoherency(graph);
+
+    if (mir->shouldCancel("Optimize Wasm tests and casts")) {
+      return false;
     }
   }
 
@@ -1788,7 +1815,7 @@ static AbortReason IonCompile(JSContext* cx, HandleScript script,
   }
 
   auto clearDependencies =
-      mozilla::MakeScopeExit([mirGen]() { mirGen->tracker.reset(); });
+      mozilla::MakeScopeExit([mirGen]() { mirGen->cleanup(); });
 
   MOZ_ASSERT(!script->baselineScript()->hasPendingIonCompileTask());
   MOZ_ASSERT(!script->hasIonScript());

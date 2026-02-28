@@ -28,10 +28,12 @@ add_task(async function () {
   checkRuleViewContent(view, [
     {
       selector: "element",
+      selectorEditable: false,
       declarations: [{ name: "outline", value: "1px solid" }],
     },
     {
       selector: "element attributes style",
+      selectorEditable: false,
       declarations: [{ name: "aspect-ratio", value: "auto 100 / 150" }],
     },
   ]);
@@ -41,10 +43,12 @@ add_task(async function () {
   checkRuleViewContent(view, [
     {
       selector: "element",
+      selectorEditable: false,
       declarations: [],
     },
     {
       selector: "element attributes style",
+      selectorEditable: false,
       declarations: [{ name: "text-align", value: "-moz-center" }],
     },
   ]);
@@ -54,6 +58,7 @@ add_task(async function () {
   checkRuleViewContent(view, [
     {
       selector: "element",
+      selectorEditable: false,
       declarations: [],
     },
     {
@@ -61,6 +66,8 @@ add_task(async function () {
     },
     {
       selector: "element attributes style",
+      selectorEditable: false,
+      inherited: true,
       declarations: [{ name: "text-align", value: "-moz-center" }],
     },
   ]);
@@ -71,6 +78,7 @@ add_task(async function () {
   checkRuleViewContent(view, [
     {
       selector: "element",
+      selectorEditable: false,
       declarations: [],
     },
     {
@@ -82,6 +90,8 @@ add_task(async function () {
     },
     {
       selector: "element attributes style",
+      selectorEditable: false,
+      inherited: true,
       declarations: [
         { name: "text-align", value: "-moz-center", overridden: true },
       ],
@@ -94,10 +104,12 @@ add_task(async function () {
   checkRuleViewContent(view, [
     {
       selector: "element",
+      selectorEditable: false,
       declarations: [],
     },
     {
       selector: "element attributes style",
+      selectorEditable: false,
       declarations: [{ name: "text-align", value: "-moz-left" }],
     },
     {
@@ -105,6 +117,8 @@ add_task(async function () {
     },
     {
       selector: "element attributes style",
+      selectorEditable: false,
+      inherited: true,
       declarations: [
         { name: "text-align", value: "-moz-center", overridden: true },
       ],
@@ -117,10 +131,12 @@ add_task(async function () {
   checkRuleViewContent(view, [
     {
       selector: "element",
+      selectorEditable: false,
       declarations: [{ name: "text-align", value: "center" }],
     },
     {
       selector: "element attributes style",
+      selectorEditable: false,
       declarations: [
         { name: "text-align", value: "-moz-left", overridden: true },
       ],
@@ -131,10 +147,12 @@ add_task(async function () {
   checkRuleViewContent(view, [
     {
       selector: "element",
+      selectorEditable: false,
       declarations: [],
     },
     {
       selector: "element attributes style",
+      selectorEditable: false,
       declarations: [{ name: "color", value: "-moz-inherit-from-body-quirk" }],
     },
   ]);

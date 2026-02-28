@@ -6,13 +6,15 @@ Transform the update-test suite to parametrize by locale, source version, machin
 """
 
 from enum import Enum
+from pathlib import Path
 
 from taskgraph.transforms.base import TransformSequence
 from taskgraph.util.copy import deepcopy
 from taskgraph.util.schema import resolve_keyed_by
 from typing_extensions import final
 
-from gecko_taskgraph.util.attributes import task_name
+from gecko_taskgraph import GECKO
+from gecko_taskgraph.util.attributes import is_try, task_name
 
 
 @final
@@ -32,6 +34,8 @@ APPLICATIONS = ["fx"]
 PLATFORM_TO_DOCKER = {
     "linux2404-64-shippable": "ubuntu2404-test",
 }
+
+SHIPPED_LOCALES_FILE_PATH = Path(GECKO) / "browser/locales/shipped-locales"
 
 TOP_LOCALES = [
     "en-US",
@@ -65,15 +69,15 @@ def infix_treeherder_symbol(symbol, infix):
 @transforms.add
 def set_task_configuration(config, tasks):
     release_type = ReleaseType.release
-    config_tasks = {}
     if config.params["release_type"] == "beta":
         release_type = ReleaseType.beta
     elif config.params["release_type"].startswith("esr"):
         esr_version = int(config.params["release_type"].split("esr")[1])
         release_type = ReleaseType.esr
         if esr_version < ESR_SUPPORT_CUTOFF:
-            return None
+            yield None
 
+    config_tasks = {}
     for dep in config.kind_dependencies_tasks.values():
         if "update-verify-config" in dep.kind:
             config_tasks[task_name(dep)] = dep
@@ -107,17 +111,36 @@ def set_task_configuration(config, tasks):
             del this_task["test-platforms"]
 
             if this_task["shipping-product"] == "firefox":
-                if release_type == ReleaseType.beta:
-                    this_task["name"] = this_task["name"] + "-beta"
-                    this_task["run"]["command"] = (
-                        this_task["run"]["command"] + " --channel beta-localtest"
+                product_channel = release_type.name.lower()
+                if this_task["shipping-phase"] == "promote":
+                    update_channel = "-localtest"
+                elif this_task["shipping-phase"] == "push":
+                    update_channel = "-cdntest"
+                else:
+                    raise OSError("Expected promote or push shipping-phase.")
+
+                if this_task["shipping-phase"] != "promote":
+                    this_task["treeherder"]["symbol"] = infix_treeherder_symbol(
+                        this_task["treeherder"]["symbol"],
+                        this_task["shipping-phase"][:6],
                     )
-                elif release_type == ReleaseType.esr:
-                    this_task["name"] = this_task["name"] + "-esr"
+                if release_type != ReleaseType.release:
+                    this_task["name"] = this_task["name"] + f"-{product_channel}"
+                this_task["run"]["command"] = (
+                    this_task["run"]["command"]
+                    + f" --channel {product_channel}{update_channel}"
+                )
+
+                if release_type == ReleaseType.esr:
                     this_task["run"]["command"] = (
-                        this_task["run"]["command"]
-                        + f" --channel esr-localtest --esr-version {esr_version}"
+                        this_task["run"]["command"] + f" --esr-version {esr_version}"
                     )
+
+            if is_try(config.params):
+                this_task["run"]["command"] = (
+                    this_task["run"]["command"] + " --use-balrog-staging"
+                )
+                this_task["worker"]["env"]["BALROG_STAGING"] = "1"
             this_task["name"] = this_task["name"].replace("linux-docker-", "")
             this_task["index"]["job-name"] = "update-test-" + this_task["name"]
 
@@ -142,24 +165,28 @@ def set_task_configuration(config, tasks):
 
 @transforms.add
 def parametrize_by_locale(config, tasks):
+    with open(SHIPPED_LOCALES_FILE_PATH) as f:
+        shipped_locales = f.read().split()
     for task in tasks:
         if "locale" not in task.get("name"):
             yield task
             continue
         for locale in TOP_LOCALES:
+            if locale not in shipped_locales:
+                continue
             this_task = deepcopy(task)
             this_task["run"]["command"] = (
                 this_task["run"]["command"] + f" --source-locale {locale}"
             )
             this_task["description"] = (
-                f'{this_task["description"]}, locale coverage: {locale}'
+                f"{this_task['description']}, locale coverage: {locale}"
             )
             this_task["name"] = this_task["name"].replace("locale", locale)
-            this_task["index"][
-                "job-name"
-            ] = f'{this_task["index"]["job-name"]}-{locale}'
+            this_task["index"]["job-name"] = (
+                f"{this_task['index']['job-name']}-{locale}"
+            )
             this_task["treeherder"]["symbol"] = infix_treeherder_symbol(
-                this_task["treeherder"]["symbol"], locale
+                this_task["treeherder"]["symbol"], locale.replace("-", "")
             )
             yield this_task
 
@@ -190,7 +217,7 @@ def parametrize_by_source_version(config, tasks):
             this_task["name"] = this_task["name"].replace("-source-version", ago_tag)
             this_task["index"]["job-name"] = this_task["index"]["job-name"] + ago_tag
             this_task["treeherder"]["symbol"] = infix_treeherder_symbol(
-                this_task["treeherder"]["symbol"], ago_tag.split("-", 2)[-1]
+                this_task["treeherder"]["symbol"], "oldst" if v == 0 else f"bk{v}"
             )
             yield this_task
 

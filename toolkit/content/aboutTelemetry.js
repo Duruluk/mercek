@@ -25,7 +25,6 @@ const { AppConstants } = ChromeUtils.importESModule(
 );
 ChromeUtils.defineESModuleGetters(this, {
   ObjectUtils: "resource://gre/modules/ObjectUtils.sys.mjs",
-  Preferences: "resource://gre/modules/Preferences.sys.mjs",
 });
 
 const Telemetry = Services.telemetry;
@@ -733,7 +732,7 @@ var SlowSQL = {
 
     let debugSlowSql =
       PingPicker.viewCurrentPingData &&
-      Preferences.get(PREF_DEBUG_SLOW_SQL, false);
+      Services.prefs.getBoolPref(PREF_DEBUG_SLOW_SQL, false);
     let slowSql = debugSlowSql ? Telemetry.debugSlowSQL : aPing.payload.slowSQL;
     if (!slowSql) {
       setHasData("slow-sql-section", false);
@@ -1445,6 +1444,7 @@ var Search = {
 /**
  * Helper function to render JS objects with white space between top level elements
  * so that they look better in the browser
+ *
  * @param   aObject JavaScript object or array to render
  * @return  String
  */
@@ -1536,6 +1536,7 @@ var GenericTable = {
 
   /**
    * Returns a n-column table.
+   *
    * @param rows An array of arrays, each containing data to render
    *             for one row.
    * @param headings The column header strings.
@@ -1624,6 +1625,7 @@ var KeyedHistogram = {
 var AddonDetails = {
   /**
    * Render the addon details section as a series of headers followed by key/value tables
+   *
    * @param aPing A ping object to render the data from.
    */
   render(aPing) {
@@ -1754,6 +1756,7 @@ class Scalars extends Section {
 
   /**
    * Render the scalar data - if present - from the payload in a simple key-value table.
+   *
    * @param aPayload A payload object to render the data from.
    */
   static render(aPayload) {
@@ -1804,6 +1807,7 @@ class KeyedScalars extends Section {
 
   /**
    * Render the keyed scalar data - if present - from the payload in a simple key-value table.
+   *
    * @param aPayload A payload object to render the data from.
    */
   static render(aPayload) {
@@ -1816,6 +1820,7 @@ class KeyedScalars extends Section {
 var Events = {
   /**
    * Render the event data - if present - from the payload in a simple table.
+   *
    * @param aPayload A payload object to render the data from.
    */
   render(aPayload) {
@@ -1899,7 +1904,10 @@ function setHasData(aSectionID, aHasData) {
  * Sets l10n attributes based on the Telemetry Server Owner pref.
  */
 function setupServerOwnerBranding() {
-  let serverOwner = Preferences.get(PREF_TELEMETRY_SERVER_OWNER, "Mozilla");
+  let serverOwner = Services.prefs.getStringPref(
+    PREF_TELEMETRY_SERVER_OWNER,
+    "Mozilla"
+  );
   const elements = [
     [document.getElementById("page-subtitle"), "about-telemetry-page-subtitle"],
   ];

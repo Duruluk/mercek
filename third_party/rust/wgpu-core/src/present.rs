@@ -13,7 +13,7 @@ use alloc::{sync::Arc, vec::Vec};
 use core::mem::ManuallyDrop;
 
 #[cfg(feature = "trace")]
-use crate::device::trace::Action;
+use crate::device::trace::{Action, IntoTrace};
 use crate::{
     conv,
     device::{Device, DeviceError, MissingDownlevelFlags, WaitIdleError},
@@ -293,7 +293,11 @@ impl Surface {
             .take()
             .ok_or(SurfaceError::AlreadyAcquired)?;
 
-        let result = match texture.inner.snatch(&mut device.snatchable_lock.write()) {
+        let mut exclusive_snatch_guard = device.snatchable_lock.write();
+        let inner = texture.inner.snatch(&mut exclusive_snatch_guard);
+        drop(exclusive_snatch_guard);
+
+        let result = match inner {
             None => return Err(SurfaceError::TextureDestroyed),
             Some(resource::TextureInner::Surface { raw }) => {
                 let raw_surface = self.raw(device.backend()).unwrap();
@@ -337,7 +341,11 @@ impl Surface {
             .take()
             .ok_or(SurfaceError::AlreadyAcquired)?;
 
-        match texture.inner.snatch(&mut device.snatchable_lock.write()) {
+        let mut exclusive_snatch_guard = device.snatchable_lock.write();
+        let inner = texture.inner.snatch(&mut exclusive_snatch_guard);
+        drop(exclusive_snatch_guard);
+
+        match inner {
             None => return Err(SurfaceError::TextureDestroyed),
             Some(resource::TextureInner::Surface { raw }) => {
                 let raw_surface = self.raw(device.backend()).unwrap();
@@ -360,17 +368,19 @@ impl Global {
 
         let fid = self.hub.textures.prepare(texture_id_in);
 
+        let output = surface.get_current_texture()?;
+
         #[cfg(feature = "trace")]
         if let Some(present) = surface.presentation.lock().as_ref() {
             if let Some(ref mut trace) = *present.device.trace.lock() {
-                trace.add(Action::GetSurfaceTexture {
-                    id: fid.id(),
-                    parent_id: surface_id,
-                });
+                if let Some(texture) = present.acquired_texture.as_ref() {
+                    trace.add(Action::GetSurfaceTexture {
+                        id: texture.to_trace(),
+                        parent: surface.to_trace(),
+                    });
+                }
             }
         }
-
-        let output = surface.get_current_texture()?;
 
         let status = output.status;
         let texture_id = output
@@ -389,7 +399,7 @@ impl Global {
         #[cfg(feature = "trace")]
         if let Some(present) = surface.presentation.lock().as_ref() {
             if let Some(ref mut trace) = *present.device.trace.lock() {
-                trace.add(Action::Present(surface_id));
+                trace.add(Action::Present(surface.to_trace()));
             }
         }
 
@@ -402,7 +412,7 @@ impl Global {
         #[cfg(feature = "trace")]
         if let Some(present) = surface.presentation.lock().as_ref() {
             if let Some(ref mut trace) = *present.device.trace.lock() {
-                trace.add(Action::DiscardSurfaceTexture(surface_id));
+                trace.add(Action::DiscardSurfaceTexture(surface.to_trace()));
             }
         }
 

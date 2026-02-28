@@ -42,7 +42,8 @@ class SVGPathSegment final : public nsWrapperCache {
   RefPtr<SVGPathElement> mSVGPathElement;
   nsString mCommand;
   nsTArray<float> mValues;
-  void AppendPoint(const StyleCommandEndPoint<StyleCSSFloat>& point);
+  void AppendEndPoint(const StyleEndPoint<StyleCSSFloat>& point);
+  void AppendControlPoint(const StyleCurveControlPoint<StyleCSSFloat>& point);
 };
 
 }  // namespace mozilla::dom

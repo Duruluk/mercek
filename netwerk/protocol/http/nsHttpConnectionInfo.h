@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsHttpConnectionInfo_h__
-#define nsHttpConnectionInfo_h__
+#ifndef nsHttpConnectionInfo_h_
+#define nsHttpConnectionInfo_h_
 
 #include "nsHttp.h"
 #include "nsProxyInfo.h"
@@ -64,9 +64,9 @@ class nsHttpConnectionInfo final : public ARefBase {
   DeserializeHttpConnectionInfoCloneArgs(
       const HttpConnectionInfoCloneArgs& aInfoArgs);
 
-  static void BuildOriginFrameHashKey(nsACString& newKey,
-                                      nsHttpConnectionInfo* ci,
-                                      const nsACString& host, int32_t port);
+  static HashNumber BuildOriginFrameHashKey(nsHttpConnectionInfo* ci,
+                                            const nsACString& host,
+                                            int32_t port);
 
  private:
   virtual ~nsHttpConnectionInfo() {
@@ -344,4 +344,4 @@ class nsHttpConnectionInfo final : public ARefBase {
 }  // namespace net
 }  // namespace mozilla
 
-#endif  // nsHttpConnectionInfo_h__
+#endif  // nsHttpConnectionInfo_h_

@@ -31,12 +31,6 @@ ChromeUtils.defineESModuleGetters(this, {
   recordListItemManageTelemetry: "chrome://global/content/ml/Utils.sys.mjs",
 });
 
-XPCOMUtils.defineLazyPreferenceGetter(
-  this,
-  "manifestV3enabled",
-  "extensions.manifestV3.enabled"
-);
-
 const UPDATES_RECENT_TIMESPAN = 2 * 24 * 3600000; // 2 days (in milliseconds)
 
 XPCOMUtils.defineLazyPreferenceGetter(
@@ -56,6 +50,12 @@ XPCOMUtils.defineLazyPreferenceGetter(
   "DATA_COLLECTION_PERMISSIONS_ENABLED",
   "extensions.dataCollectionPermissions.enabled",
   false
+);
+XPCOMUtils.defineLazyPreferenceGetter(
+  this,
+  "FORCED_COLORS_OVERRIDE_ENABLED",
+  "browser.theme.forced-colors-override.enabled",
+  true
 );
 
 const PLUGIN_ICON_URL = "chrome://global/skin/icons/plugin.svg";
@@ -127,9 +127,8 @@ function getUpdateInstall(addon) {
 
 function isManualUpdate(install) {
   const isExistingHidden = install.existingAddon?.hidden;
-  // NOTE: some of the existing test cases are mocking an AddonInstall
-  // instance without an `install.addon` property set
-  // (e.g. browser_html_pending_updates.js).
+  // install.addon can be missing if the install was retrieved from an update
+  // check, without having downloaded and parsed the linked xpi yet.
   const isNewHidden = install.addon?.hidden;
   // Not a manual update installation if both the existing and old
   // addon are hidden (which also ensures we are going to hide pending
@@ -309,7 +308,16 @@ async function getAddonMessageInfo(
       type: "warning",
     };
   } else if (addon.blocklistState === STATE_SOFTBLOCKED) {
-    const fluentBaseId = "details-notification-soft-blocked";
+    const softBlockFluentIdsMap = {
+      extension: {
+        enabled: "details-notification-soft-blocked-extension-enabled2",
+        disabled: "details-notification-soft-blocked-extension-disabled2",
+      },
+      other: {
+        enabled: "details-notification-soft-blocked-other-enabled2",
+        disabled: "details-notification-soft-blocked-other-disabled2",
+      },
+    };
     let typeSuffix = addon.type === "extension" ? "extension" : "other";
     let stateSuffix;
     // If the Addon Card is not expanded, delay changing the messagebar
@@ -320,7 +328,7 @@ async function getAddonMessageInfo(
     } else {
       stateSuffix = !isInDisabledSection ? "enabled" : "disabled";
     }
-    let messageId = `${fluentBaseId}-${typeSuffix}-${stateSuffix}`;
+    let messageId = softBlockFluentIdsMap[typeSuffix][stateSuffix];
 
     return {
       linkUrl: await addon.getBlocklistURL(),
@@ -1411,10 +1419,25 @@ class CategoriesBox extends customElements.get("button-group") {
   }
 
   async updateAvailableCount() {
+    // Note: This list includes new installs and updates, potentially multiple
+    // for the same add-on (because they are not cleaned up - bug 2007749).
     let installs = await AddonManager.getAllInstalls();
-    var count = installs.filter(install => {
-      return isManualUpdate(install) && !install.installed;
-    }).length;
+    let addonIdsWithUpdate = new Set();
+    for (const install of installs) {
+      if (isManualUpdate(install) && install.existingAddon) {
+        // Note: install.existingAddon points to the existing addon at the time
+        // of the update check, which is not necessarily the current version.
+        const addon = await AddonManager.getAddonByID(install.existingAddon.id);
+        if (
+          addon &&
+          getUpdateInstall(addon) === install &&
+          Services.vc.compare(install.version, addon.version) > 0
+        ) {
+          addonIdsWithUpdate.add(addon.id);
+        }
+      }
+    }
+    const count = addonIdsWithUpdate.size;
     let availableButton = this.getButtonByName("available-updates");
     availableButton.hidden = !availableButton.selected && count == 0;
     availableButton.badgeCount = count;
@@ -1979,23 +2002,21 @@ class AddonPermissionsList extends HTMLElement {
     let optionalPerms = { ...(this.addon.optionalPermissions ?? empty) };
     let grantedPerms = await ExtensionPermissions.get(this.addon.id);
 
-    if (manifestV3enabled) {
-      // If optional permissions include <all_urls>, extension can request and
-      // be granted permission for individual sites not listed in the manifest.
-      // Include them as well in the optional origins list.
-      let origins = [
-        ...(this.addon.optionalOriginsNormalized ?? []),
-        ...grantedPerms.origins.filter(o => !requiredPerms.origins.includes(o)),
-      ];
-      optionalPerms.origins = [...new Set(origins)];
-    }
+    // If optional permissions include <all_urls>, extension can request and
+    // be granted permission for individual sites not listed in the manifest.
+    // Include them as well in the optional origins list.
+    let origins = [
+      ...(this.addon.optionalOriginsNormalized ?? []),
+      ...grantedPerms.origins.filter(o => !requiredPerms.origins.includes(o)),
+    ];
+    optionalPerms.origins = [...new Set(origins)];
 
     let permissions = Extension.formatPermissionStrings(
       {
         permissions: requiredPerms,
         optionalPermissions: optionalPerms,
       },
-      { buildOptionalOrigins: manifestV3enabled }
+      { buildOptionalOrigins: true }
     );
     let optionalEntries = [
       ...Object.entries(permissions.optionalPermissions),
@@ -3449,6 +3470,7 @@ class AddonList extends HTMLElement {
     this.pendingUninstallAddons = new Set();
     this._addonsToUpdate = new Set();
     this._userFocusListenersAdded = false;
+    this._listeningForInstallUpdates = false;
   }
 
   async connectedCallback() {
@@ -3478,6 +3500,10 @@ class AddonList extends HTMLElement {
 
   /**
    * Configure the sections in the list.
+   *
+   * Warning: if filterFn uses criteria that are not tied to add-on events,
+   * make sure to add an implementation that calls updateAddon(addon) as
+   * needed. Not doing so can result in missing or out-of-date add-on cards!
    *
    * @param {object[]} sections
    *        The options for the section. Each entry in the array should have:
@@ -3826,6 +3852,11 @@ class AddonList extends HTMLElement {
   }
 
   _updateAddon(addon) {
+    if (this._listeningForInstallUpdates) {
+      // For stability of the UI, do not remove the card from the updates view
+      // when it is already there, even when an update is installed.
+      return;
+    }
     let card = this.getCard(addon);
     if (card) {
       let sectionIndex = this._addonSectionIndex(addon);
@@ -3965,16 +3996,42 @@ class AddonList extends HTMLElement {
   }
 
   onInstalled(addon) {
-    if (this.querySelector(`addon-card[addon-id="${addon.id}"]`)) {
-      return;
-    }
-    this.addAddon(addon);
+    this.updateAddon(addon);
   }
 
   onUninstalled(addon) {
     this.pendingUninstallAddons.delete(addon);
     this.removePendingUninstallBar(addon);
     this.removeAddon(addon);
+  }
+
+  onNewInstall(install) {
+    if (this._listeningForInstallUpdates) {
+      this._updateOnNewInstall(install);
+    }
+  }
+
+  onInstallPostponed(install) {
+    if (this._listeningForInstallUpdates) {
+      this._updateOnNewInstall(install);
+    }
+  }
+
+  listenForUpdates() {
+    this._listeningForInstallUpdates = true;
+  }
+
+  async _updateOnNewInstall(install) {
+    if (!install.existingAddon) {
+      // Not from an update check.
+      return;
+    }
+    // install.existingAddon can differ from the actual add-on (bug 2007749).
+    // To make sure that we use the real, live add-on state, look it up again.
+    const addon = await AddonManager.getAddonByID(install.existingAddon.id);
+    if (addon) {
+      this.updateAddon(addon);
+    }
   }
 }
 customElements.define("addon-list", AddonList);
@@ -4163,8 +4220,10 @@ class ForcedColorsNotice extends HTMLElement {
   }
 
   render() {
-    this.hidden = !this.forcedColorsMediaQuery.matches;
-    if (!this.hidden && this.childElementCount == 0) {
+    let shouldShowNotice =
+      FORCED_COLORS_OVERRIDE_ENABLED && this.forcedColorsMediaQuery.matches;
+    this.hidden = !shouldShowNotice;
+    if (shouldShowNotice && this.childElementCount == 0) {
       this.appendChild(importTemplate("forced-colors-notice"));
     }
   }
@@ -4181,6 +4240,75 @@ class ForcedColorsNotice extends HTMLElement {
   }
 }
 customElements.define("forced-colors-notice", ForcedColorsNotice);
+
+const PREF_SMARTWINDOW_TOS_CONSENT_TIME = "browser.smartwindow.tos.consentTime";
+const PREF_SMARTWINDOW_THEME_NOTICE = "browser.smartwindow.showThemesNotice";
+
+class SmartWindowThemesNotice extends HTMLElement {
+  #prefObserver;
+
+  connectedCallback() {
+    this.addEventListener("message-bar:user-dismissed", this);
+    this.#prefObserver = this.observe.bind(this);
+    Services.prefs.addObserver(
+      PREF_SMARTWINDOW_TOS_CONSENT_TIME,
+      this.#prefObserver
+    );
+    Services.prefs.addObserver(
+      PREF_SMARTWINDOW_THEME_NOTICE,
+      this.#prefObserver
+    );
+    this.render();
+  }
+
+  disconnectedCallback() {
+    this.removeEventListener("message-bar:user-dismissed", this);
+    Services.prefs.removeObserver(
+      PREF_SMARTWINDOW_TOS_CONSENT_TIME,
+      this.#prefObserver
+    );
+    Services.prefs.removeObserver(
+      PREF_SMARTWINDOW_THEME_NOTICE,
+      this.#prefObserver
+    );
+    this.#prefObserver = null;
+  }
+
+  render() {
+    let hasConsent =
+      Services.prefs.getIntPref(PREF_SMARTWINDOW_TOS_CONSENT_TIME, 0) > 0;
+    let shouldShowNotice = Services.prefs.getBoolPref(
+      PREF_SMARTWINDOW_THEME_NOTICE,
+      false
+    );
+    this.hidden = !(hasConsent && shouldShowNotice);
+    if (!this.hidden && this.childElementCount == 0) {
+      this.appendChild(importTemplate("smartwindow-themes-notice"));
+    }
+  }
+
+  handleEvent(e) {
+    if (e.type === "message-bar:user-dismissed") {
+      Services.prefs.setBoolPref(PREF_SMARTWINDOW_THEME_NOTICE, false);
+    }
+  }
+
+  observe(_subject, topic, data) {
+    if (topic !== "nsPref:changed") {
+      return;
+    }
+    if (
+      ![
+        PREF_SMARTWINDOW_TOS_CONSENT_TIME,
+        PREF_SMARTWINDOW_THEME_NOTICE,
+      ].includes(data)
+    ) {
+      return;
+    }
+    this.render();
+  }
+}
+customElements.define("smartwindow-themes-notice", SmartWindowThemesNotice);
 
 class TaarMessageBar extends HTMLElement {
   connectedCallback() {
@@ -4349,13 +4477,19 @@ gViewController.defineView("list", async type => {
     filterFn: disabledAddonsFilterFn,
   });
 
-  // Show the colorway and forced-colors notice only in themes list view.
+  // Show the colorway, forced-colors and smart window theme notices only
+  // in themes list view.
   if (type === "theme") {
     const colorwayNotice = document.createElement("colorway-removal-notice");
     frag.appendChild(colorwayNotice);
 
     const forcedColorsNotice = document.createElement("forced-colors-notice");
     frag.appendChild(forcedColorsNotice);
+
+    const smartWindowNotice = document.createElement(
+      "smartwindow-themes-notice"
+    );
+    frag.appendChild(smartWindowNotice);
   }
 
   list.setSections(sections);
@@ -4424,12 +4558,13 @@ gViewController.defineView("updates", async param => {
         filterFn: addon => {
           // Filter the addons visible in the updates view using the same
           // criteria that is being used to compute the counter on the
-          // available updates category button badge.
+          // available updates category button badge (updateAvailableCount).
           const install = getUpdateInstall(addon);
-          return install && isManualUpdate(install) && !install.installed;
+          return install && isManualUpdate(install);
         },
       },
     ]);
+    list.listenForUpdates();
   } else if (param == "recent") {
     list.sortByFn = (a, b) => {
       if (a.updateDate > b.updateDate) {

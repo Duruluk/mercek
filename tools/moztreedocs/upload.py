@@ -2,6 +2,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, # You can obtain one at http://mozilla.org/MPL/2.0/.
 
+import functools
 import io
 import mimetypes
 import os
@@ -12,10 +13,9 @@ from pprint import pprint
 import boto3
 import botocore
 import requests
-from mozbuild.util import memoize
 
 
-@memoize
+@functools.cache
 def create_aws_session():
     """
     This function creates an aws session that is
@@ -53,7 +53,7 @@ def create_aws_session():
     return s3, bucket
 
 
-@memoize
+@functools.cache
 def get_s3_keys(s3, bucket):
     kwargs = {"Bucket": bucket}
     all_keys = []

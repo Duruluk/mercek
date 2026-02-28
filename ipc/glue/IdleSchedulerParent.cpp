@@ -32,7 +32,7 @@ static SharedMemoryMappingWithHandle& sActiveChildCounter() {
 
 std::bitset<NS_IDLE_SCHEDULER_COUNTER_ARRAY_LENGHT>
     IdleSchedulerParent::sInUseChildCounters;
-MOZ_RUNINIT LinkedList<IdleSchedulerParent>
+constinit LinkedList<IdleSchedulerParent>
     IdleSchedulerParent::sIdleAndGCRequests;
 int32_t IdleSchedulerParent::sMaxConcurrentIdleTasksInChildProcesses = 1;
 uint32_t IdleSchedulerParent::sMaxConcurrentGCs = 1;

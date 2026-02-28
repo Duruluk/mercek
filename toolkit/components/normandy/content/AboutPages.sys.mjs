@@ -74,6 +74,7 @@ export let AboutPages = {};
 let BrowsingContexts = new WeakSet();
 /**
  * about:studies page for displaying in-progress and past Shield studies.
+ *
  * @type {AboutPage}
  * @implements {nsIMessageListener}
  */
@@ -101,11 +102,15 @@ ChromeUtils.defineLazyGetter(AboutPages, "aboutStudies", () => {
     },
 
     getMessagingSystemList() {
+      const debugEnabled = Services.prefs.getBoolPref("nimbus.debug");
+
       // Do not include Firefox Labs. Those are shown on
       // about:preferences#experimental.
+      //
+      // Only show Rollouts if nimbus.debug is enabled.
       return lazy.ExperimentAPI.manager.store
         .getAll()
-        .filter(e => !e.isFirefoxLabsOptIn);
+        .filter(e => !e.isFirefoxLabsOptIn && (debugEnabled || !e.isRollout));
     },
 
     async optInToExperiment(data) {
@@ -143,6 +148,7 @@ ChromeUtils.defineLazyGetter(AboutPages, "aboutStudies", () => {
     /**
      * Sends a message to every about:studies page,
      * by iterating over the BrowsingContexts weakset.
+     *
      * @param {string} message The message string to send to.
      * @param {object} data The data object to send.
      */
@@ -167,8 +173,9 @@ ChromeUtils.defineLazyGetter(AboutPages, "aboutStudies", () => {
 
     /**
      * Disable an active add-on study and remove its add-on.
-     * @param {String} recipeId the id of the addon to remove
-     * @param {String} reason the reason for removal
+     *
+     * @param {string} recipeId the id of the addon to remove
+     * @param {string} reason the reason for removal
      */
     async removeAddonStudy(recipeId, reason) {
       try {
@@ -191,8 +198,9 @@ ChromeUtils.defineLazyGetter(AboutPages, "aboutStudies", () => {
 
     /**
      * Disable an active preference study.
-     * @param {String} experimentName the name of the experiment to remove
-     * @param {String} reason the reason for removal
+     *
+     * @param {string} experimentName the name of the experiment to remove
+     * @param {string} reason the reason for removal
      */
     async removePreferenceStudy(experimentName, reason) {
       try {

@@ -141,6 +141,16 @@ void AssignPassTimestampWrites(const T& src,
   dest.query_set = src.mQuerySet->GetId();
 }
 
+// Metal imposes a limit on the number of outstanding command buffers.
+// Attempting to create another command buffer after reaching that limit
+// will block, which can result in a deadlock if GC is required to
+// recover old command buffers. To encourage garbage collection of
+// command buffers before that happens, we associate some additional
+// memory with each command buffer.
+inline size_t BindingJSObjectMallocBytes(CommandEncoder* aEncoder) {
+  return 16384;
+}
+
 }  // namespace webgpu
 }  // namespace mozilla
 

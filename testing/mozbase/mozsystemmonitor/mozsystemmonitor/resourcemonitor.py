@@ -226,18 +226,16 @@ def _collect(pipe, poll_interval):
             swap_entry[sout_index] = swap_mem.sout - swap_last.sout
             swap_last = swap_mem
 
-            data.append(
-                (
-                    last_time,
-                    measured_end_time,
-                    io_diff,
-                    net_io_diff,
-                    cpu_diff,
-                    cpu_percent,
-                    list(virt_mem),
-                    swap_entry,
-                )
-            )
+            data.append((
+                last_time,
+                measured_end_time,
+                io_diff,
+                net_io_diff,
+                cpu_diff,
+                cpu_percent,
+                list(virt_mem),
+                swap_entry,
+            ))
 
             update_known_processes()
 
@@ -255,19 +253,24 @@ def _collect(pipe, poll_interval):
         for pid, create_time, end_time, cmd, ppid in processes:
             if len(cmd) > 0:
                 cmd[0] = os.path.basename(cmd[0])
-            cmdline = " ".join(
-                [
-                    arg
-                    for arg in cmd
-                    if not arg.startswith("-D")
-                    and not arg.startswith("-I")
-                    and not arg.startswith("-W")
-                    and not arg.startswith("-L")
-                ]
-            )
-            pipe.send(
-                ("process", pid, create_time, end_time, cmdline, ppid, None, None)
-            )
+            cmdline = " ".join([
+                arg
+                for arg in cmd
+                if not arg.startswith("-D")
+                and not arg.startswith("-I")
+                and not arg.startswith("-W")
+                and not arg.startswith("-L")
+            ])
+            pipe.send((
+                "process",
+                pid,
+                create_time,
+                end_time,
+                cmdline,
+                ppid,
+                None,
+                None,
+            ))
 
         pipe.send(("done", None, None, None, None, None, None, None))
         pipe.close()
@@ -532,17 +535,15 @@ class SystemResourceMonitor:
                 # We also can't recover, but output the data that caused the exception
                 warnings.warn(
                     "failed to read the received data: %s"
-                    % str(
-                        (
-                            start_time,
-                            end_time,
-                            io_diff,
-                            cpu_diff,
-                            cpu_percent,
-                            virt_mem,
-                            swap_mem,
-                        )
-                    )
+                    % str((
+                        start_time,
+                        end_time,
+                        io_diff,
+                        cpu_diff,
+                        cpu_percent,
+                        virt_mem,
+                        swap_mem,
+                    ))
                 )
 
                 break
@@ -680,14 +681,12 @@ class SystemResourceMonitor:
                     if "write_time" in data:
                         marker_data["write_time"] = data["write_time"]
 
-                self.markers.append(
-                    (
-                        "sccache",
-                        data["start_time"],
-                        data["end_time"],
-                        marker_data,
-                    )
-                )
+                self.markers.append((
+                    "sccache",
+                    data["start_time"],
+                    data["end_time"],
+                    marker_data,
+                ))
 
         except Exception as e:
             warnings.warn(f"Failed to parse sccache.log: {e}")
@@ -697,17 +696,15 @@ class SystemResourceMonitor:
             num_markers = len(compilations)
             # Add as a duration marker
             if num_markers > 0:
-                self.markers.append(
-                    (
-                        "sccache parsing",
-                        parse_start,
-                        parse_end,
-                        {
-                            "type": "Text",
-                            "text": f"Parsed {num_markers} sccache entries from log",
-                        },
-                    )
-                )
+                self.markers.append((
+                    "sccache parsing",
+                    parse_start,
+                    parse_end,
+                    {
+                        "type": "Text",
+                        "text": f"Parsed {num_markers} sccache entries from log",
+                    },
+                ))
 
     # Methods to record events alongside the monitored data.
 
@@ -898,6 +895,29 @@ class SystemResourceMonitor:
             marker_data["stack"] = stack
 
         SystemResourceMonitor.record_event(marker_name, timestamp, marker_data)
+
+        # Check if this is a shutdown leak failure
+        if (
+            data.get("subtest") == "Shutdown"
+            and data.get("status") == "FAIL"
+            and (test_name := data.get("test"))
+            and message
+            and "leaked" in message
+            and "until shutdown" in message
+        ):
+            # Find the corresponding test marker and mark it as failed due to leak
+            # if it hasn't already failed for another reason
+            for marker in SystemResourceMonitor.instance.markers:
+                marker_name_type, marker_start, marker_end, marker_data = marker
+                if (
+                    marker_name_type == "test"
+                    and marker_data.get("test") == test_name
+                    and marker_start <= timestamp <= marker_end
+                    and marker_data.get("status") == "PASS"
+                ):
+                    marker_data["color"] = "orange"
+                    marker_data["status"] = "FAIL"
+                    break
 
     @staticmethod
     def crash(data):
@@ -1153,129 +1173,8 @@ class SystemResourceMonitor:
 
         return max(values)
 
-    def as_dict(self):
-        """Convert the recorded data to a dict, suitable for serialization.
-
-        The returned dict has the following keys:
-
-          version - Integer version number being rendered. Currently 2.
-          cpu_times_fields - A list of the names of the CPU times fields.
-          io_fields - A list of the names of the I/O fields.
-          virt_fields - A list of the names of the virtual memory fields.
-          swap_fields - A list of the names of the swap memory fields.
-          samples - A list of dicts containing low-level measurements.
-          events - A list of lists representing point events. The inner list
-            has 2 elements, the float wall time of the event and the string
-            event name.
-          phases - A list of dicts describing phases. Each phase looks a lot
-            like an entry from samples (see below). Some phases may not have
-            data recorded against them, so some keys may be None.
-          overall - A dict representing overall resource usage. This resembles
-            a sample entry.
-          system - Contains additional information about the system including
-            number of processors and amount of memory.
-
-        Each entry in the sample list is a dict with the following keys:
-
-          start - Float wall time this measurement began on.
-          end - Float wall time this measurement ended on.
-          io - List of numerics for I/O values.
-          virt - List of numerics for virtual memory values.
-          swap - List of numerics for swap memory values.
-          cpu_percent - List of floats representing CPU percent on each core.
-          cpu_times - List of lists. Main list is each core. Inner lists are
-            lists of floats representing CPU times on that core.
-          cpu_percent_mean - Float of mean CPU percent across all cores.
-          cpu_times_sum - List of floats representing the sum of CPU times
-            across all cores.
-          cpu_times_total - Float representing the sum of all CPU times across
-            all cores. This is useful for calculating the percent in each CPU
-            time.
-        """
-
-        o = dict(
-            version=2,
-            cpu_times_fields=list(self._cpu_times_type._fields),
-            io_fields=list(self._io_type._fields),
-            virt_fields=list(self._virt_type._fields),
-            swap_fields=list(self._swap_type._fields),
-            samples=[],
-            phases=[],
-            system={},
-        )
-
-        def populate_derived(e):
-            if e["cpu_percent_cores"]:
-                # pylint --py3k W1619
-                e["cpu_percent_mean"] = sum(e["cpu_percent_cores"]) / len(
-                    e["cpu_percent_cores"]
-                )
-            else:
-                e["cpu_percent_mean"] = None
-
-            if e["cpu_times"]:
-                e["cpu_times_sum"] = [0.0] * self._cpu_times_len
-                for i in range(0, self._cpu_times_len):
-                    e["cpu_times_sum"][i] = sum(core[i] for core in e["cpu_times"])
-
-                e["cpu_times_total"] = sum(e["cpu_times_sum"])
-
-        def phase_entry(name, start, end):
-            e = dict(
-                name=name,
-                start=start,
-                end=end,
-                duration=end - start,
-                cpu_percent_cores=self.aggregate_cpu_percent(phase=name),
-                cpu_times=[list(c) for c in self.aggregate_cpu_times(phase=name)],
-                io=list(self.aggregate_io(phase=name)),
-            )
-            populate_derived(e)
-            return e
-
-        for m in self.measurements:
-            e = dict(
-                start=m.start,
-                end=m.end,
-                io=list(m.io),
-                virt=list(m.virt),
-                swap=list(m.swap),
-                cpu_percent_cores=list(m.cpu_percent),
-                cpu_times=list(list(cpu) for cpu in m.cpu_times),
-            )
-
-            populate_derived(e)
-            o["samples"].append(e)
-
-        if o["samples"]:
-            o["start"] = o["samples"][0]["start"]
-            o["end"] = o["samples"][-1]["end"]
-            o["duration"] = o["end"] - o["start"]
-            o["overall"] = phase_entry(None, o["start"], o["end"])
-        else:
-            o["start"] = None
-            o["end"] = None
-            o["duration"] = None
-            o["overall"] = None
-
-        o["events"] = [list(ev) for ev in self.events]
-
-        for phase, v in self.phases.items():
-            o["phases"].append(phase_entry(phase, v[0], v[1]))
-
-        if have_psutil:
-            o["system"].update(
-                dict(
-                    cpu_logical_count=psutil.cpu_count(logical=True),
-                    cpu_physical_count=psutil.cpu_count(logical=False),
-                    swap_total=psutil.swap_memory()[0],
-                    vmem_total=psutil.virtual_memory()[0],
-                )
-            )
-
-        return o
-
     def as_profile(self):
+        """Convert the recorded data to an object suitable for import into the firefox profiler"""
         profile_time = time.monotonic()
         start_time = self.start_time
         profile = {
@@ -2125,9 +2024,11 @@ class SystemResourceMonitor:
             "idle": "Idle %",
         }.items():
             if field in valid_cpu_fields or field == "idle":
-                cpuData.append(
-                    {"key": field + "_pct", "label": label, "format": "string"}
-                )
+                cpuData.append({
+                    "key": field + "_pct",
+                    "label": label,
+                    "format": "string",
+                })
         cpuGraphs = cpuSchema["graphs"]
         for field, color in {
             "softirq": "orange",

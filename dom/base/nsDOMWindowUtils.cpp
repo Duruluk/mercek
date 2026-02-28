@@ -56,6 +56,7 @@
 #include "nsComputedDOMStyle.h"
 #include "nsContentList.h"
 #include "nsContentUtils.h"
+#include "nsDeviceContext.h"
 #include "nsError.h"
 #include "nsFocusManager.h"
 #include "nsFrameManager.h"
@@ -73,7 +74,6 @@
 #include "nsQueryObject.h"
 #include "nsRefreshDriver.h"
 #include "nsStyleUtil.h"
-#include "nsViewManager.h"
 
 #if defined(MOZ_WIDGET_GTK)
 #  include <gdk/gdk.h>
@@ -101,7 +101,8 @@
 // #include "nsWidgetsCID.h"
 #include "HTMLCanvasElement.h"
 #include "HTMLImageElement.h"
-#include "mozilla/AnimatedPropertyID.h"
+#include "PseudoStyleType.h"  // for PseudoStyleType
+#include "mozilla/CSSPropertyId.h"
 #include "mozilla/CycleCollectedJSContext.h"
 #include "mozilla/DisplayPortUtils.h"
 #include "mozilla/IMEContentObserver.h"
@@ -125,7 +126,6 @@
 #include "mozilla/layers/IAPZCTreeManager.h"  // for layers::ZoomToRectBehavior
 #include "mozilla/layers/WebRenderBridgeChild.h"
 #include "mozilla/layers/WebRenderLayerManager.h"
-#include "nsCSSPseudoElements.h"  // for PseudoStyleType
 #include "nsContentPermissionHelper.h"
 #include "nsDisplayList.h"
 #include "nsIBaseWindow.h"
@@ -222,7 +222,7 @@ already_AddRefed<nsIRunnable> NativeInputRunnable::Create(
 
 }  // unnamed namespace
 
-MOZ_RUNINIT LinkedList<OldWindowSize> OldWindowSize::sList;
+constinit LinkedList<OldWindowSize> OldWindowSize::sList;
 
 NS_INTERFACE_MAP_BEGIN(nsDOMWindowUtils)
   NS_INTERFACE_MAP_ENTRY_AMBIGUOUS(nsISupports, nsIDOMWindowUtils)
@@ -422,15 +422,12 @@ nsDOMWindowUtils::GetDocumentMetadata(const nsAString& aName,
 NS_IMETHODIMP
 nsDOMWindowUtils::UpdateLayerTree() {
   FlushLayoutWithoutThrottledAnimations();
-  if (RefPtr<PresShell> presShell = GetPresShell()) {
-    RefPtr<nsViewManager> vm = presShell->GetViewManager();
-    if (nsView* view = vm->GetRootView()) {
-      nsAutoScriptBlocker scriptBlocker;
-      presShell->PaintAndRequestComposite(
-          view->GetFrame(), view->GetWidget()->GetWindowRenderer(),
-          PaintFlags::PaintSyncDecodeImages);
-      presShell->GetWindowRenderer()->WaitOnTransactionProcessed();
-    }
+  if (RefPtr<PresShell> ps = GetPresShell()) {
+    nsAutoScriptBlocker scriptBlocker;
+    RefPtr renderer = ps->GetWindowRenderer();
+    ps->PaintAndRequestComposite(ps->GetRootFrame(), renderer,
+                                 PaintFlags::PaintSyncDecodeImages);
+    renderer->WaitOnTransactionProcessed();
   }
   return NS_OK;
 }
@@ -769,9 +766,7 @@ nsDOMWindowUtils::SendWheelEvent(float aX, float aY, double aDeltaX,
       StaticPrefs::test_events_async_enabled()) {
     widget->DispatchInputEvent(&wheelEvent);
   } else {
-    nsEventStatus status = nsEventStatus_eIgnore;
-    nsresult rv = widget->DispatchEvent(&wheelEvent, status);
-    NS_ENSURE_SUCCESS(rv, rv);
+    widget->DispatchEvent(&wheelEvent);
   }
 
   // The callback ID may be cleared when the event also needs to be dispatched
@@ -829,124 +824,6 @@ nsDOMWindowUtils::SendWheelEvent(float aX, float aY, double aDeltaX,
 #endif
 
   return (!failedX && !failedY) ? NS_OK : NS_ERROR_FAILURE;
-}
-
-NS_IMETHODIMP
-nsDOMWindowUtils::SendTouchEvent(
-    const nsAString& aType, const nsTArray<uint32_t>& aIdentifiers,
-    const nsTArray<int32_t>& aXs, const nsTArray<int32_t>& aYs,
-    const nsTArray<uint32_t>& aRxs, const nsTArray<uint32_t>& aRys,
-    const nsTArray<float>& aRotationAngles, const nsTArray<float>& aForces,
-    const nsTArray<int32_t>& aTiltXs, const nsTArray<int32_t>& aTiltYs,
-    const nsTArray<int32_t>& aTwists, int32_t aModifiers,
-    AsyncEnabledOption aAsyncEnabled, bool* aPreventDefault) {
-  return SendTouchEventCommon(
-      aType, aIdentifiers, aXs, aYs, aRxs, aRys, aRotationAngles, aForces,
-      aTiltXs, aTiltYs, aTwists, aModifiers, /* aIsPen */ false,
-      /* aToWindow */ false, aAsyncEnabled, aPreventDefault);
-}
-
-NS_IMETHODIMP
-nsDOMWindowUtils::SendTouchEventAsPen(
-    const nsAString& aType, uint32_t aIdentifier, int32_t aX, int32_t aY,
-    uint32_t aRx, uint32_t aRy, float aRotationAngle, float aForce,
-    int32_t aTiltX, int32_t aTiltY, int32_t aTwist, int32_t aModifier,
-    AsyncEnabledOption aAsyncEnabled, bool* aPreventDefault) {
-  return SendTouchEventCommon(
-      aType, nsTArray{aIdentifier}, nsTArray{aX}, nsTArray{aY}, nsTArray{aRx},
-      nsTArray{aRy}, nsTArray{aRotationAngle}, nsTArray{aForce},
-      nsTArray{aTiltX}, nsTArray{aTiltY}, nsTArray{aTwist}, aModifier,
-      /* aIsPen */ true, /* aToWindow */ false, aAsyncEnabled, aPreventDefault);
-}
-
-NS_IMETHODIMP
-nsDOMWindowUtils::SendTouchEventToWindow(
-    const nsAString& aType, const nsTArray<uint32_t>& aIdentifiers,
-    const nsTArray<int32_t>& aXs, const nsTArray<int32_t>& aYs,
-    const nsTArray<uint32_t>& aRxs, const nsTArray<uint32_t>& aRys,
-    const nsTArray<float>& aRotationAngles, const nsTArray<float>& aForces,
-    const nsTArray<int32_t>& aTiltXs, const nsTArray<int32_t>& aTiltYs,
-    const nsTArray<int32_t>& aTwists, int32_t aModifiers,
-    bool* aPreventDefault) {
-  return SendTouchEventCommon(
-      aType, aIdentifiers, aXs, aYs, aRxs, aRys, aRotationAngles, aForces,
-      aTiltXs, aTiltYs, aTwists, aModifiers, /* aIsPen */ false,
-      /* aToWindow */ true, AsyncEnabledOption::ASYNC_DISABLED,
-      aPreventDefault);
-}
-
-nsresult nsDOMWindowUtils::SendTouchEventCommon(
-    const nsAString& aType, const nsTArray<uint32_t>& aIdentifiers,
-    const nsTArray<int32_t>& aXs, const nsTArray<int32_t>& aYs,
-    const nsTArray<uint32_t>& aRxs, const nsTArray<uint32_t>& aRys,
-    const nsTArray<float>& aRotationAngles, const nsTArray<float>& aForces,
-    const nsTArray<int32_t>& aTiltXs, const nsTArray<int32_t>& aTiltYs,
-    const nsTArray<int32_t>& aTwists, int32_t aModifiers, bool aIsPen,
-    bool aToWindow, AsyncEnabledOption aAsyncEnabled, bool* aPreventDefault) {
-  // get the widget to send the event to
-  nsPoint offset;
-  nsCOMPtr<nsIWidget> widget = GetWidget(&offset);
-  if (!widget) {
-    return NS_ERROR_NULL_POINTER;
-  }
-  EventMessage msg;
-  if (aType.EqualsLiteral("touchstart")) {
-    msg = eTouchStart;
-  } else if (aType.EqualsLiteral("touchmove")) {
-    msg = eTouchMove;
-  } else if (aType.EqualsLiteral("touchend")) {
-    msg = eTouchEnd;
-  } else if (aType.EqualsLiteral("touchcancel")) {
-    msg = eTouchCancel;
-  } else {
-    return NS_ERROR_UNEXPECTED;
-  }
-  WidgetTouchEvent event(true, msg, widget);
-  event.mFlags.mIsSynthesizedForTests = true;
-  event.mModifiers = nsContentUtils::GetWidgetModifiers(aModifiers);
-  if (aIsPen) {
-    event.mInputSource = MouseEvent_Binding::MOZ_SOURCE_PEN;
-  }
-
-  nsPresContext* presContext = GetPresContext();
-  if (!presContext) {
-    return NS_ERROR_FAILURE;
-  }
-  uint32_t count = aIdentifiers.Length();
-  if (aXs.Length() != count || aYs.Length() != count ||
-      aRxs.Length() != count || aRys.Length() != count ||
-      aRotationAngles.Length() != count || aForces.Length() != count) {
-    return NS_ERROR_INVALID_ARG;
-  }
-  event.mTouches.SetCapacity(count);
-  for (uint32_t i = 0; i < count; ++i) {
-    LayoutDeviceIntPoint pt = nsContentUtils::ToWidgetPoint(
-        CSSPoint(aXs[i], aYs[i]), offset, presContext);
-    LayoutDeviceIntPoint radius = LayoutDeviceIntPoint::FromAppUnitsRounded(
-        CSSPoint::ToAppUnits(CSSPoint(aRxs[i], aRys[i])),
-        presContext->AppUnitsPerDevPixel());
-
-    RefPtr<Touch> t = new Touch(aIdentifiers[i], pt, radius, aRotationAngles[i],
-                                aForces[i], aTiltXs[i], aTiltYs[i], aTwists[i]);
-
-    event.mTouches.AppendElement(t);
-  }
-
-  nsEventStatus status = nsEventStatus_eIgnore;
-  if (aToWindow) {
-    RefPtr<PresShell> presShell = presContext->PresShell();
-    MOZ_TRY(presShell->HandleEvent(presShell->GetRootFrame(), &event, false,
-                                   &status));
-  } else if (aAsyncEnabled == AsyncEnabledOption::ASYNC_ENABLED ||
-             StaticPrefs::test_events_async_enabled()) {
-    status = widget->DispatchInputEvent(&event).mContentStatus;
-  } else {
-    MOZ_TRY(widget->DispatchEvent(&event, status));
-  }
-  if (aPreventDefault) {
-    *aPreventDefault = (status == nsEventStatus_eConsumeNoDefault);
-  }
-  return NS_OK;
 }
 
 static_assert(
@@ -1468,8 +1345,8 @@ nsDOMWindowUtils::SendSimpleGestureEvent(const nsAString& aType, float aX,
   event.mRefPoint =
       nsContentUtils::ToWidgetPoint(CSSPoint(aX, aY), offset, presContext);
 
-  nsEventStatus status;
-  return widget->DispatchEvent(&event, status);
+  widget->DispatchEvent(&event);
+  return NS_OK;
 }
 
 NS_IMETHODIMP
@@ -1516,81 +1393,15 @@ nsDOMWindowUtils::NodesFromRect(float aX, float aY, float aTopSize,
   return NS_OK;
 }
 
-NS_IMETHODIMP
-nsDOMWindowUtils::GetTranslationNodes(nsINode* aRoot,
-                                      nsITranslationNodeList** aRetVal) {
-  NS_ENSURE_ARG_POINTER(aRetVal);
-  nsCOMPtr<nsIContent> root = do_QueryInterface(aRoot);
-  NS_ENSURE_STATE(root);
-  nsCOMPtr<Document> doc = GetDocument();
-  NS_ENSURE_STATE(doc);
-
-  if (root->OwnerDoc() != doc) {
-    return NS_ERROR_DOM_WRONG_DOCUMENT_ERR;
-  }
-
-  nsTHashSet<nsIContent*> translationNodesHash(500);
-  RefPtr<nsTranslationNodeList> list = new nsTranslationNodeList;
-
-  uint32_t limit = 15000;
-
-  // We begin iteration with content->GetNextNode because we want to explicitly
-  // skip the root tag from being a translation node.
-  nsIContent* content = root;
-  while ((limit > 0) && (content = content->GetNextNode(root))) {
-    if (!content->IsHTMLElement()) {
-      continue;
-    }
-
-    // Skip elements that usually contain non-translatable text content.
-    if (content->IsAnyOfHTMLElements(nsGkAtoms::script, nsGkAtoms::iframe,
-                                     nsGkAtoms::frameset, nsGkAtoms::frame,
-                                     nsGkAtoms::code, nsGkAtoms::noscript,
-                                     nsGkAtoms::style)) {
-      continue;
-    }
-
-    // An element is a translation node if it contains
-    // at least one text node that has meaningful data
-    // for translation
-    for (nsIContent* child = content->GetFirstChild(); child;
-         child = child->GetNextSibling()) {
-      if (child->IsText() && child->GetAsText()->HasTextForTranslation()) {
-        translationNodesHash.Insert(content);
-
-        nsIFrame* frame = content->GetPrimaryFrame();
-        bool isTranslationRoot = frame && frame->IsBlockFrameOrSubclass();
-        if (!isTranslationRoot) {
-          // If an element is not a block element, it still
-          // can be considered a translation root if the parent
-          // of this element didn't make into the list of nodes
-          // to be translated.
-          bool parentInList = false;
-          nsIContent* parent = content->GetParent();
-          if (parent) {
-            parentInList = translationNodesHash.Contains(parent);
-          }
-          isTranslationRoot = !parentInList;
-        }
-
-        list->AppendElement(content, isTranslationRoot);
-        --limit;
-        break;
-      }
-    }
-  }
-
-  *aRetVal = list.forget().take();
-  return NS_OK;
-}
-
 static already_AddRefed<DataSourceSurface> CanvasToDataSourceSurface(
     HTMLCanvasElement* aCanvas) {
   MOZ_ASSERT(aCanvas);
   SurfaceFromElementResult result = nsLayoutUtils::SurfaceFromElement(aCanvas);
-
-  MOZ_ASSERT(result.GetSourceSurface());
-  return result.GetSourceSurface()->GetDataSurface();
+  const RefPtr<SourceSurface> surf = result.GetSourceSurface();
+  if (!surf) {
+    return nullptr;
+  }
+  return surf->GetDataSurface();
 }
 
 NS_IMETHODIMP
@@ -1790,6 +1601,10 @@ nsDOMWindowUtils::ScrollToVisual(float aOffsetX, float aOffsetY,
   NS_ENSURE_TRUE(presContext->IsRootContentDocumentCrossProcess(),
                  NS_ERROR_INVALID_ARG);
 
+  ScrollContainerFrame* sf =
+      presContext->PresShell()->GetRootScrollContainerFrame();
+  NS_ENSURE_TRUE(sf, NS_ERROR_NOT_AVAILABLE);
+
   FrameMetrics::ScrollOffsetUpdateType updateType;
   switch (aUpdateType) {
     case UPDATE_TYPE_RESTORE:
@@ -1802,13 +1617,13 @@ nsDOMWindowUtils::ScrollToVisual(float aOffsetX, float aOffsetY,
       return NS_ERROR_INVALID_ARG;
   }
 
-  ScrollMode scrollMode;
+  ScrollBehavior scrollBehavior;
   switch (aScrollMode) {
     case SCROLL_MODE_INSTANT:
-      scrollMode = ScrollMode::Instant;
+      scrollBehavior = ScrollBehavior::Instant;
       break;
     case SCROLL_MODE_SMOOTH:
-      scrollMode = ScrollMode::SmoothMsd;
+      scrollBehavior = ScrollBehavior::Smooth;
       break;
     default:
       return NS_ERROR_INVALID_ARG;
@@ -1816,7 +1631,7 @@ nsDOMWindowUtils::ScrollToVisual(float aOffsetX, float aOffsetY,
 
   presContext->PresShell()->ScrollToVisual(
       CSSPoint::ToAppUnits(CSSPoint(aOffsetX, aOffsetY)), updateType,
-      scrollMode);
+      sf->ScrollModeForScrollBehavior(scrollBehavior));
 
   return NS_OK;
 }
@@ -2525,9 +2340,7 @@ nsDOMWindowUtils::SendQueryContentEvent(uint32_t aType, int64_t aOffset,
       break;
   }
 
-  nsEventStatus status;
-  nsresult rv = targetWidget->DispatchEvent(&queryEvent, status);
-  NS_ENSURE_SUCCESS(rv, rv);
+  targetWidget->DispatchEvent(&queryEvent);
 
   auto* result = new nsQueryContentEventResult(std::move(queryEvent));
   result->SetEventResult(widget);
@@ -2556,9 +2369,7 @@ nsDOMWindowUtils::SendSelectionSetEvent(uint32_t aOffset, uint32_t aLength,
   selectionEvent.mUseNativeLineBreak =
       !(aAdditionalFlags & SELECTION_SET_FLAG_USE_XP_LINE_BREAK);
 
-  nsEventStatus status;
-  nsresult rv = widget->DispatchEvent(&selectionEvent, status);
-  NS_ENSURE_SUCCESS(rv, rv);
+  widget->DispatchEvent(&selectionEvent);
 
   *aResult = selectionEvent.mSucceeded;
   return NS_OK;
@@ -2611,8 +2422,8 @@ nsDOMWindowUtils::SendContentCommandEvent(const nsAString& aType,
     event.mTransferable = aTransferable;
   }
 
-  nsEventStatus status;
-  return widget->DispatchEvent(&event, status);
+  widget->DispatchEvent(&event);
+  return NS_OK;
 }
 
 NS_IMETHODIMP
@@ -3174,7 +2985,7 @@ nsDOMWindowUtils::ZoomToFocusedInput() {
         caretInfo.frame, caretInfo.caretRectRelativeToTextFrame,
         ScrollAxis(WhereToScroll::Center, WhenToScroll::IfNotVisible),
         ScrollAxis(WhereToScroll::Center, WhenToScroll::IfNotVisible),
-        ScrollFlags::ScrollOverflowHidden);
+        ScrollFlags::ForZoomToFocusedInput);
   }
 
   RefPtr<Document> document = presShell->GetDocument();
@@ -3255,16 +3066,15 @@ nsDOMWindowUtils::ComputeAnimationDistance(Element* aElement,
                                            double* aResult) {
   NS_ENSURE_ARG_POINTER(aElement);
 
-  nsCSSPropertyID propertyID =
-      nsCSSProps::LookupProperty(NS_ConvertUTF16toUTF8(aProperty));
-  if (propertyID == eCSSProperty_UNKNOWN ||
-      nsCSSProps::IsShorthand(propertyID)) {
+  NS_ConvertUTF16toUTF8 prop(aProperty);
+
+  NonCustomCSSPropertyId propertyId = nsCSSProps::LookupProperty(prop);
+  if (propertyId == eCSSProperty_UNKNOWN ||
+      nsCSSProps::IsShorthand(propertyId)) {
     return NS_ERROR_ILLEGAL_VALUE;
   }
 
-  AnimatedPropertyID property = propertyID == eCSSPropertyExtra_variable
-                                    ? AnimatedPropertyID(NS_Atomize(aProperty))
-                                    : AnimatedPropertyID(propertyID);
+  auto property = CSSPropertyId::FromIdOrCustomProperty(propertyId, prop);
 
   AnimationValue v1 = AnimationValue::FromString(
       property, NS_ConvertUTF16toUTF8(aValue1), aElement);
@@ -3288,17 +3098,15 @@ nsDOMWindowUtils::GetUnanimatedComputedStyle(Element* aElement,
     return NS_ERROR_INVALID_ARG;
   }
 
-  nsCSSPropertyID propertyID =
-      nsCSSProps::LookupProperty(NS_ConvertUTF16toUTF8(aProperty));
-  if (propertyID == eCSSProperty_UNKNOWN ||
-      nsCSSProps::IsShorthand(propertyID)) {
+  NS_ConvertUTF16toUTF8 prop(aProperty);
+
+  NonCustomCSSPropertyId propertyId = nsCSSProps::LookupProperty(prop);
+  if (propertyId == eCSSProperty_UNKNOWN ||
+      nsCSSProps::IsShorthand(propertyId)) {
     return NS_ERROR_INVALID_ARG;
   }
-  AnimatedPropertyID property =
-      propertyID == eCSSPropertyExtra_variable
-          ? AnimatedPropertyID(
-                NS_Atomize(Substring(aProperty, 2, aProperty.Length() - 2)))
-          : AnimatedPropertyID(propertyID);
+
+  auto property = CSSPropertyId::FromIdOrCustomProperty(propertyId, prop);
 
   switch (aFlushType) {
     case FLUSH_NONE:
@@ -3318,8 +3126,7 @@ nsDOMWindowUtils::GetUnanimatedComputedStyle(Element* aElement,
     return NS_ERROR_FAILURE;
   }
 
-  Maybe<PseudoStyleRequest> pseudo =
-      nsCSSPseudoElements::ParsePseudoElement(aPseudoElement);
+  Maybe<PseudoStyleRequest> pseudo = PseudoStyleRequest::Parse(aPseudoElement);
   if (!pseudo) {
     return NS_ERROR_FAILURE;
   }
@@ -3423,6 +3230,24 @@ nsDOMWindowUtils::CheckAndClearDisplayListState(Element* aElement,
     frame = nsLayoutUtils::GetNextContinuationOrIBSplitSibling(frame);
   }
   *aResult = true;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsDOMWindowUtils::CheckAndClearWRDidRasterize(bool* aResult) {
+  *aResult = false;
+
+  nsIWidget* widget = GetWidget();
+  if (!widget) {
+    return NS_OK;
+  }
+
+  CompositorBridgeChild* cbc = GetCompositorBridge();
+  if (!cbc) {
+    return NS_OK;
+  }
+
+  cbc->SendCheckAndClearWRDidRasterize(widget->GetLayersId(), aResult);
   return NS_OK;
 }
 
@@ -4444,41 +4269,6 @@ nsDOMWindowUtils::EnsureDirtyRootFrame() {
 
   presShell->FrameNeedsReflow(
       frame, IntrinsicDirty::FrameAncestorsAndDescendants, NS_FRAME_IS_DIRTY);
-  return NS_OK;
-}
-
-NS_INTERFACE_MAP_BEGIN(nsTranslationNodeList)
-  NS_INTERFACE_MAP_ENTRY(nsISupports)
-  NS_INTERFACE_MAP_ENTRY(nsITranslationNodeList)
-NS_INTERFACE_MAP_END
-
-NS_IMPL_ADDREF(nsTranslationNodeList)
-NS_IMPL_RELEASE(nsTranslationNodeList)
-
-NS_IMETHODIMP
-nsTranslationNodeList::Item(uint32_t aIndex, nsINode** aRetVal) {
-  NS_ENSURE_ARG_POINTER(aRetVal);
-  NS_IF_ADDREF(*aRetVal = mNodes.SafeElementAt(aIndex));
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsTranslationNodeList::IsTranslationRootAtIndex(uint32_t aIndex,
-                                                bool* aRetVal) {
-  NS_ENSURE_ARG_POINTER(aRetVal);
-  if (aIndex >= mLength) {
-    *aRetVal = false;
-    return NS_OK;
-  }
-
-  *aRetVal = mNodeIsRoot.ElementAt(aIndex);
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-nsTranslationNodeList::GetLength(uint32_t* aRetVal) {
-  NS_ENSURE_ARG_POINTER(aRetVal);
-  *aRetVal = mLength;
   return NS_OK;
 }
 

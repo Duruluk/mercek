@@ -11,16 +11,11 @@
 
 #include "mozilla/FloatingPoint.h"
 #include "mozilla/Maybe.h"
-#include "mozilla/MemoryReporting.h"
-#include "mozilla/RangedPtr.h"
-#include "mozilla/RefPtr.h"
 #include "mozilla/TimeStamp.h"
 #include "mozilla/Variant.h"
 
-#include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
 
 #include "jspubtd.h"
 
@@ -436,11 +431,6 @@ extern JS_PUBLIC_API bool JS_GetPrototypeIfOrdinary(
  *
  * In cases where ES6 [[SetPrototypeOf]] returns false without an exception,
  * JS_SetPrototype throws a TypeError and returns false.
- *
- * Performance warning: JS_SetPrototype is very bad for performance. It may
- * cause compiled jit-code to be invalidated. It also causes not only obj but
- * all other objects in the same "group" as obj to be permanently deoptimized.
- * It's better to create the object with the right prototype from the start.
  */
 extern JS_PUBLIC_API bool JS_SetPrototype(JSContext* cx, JS::HandleObject obj,
                                           JS::HandleObject proto);

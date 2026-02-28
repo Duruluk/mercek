@@ -32,8 +32,8 @@ ChromeUtils.defineESModuleGetters(
  *   http://www.softwareishard.com/blog/firebug/
  *      nsitraceablechannel-intercept-http-traffic/
  *
- * @constructor
- * @param {Object} httpActivity
+ * @class
+ * @param {object} httpActivity
  *        HttpActivity object associated with this request. See NetworkObserver
  *        more information.
  * @param {object} options
@@ -53,7 +53,7 @@ export class NetworkResponseListener {
    * The compressed and encoded response body size. Will progressively increase
    * until the full response is received.
    *
-   * @type {Number}
+   * @type {number}
    */
   #bodySize = 0;
   /**
@@ -87,7 +87,7 @@ export class NetworkResponseListener {
   /**
    * See constructor argument of the same name.
    *
-   * @type {Object}
+   * @type {object}
    */
   #httpActivity;
   /**
@@ -107,13 +107,13 @@ export class NetworkResponseListener {
    * Offset for the onDataAvailable calls where we pass the data from our pipe
    * to the converter.
    *
-   * @type {Number}
+   * @type {number}
    */
   #offset = 0;
   /**
    * The received response body size.
    *
-   * @type {Number}
+   * @type {number}
    */
   #receivedBodySize = 0;
   /**
@@ -144,7 +144,7 @@ export class NetworkResponseListener {
    * Is true after the events which should be added at the start of a response
    * are added. This is only used for overridden requests.
    *
-   * @type {Boolean}
+   * @type {boolean}
    */
   #sentStartEvents = false;
   /**
@@ -170,7 +170,7 @@ export class NetworkResponseListener {
    * Backup for existing notificationCallbacks set on the monitored channel.
    * Initialized in the constructor.
    *
-   * @type {Object}
+   * @type {object}
    */
   #wrappedNotificationCallbacks;
 
@@ -341,9 +341,8 @@ export class NetworkResponseListener {
    * https://developer.mozilla.org/En/NsIRequestObserver
    *
    * @param nsIRequest request
-   * @param nsISupports context
    */
-  onStartRequest(request) {
+  async onStartRequest(request) {
     request = request.QueryInterface(Ci.nsIChannel);
     // Converter will call this again, we should just ignore that.
     if (this.#request) {
@@ -373,7 +372,7 @@ export class NetworkResponseListener {
       // Accessing `alternativeDataType` for some SW requests throws.
     }
     if (isOptimizedContent) {
-      const data = this.#getContentFromCache();
+      const data = await this.#getContentFromCache();
       this.#getResponseContent(data);
       this.#getResponseContentComplete();
       return;
@@ -464,6 +463,7 @@ export class NetworkResponseListener {
 
   /**
    * Fetches cache information from CacheEntry
+   *
    * @private
    */
   async #getCacheInformation() {
@@ -588,7 +588,19 @@ export class NetworkResponseListener {
     }
 
     response.bodySize = this.#bodySize;
-    response.size = this.#receivedBodySize;
+
+    try {
+      response.size = lazy.NetworkUtils.isRedirect(
+        this.#httpActivity.channel.responseStatus
+      )
+        ? 0
+        : this.#receivedBodySize;
+    } catch (e) {
+      // this.#httpActivity.channel.responseStatus is likely to throw
+      // NS_ERROR_NOT_AVAILABLE if the response has not been received.
+      response.size = 0;
+    }
+
     response.headersSize = this.#httpActivity.headersSize;
     response.transferredSize = this.#bodySize + this.#httpActivity.headersSize;
 
@@ -636,15 +648,14 @@ export class NetworkResponseListener {
   #getResponseContentComplete() {
     // Check any errors or blocking scenarios which happen late in the cycle
     // e.g If a host is not found (NS_ERROR_UNKNOWN_HOST) or CORS blocking.
-    const { blockingExtension, blockedReason } =
-      lazy.NetworkUtils.getBlockedReason(
-        this.#httpActivity.channel,
-        this.#httpActivity.fromCache
-      );
+    const { extension, blockedReason } = lazy.NetworkUtils.getBlockedReason(
+      this.#httpActivity.channel,
+      this.#httpActivity.fromCache
+    );
 
     this.#httpActivity.owner.addResponseContentComplete({
       blockedReason,
-      blockingExtension,
+      extension,
       discardResponseBody: this.#httpActivity.discardResponseBody,
       truncated: this.#truncated,
     });
@@ -653,7 +664,12 @@ export class NetworkResponseListener {
     this.#onSecurityInfo.then(() => this.#destroy());
   }
 
-  async #getContentFromCache() {
+  /**
+   * Loads the content from the cache
+   *
+   * @returns Promise
+   */
+  #getContentFromCache() {
     return new Promise(resolve => {
       // Response is cached, so we load it from cache.
       let charset;

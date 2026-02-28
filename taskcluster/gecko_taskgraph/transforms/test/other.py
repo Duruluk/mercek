@@ -12,7 +12,7 @@ from taskgraph.util import json
 from taskgraph.util.attributes import keymatch
 from taskgraph.util.keyed_by import evaluate_keyed_by
 from taskgraph.util.readonlydict import ReadOnlyDict
-from taskgraph.util.schema import Schema, resolve_keyed_by
+from taskgraph.util.schema import LegacySchema, resolve_keyed_by
 from taskgraph.util.taskcluster import get_artifact_path
 from taskgraph.util.templates import merge
 from voluptuous import Any, Optional, Required
@@ -182,7 +182,6 @@ def set_treeherder_machine_platform(config, tasks):
         "macosx1500-64/opt": "osx-1500/opt",
         "macosx1500-64-shippable/opt": "osx-1500-shippable/opt",
         "win64-asan/opt": "windows11-64-24h2/asan",
-        "win64-aarch64/opt": "windows11-aarch64/opt",
     }
     for task in tasks:
         # For most desktop platforms, the above table is not used for "regular"
@@ -200,14 +199,7 @@ def set_treeherder_machine_platform(config, tasks):
         elif "android-hw" in task["test-platform"]:
             task["treeherder-machine-platform"] = task["test-platform"]
 
-        # Bug 1602863 - must separately define linux64/asan and linux1804-64/asan
-        # otherwise causes an exception during taskgraph generation about
-        # duplicate treeherder platform/symbol.
-        elif "linux64-asan/opt" in task["test-platform"]:
-            task["treeherder-machine-platform"] = "linux64/asan"
-        elif "linux1804-asan/opt" in task["test-platform"]:
-            task["treeherder-machine-platform"] = "linux1804-64/asan"
-        elif "-qr" in task["test-platform"]:
+        if "-qr" in task["test-platform"]:
             task["treeherder-machine-platform"] = task["test-platform"]
         else:
             task["treeherder-machine-platform"] = translation.get(
@@ -240,6 +232,7 @@ def handle_keyed_by(config, tasks):
         "docker-image",
         "max-run-time",
         "chunks",
+        "default-chunks",
         "suite",
         "run-on-projects",
         "os-groups",
@@ -313,9 +306,9 @@ def set_target(config, tasks):
                 )
                 task["mozharness"]["installer-url"] = installer_url
             else:
-                task["mozharness"][
-                    "installer-url"
-                ] = f"<{target['upstream-task']}/{target['name']}>"
+                task["mozharness"]["installer-url"] = (
+                    f"<{target['upstream-task']}/{target['name']}>"
+                )
         else:
             task["mozharness"]["build-artifact-name"] = get_artifact_path(task, target)
 
@@ -458,12 +451,10 @@ def setup_browsertime(config, tasks):
             evaluate_keyed_by(fs, "fetches.fetch", task)
         )
 
-        extra_options.extend(
-            (
-                "--browsertime-browsertimejs",
-                "$MOZ_FETCHES_DIR/browsertime/node_modules/browsertime/bin/browsertime.js",
-            )
-        )  # noqa: E501
+        extra_options.extend((
+            "--browsertime-browsertimejs",
+            "$MOZ_FETCHES_DIR/browsertime/node_modules/browsertime/bin/browsertime.js",
+        ))  # noqa: E501
 
         eos = {
             "by-test-platform": {
@@ -559,6 +550,8 @@ def enable_code_coverage(config, tasks):
     """Enable code coverage for the ccov build-platforms"""
     for task in tasks:
         if "ccov" in task["build-platform"]:
+            task.setdefault("attributes", {})["ccov"] = True
+
             # Do not run tests on fuzzing builds
             if "fuzzing" in task["build-platform"]:
                 task["run-on-projects"] = []
@@ -610,20 +603,6 @@ def enable_code_coverage(config, tasks):
 
             task["fetches"]["build"].append({"artifact": "target.mozinfo.json"})
 
-            if "talos" in task["test-name"]:
-                task["max-run-time"] = 7200
-                if "linux" in task["build-platform"]:
-                    task["docker-image"] = {"in-tree": "ubuntu1804-test"}
-                task["mozharness"]["extra-options"].append("--add-option")
-                task["mozharness"]["extra-options"].append("--cycles,1")
-                task["mozharness"]["extra-options"].append("--add-option")
-                task["mozharness"]["extra-options"].append("--tppagecycles,1")
-                task["mozharness"]["extra-options"].append("--add-option")
-                task["mozharness"]["extra-options"].append("--no-upload-results")
-                task["mozharness"]["extra-options"].append("--add-option")
-                task["mozharness"]["extra-options"].append("--tptimeout,15000")
-            if "raptor" in task["test-name"]:
-                task["max-run-time"] = 1800
         yield task
 
 
@@ -678,15 +657,6 @@ def handle_tier(config, tasks):
                 "linux64-qr/opt",
                 "linux64-qr/debug",
                 "linux64-shippable-qr/opt",
-                "linux1804-64/opt",
-                "linux1804-64/debug",
-                "linux1804-64-shippable/opt",
-                "linux1804-64-devedition/opt",
-                "linux1804-64-qr/opt",
-                "linux1804-64-qr/debug",
-                "linux1804-64-shippable-qr/opt",
-                "linux1804-64-asan-qr/opt",
-                "linux1804-64-tsan-qr/opt",
                 "linux2204-64-wayland/debug",
                 "linux2204-64-wayland/opt",
                 "linux2204-64-wayland-shippable/opt",
@@ -798,7 +768,7 @@ def ensure_spi_disabled_on_all_but_spi(config, tasks):
         yield task
 
 
-test_setting_description_schema = Schema(
+test_setting_description_schema = LegacySchema(
     {
         Required("_hash"): str,
         "platform": {
@@ -1071,6 +1041,52 @@ def set_profile(config, tasks):
 
 
 @transforms.add
+def add_gecko_profile_symbolication_deps(config, tasks):
+    """Add symbolication dependencies when profiling raptor, talos, or mochitest tests"""
+
+    try_task_config = config.params.get("try_task_config", {})
+    gecko_profile = try_task_config.get("gecko-profile", False)
+    env = try_task_config.get("env", {})
+    startup_profile = env.get("MOZ_PROFILER_STARTUP") == "1"
+
+    for task in tasks:
+        if (gecko_profile and task["suite"] in ["talos", "raptor"]) or (
+            startup_profile and "mochitest" in task["suite"]
+        ):
+            fetches = task.setdefault("fetches", {})
+            fetch_toolchains = fetches.setdefault("toolchain", [])
+            fetch_toolchains.append("symbolicator-cli")
+
+            test_platform = task["test-platform"]
+
+            if "macosx" in test_platform and "aarch64" in test_platform:
+                fetch_toolchains.append("macosx64-aarch64-samply")
+            elif "macosx" in test_platform:
+                fetch_toolchains.append("macosx64-samply")
+            elif "win" in test_platform:
+                fetch_toolchains.append("win64-samply")
+            else:
+                fetch_toolchains.append("linux64-samply")
+
+            # Add node as a dependency for talos and mochitest tasks if needed.
+            # node is used to run symbolicator-cli, our profile symbolication tool
+            if task["suite"] == "talos" or "mochitest" in task["suite"]:
+                if "macosx" in test_platform and "aarch64" in test_platform:
+                    node_toolchain = "macosx64-aarch64-node"
+                elif "macosx" in test_platform:
+                    node_toolchain = "macosx64-node"
+                elif "win" in test_platform:
+                    node_toolchain = "win64-node"
+                else:
+                    node_toolchain = "linux64-node"
+
+                if node_toolchain not in fetch_toolchains:
+                    fetch_toolchains.append(node_toolchain)
+
+        yield task
+
+
+@transforms.add
 def set_tag(config, tasks):
     """Set test for a specific tag."""
     tag = None
@@ -1137,15 +1153,14 @@ def enable_parallel_marking_in_tsan_tests(config, tasks):
 @transforms.add
 def set_webgpu_ignore_blocklist(config, tasks):
     """
-    Ignore the WebGPU blocklist on Linux (because CI's Mesa is old,
-    <https://bugzilla.mozilla.org/show_bug.cgi?id=1985348>) and on pre-Tahoe
-    MacOS (<https://bugzilla.mozilla.org/show_bug.cgi?id=1993341>).
+    Ignore the WebGPU blocklist on Linux because CI's Mesa is old
+
+    See <https://bugzilla.mozilla.org/show_bug.cgi?id=1985348>
     """
     for task in tasks:
-        if "web-platform-tests-webgpu" in task["test-name"] and (
-            task["test-platform"].startswith("linux")
-            or task["test-platform"].startswith("macosx1")
-        ):
+        if "web-platform-tests-webgpu" in task["test-name"] and task[
+            "test-platform"
+        ].startswith("linux"):
             extra_options = task["mozharness"].setdefault("extra-options", [])
             extra_options.append("--setpref=gfx.webgpu.ignore-blocklist=true")
 

@@ -21,7 +21,6 @@
 #include "nsIContent.h"
 #include "nsIFrame.h"
 #include "nsLayoutUtils.h"
-#include "nsView.h"
 
 using namespace mozilla::dom;
 
@@ -79,8 +78,7 @@ void TouchManager::EvictTouchPoint(RefPtr<Touch>& aTouch,
           if (nsCOMPtr<nsIWidget> widget = frame->GetNearestWidget()) {
             WidgetTouchEvent event(true, eTouchEnd, widget);
             event.mTouches.AppendElement(aTouch);
-            nsEventStatus status;
-            widget->DispatchEvent(&event, status);
+            widget->DispatchEvent(&event);
           }
         }
       }

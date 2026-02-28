@@ -19,23 +19,26 @@ import io.mockk.mockk
 import io.mockk.slot
 import io.mockk.spyk
 import io.mockk.verify
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.runTest
+import mozilla.components.concept.base.profiler.Profiler
+import mozilla.components.concept.engine.EngineSession
 import mozilla.components.concept.engine.webextension.EnableSource
 import mozilla.components.feature.addons.Addon
 import mozilla.components.feature.addons.AddonManager
+import mozilla.components.feature.search.SearchUseCases
+import mozilla.components.feature.session.SessionUseCases
 import mozilla.components.feature.tabs.TabsUseCases
 import mozilla.components.support.test.robolectric.testContext
-import mozilla.components.support.test.rule.MainCoroutineRule
-import mozilla.components.support.test.rule.runTestOnMain
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mozilla.fenix.BuildConfig
 import org.mozilla.fenix.HomeActivity
 import org.mozilla.fenix.R
+import org.mozilla.fenix.browser.browsingmode.BrowsingMode
 import org.mozilla.fenix.components.AppStore
 import org.mozilla.fenix.components.appstate.AppState
 import org.mozilla.fenix.components.usecases.FenixBrowserUseCases
@@ -47,14 +50,26 @@ import mozilla.components.feature.addons.R as addonsR
 
 @RunWith(RobolectricTestRunner::class)
 class InstalledAddonDetailsFragmentTest {
-    @get:Rule
-    val coroutineRule = MainCoroutineRule()
+    private val testDispatcher = StandardTestDispatcher()
     private lateinit var fragment: InstalledAddonDetailsFragment
+    private lateinit var tabsUseCases: TabsUseCases
+    private lateinit var loadUrlUseCase: SessionUseCases.DefaultLoadUrlUseCase
+    private lateinit var searchUseCases: SearchUseCases
+    private lateinit var homepageTitle: String
+    private lateinit var profiler: Profiler
     private val addonManager = mockk<AddonManager>()
 
     @Before
     fun setup() {
         fragment = spyk(InstalledAddonDetailsFragment())
+        tabsUseCases = mockk(relaxed = true)
+        loadUrlUseCase = mockk(relaxed = true)
+        searchUseCases = mockk(relaxed = true)
+        homepageTitle = testContext.getString(R.string.tab_tray_homepage_tab)
+        profiler = mockk(relaxed = true) {
+            every { getProfilerTime() } returns PROFILER_START_TIME
+            every { isProfilerActive() } returns true
+        }
     }
 
     @Test
@@ -270,7 +285,7 @@ class InstalledAddonDetailsFragmentTest {
     }
 
     @Test
-    fun `GIVEN a not found addon WHEN binding THEN show an error message`() = runTestOnMain {
+    fun `GIVEN a not found addon WHEN binding THEN show an error message`() = runTest(testDispatcher) {
         val addon = mockAddon()
 
         coEvery { addonManager.getAddonByID(any()) } returns null
@@ -290,14 +305,15 @@ class InstalledAddonDetailsFragmentTest {
                 false,
             )
 
-        fragment.bindAddon(Dispatchers.Main)
+        fragment.bindAddon(testDispatcher, testDispatcher)
+        testDispatcher.scheduler.advanceUntilIdle()
 
         verify { fragment.showUnableToQueryAddonsMessage() }
         verify(exactly = 0) { fragment.bindUI() }
     }
 
     @Test
-    fun `GIVEN an addon WHEN binding THEN bind the UI`() = runTestOnMain {
+    fun `GIVEN an addon WHEN binding THEN bind the UI`() = runTest(testDispatcher) {
         val addon = mockAddon()
 
         coEvery { addonManager.getAddonByID(any()) } returns addon
@@ -316,7 +332,8 @@ class InstalledAddonDetailsFragmentTest {
                 false,
             )
 
-        fragment.bindAddon(Dispatchers.Main)
+        fragment.bindAddon(testDispatcher, testDispatcher)
+        testDispatcher.scheduler.advanceUntilIdle()
 
         verify { fragment.bindUI() }
         verify(exactly = 0) { fragment.showUnableToQueryAddonsMessage() }
@@ -340,9 +357,16 @@ class InstalledAddonDetailsFragmentTest {
         val navController = mockk<NavController>(relaxed = true)
         Navigation.setViewNavController(binding.root, navController)
 
-        val fenix = mockk<FenixBrowserUseCases>(relaxed = true)
-        every { testContext.components.useCases.fenixBrowserUseCases } returns fenix
-        every { testContext.components.appStore.state.mode.isPrivate } returns false
+        val appStore = AppStore(initialState = AppState(mode = BrowsingMode.Normal))
+        val useCases = FenixBrowserUseCases(
+            appStore = appStore,
+            tabsUseCases = tabsUseCases,
+            loadUrlUseCase = loadUrlUseCase,
+            searchUseCases = searchUseCases,
+            homepageTitle = homepageTitle,
+            profiler = profiler,
+        )
+        every { testContext.components.useCases.fenixBrowserUseCases } returns useCases
 
         val warningView =
             binding.root.findViewById<View>(addonsR.id.add_on_messagebar_warning)
@@ -354,11 +378,15 @@ class InstalledAddonDetailsFragmentTest {
             .performClick()
 
         verify { navController.navigate(R.id.browserFragment) }
+        val url = "${BuildConfig.AMO_BASE_URL}/android/blocked-addon/some-addon-id/1.2.3/"
+
         verify {
-            fenix.loadUrlOrSearch(
-                searchTermOrURL = "${BuildConfig.AMO_BASE_URL}/android/blocked-addon/some-addon-id/1.2.3/",
-                newTab = true,
+            tabsUseCases.addTab.invoke(
+                url = url,
+                flags = EngineSession.LoadUrlFlags.none(),
                 private = false,
+                historyMetadata = null,
+                originalInput = url,
             )
         }
     }
@@ -381,9 +409,16 @@ class InstalledAddonDetailsFragmentTest {
         val navController = mockk<NavController>(relaxed = true)
         Navigation.setViewNavController(binding.root, navController)
 
-        val fenix = mockk<FenixBrowserUseCases>(relaxed = true)
-        every { testContext.components.useCases.fenixBrowserUseCases } returns fenix
-        every { testContext.components.appStore.state.mode.isPrivate } returns false
+        val appStore = AppStore(initialState = AppState(mode = BrowsingMode.Normal))
+        val useCases = FenixBrowserUseCases(
+            appStore = appStore,
+            tabsUseCases = tabsUseCases,
+            loadUrlUseCase = loadUrlUseCase,
+            searchUseCases = searchUseCases,
+            homepageTitle = homepageTitle,
+            profiler = profiler,
+        )
+        every { testContext.components.useCases.fenixBrowserUseCases } returns useCases
 
         val warningView =
             binding.root.findViewById<View>(addonsR.id.add_on_messagebar_warning)
@@ -395,11 +430,16 @@ class InstalledAddonDetailsFragmentTest {
             .performClick()
 
         verify { navController.navigate(R.id.browserFragment) }
+
+        val url = SupportUtils.getGenericSumoURLForTopic(SupportUtils.SumoTopic.UNSIGNED_ADDONS)
+
         verify {
-            fenix.loadUrlOrSearch(
-                searchTermOrURL = SupportUtils.getGenericSumoURLForTopic(SupportUtils.SumoTopic.UNSIGNED_ADDONS),
-                newTab = true,
+            tabsUseCases.addTab.invoke(
+                url = url,
+                flags = EngineSession.LoadUrlFlags.none(),
                 private = false,
+                historyMetadata = null,
+                originalInput = url,
             )
         }
     }
@@ -422,9 +462,16 @@ class InstalledAddonDetailsFragmentTest {
         val navController = mockk<NavController>(relaxed = true)
         Navigation.setViewNavController(binding.root, navController)
 
-        val fenix = mockk<FenixBrowserUseCases>(relaxed = true)
-        every { testContext.components.useCases.fenixBrowserUseCases } returns fenix
-        every { testContext.components.appStore.state.mode.isPrivate } returns false
+        val appStore = AppStore(initialState = AppState(mode = BrowsingMode.Normal))
+        val useCases = FenixBrowserUseCases(
+            appStore = appStore,
+            tabsUseCases = tabsUseCases,
+            loadUrlUseCase = loadUrlUseCase,
+            searchUseCases = searchUseCases,
+            homepageTitle = homepageTitle,
+            profiler = profiler,
+        )
+        every { testContext.components.useCases.fenixBrowserUseCases } returns useCases
 
         val warningView = binding.root.findViewById<View>(addonsR.id.add_on_messagebar_warning)
         assertTrue(warningView.isVisible)
@@ -435,11 +482,15 @@ class InstalledAddonDetailsFragmentTest {
             .performClick()
 
         verify { navController.navigate(R.id.browserFragment) }
+        val url = "${BuildConfig.AMO_BASE_URL}/android/blocked-addon/some-addon-id/1.2.3/"
+
         verify {
-            fenix.loadUrlOrSearch(
-                searchTermOrURL = "${BuildConfig.AMO_BASE_URL}/android/blocked-addon/some-addon-id/1.2.3/",
-                newTab = true,
+            tabsUseCases.addTab.invoke(
+                url = url,
+                flags = EngineSession.LoadUrlFlags.none(),
                 private = false,
+                historyMetadata = null,
+                originalInput = url,
             )
         }
     }
@@ -458,5 +509,8 @@ class InstalledAddonDetailsFragmentTest {
         every { addon.translatableName } returns mapOf("en-US" to "some-name")
         every { addon.defaultLocale } returns "en-US"
         return addon
+    }
+    companion object {
+        private const val PROFILER_START_TIME = Double.MAX_VALUE
     }
 }

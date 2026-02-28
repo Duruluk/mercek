@@ -9,7 +9,7 @@
 
 [SecureContext, Exposed=(Window), Pref="dom.screenwakelock.enabled"]
 interface WakeLock {
-  [Throws]
+  [Throws, UseCounter]
   Promise<WakeLockSentinel> request(optional WakeLockType type = "screen");
 };
 

@@ -23,11 +23,20 @@ export const CTAParagraph = props => {
 
   return (
     <h2
-      className="cta-paragraph"
+      className={`cta-paragraph ${content?.info_tile ? "info-tile" : ""}`}
       style={{
         ...AboutWelcomeUtils.getValidStyle(content?.style, CONFIGURABLE_STYLES),
       }}
     >
+      <div className="cta-paragraph-icon-wrapper">
+        <div
+          className="cta-paragraph-icon"
+          style={AboutWelcomeUtils.getValidStyle(
+            content?.icon,
+            CONFIGURABLE_STYLES
+          )}
+        ></div>
+      </div>
       <Localized text={content.text}>
         {content.text.string_name && typeof handleAction === "function" ? (
           <span
@@ -37,12 +46,15 @@ export const CTAParagraph = props => {
               ["Enter", " "].includes(event.key) ? onClick(event) : null
             }
             value="cta_paragraph"
-            role="link"
           >
             {" "}
             {/* <a> is valid here because of click and keyup handling. */}
             {/* <button> cannot be used due to fluent integration. <a> content is provided by fluent */}
-            <a data-l10n-name={content.text.string_name} tabIndex="0"></a>
+            <a
+              data-l10n-name={content.text.string_name}
+              tabIndex="0"
+              role="link"
+            ></a>
           </span>
         ) : null}
       </Localized>

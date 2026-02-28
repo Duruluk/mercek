@@ -283,16 +283,21 @@ class AsyncPanZoomController {
   // These methods must only be called on the updater thread.
   //
 
+  struct LayersUpdateFlags {
+    // Passed from the WebRender scroll data code indicating that the scroll
+    // metadata being sent with this call are the initial metadata and the
+    // initial paint of the frame has just happened.
+    bool mIsFirstPaint : 1;
+    // Whether this update was triggered by a paint for the LayersId (tab)
+    // containing this scroll frame.
+    bool mThisLayerTreeUpdated : 1;
+  };
   /**
-   * A shadow layer update has arrived. |aScrollMetdata| is the new
-   * ScrollMetadata for the container layer corresponding to this APZC.
-   * |aIsFirstPaint| is a flag passed from the shadow
-   * layers code indicating that the scroll metadata being sent with this call
-   * are the initial metadata and the initial paint of the frame has just
-   * happened.
+   * A WebRender scroll data has arrived. |aScrollMetdata| is the new
+   * ScrollMetadata for the scroll container corresponding to this APZC.
    */
   void NotifyLayersUpdated(const ScrollMetadata& aScrollMetadata,
-                           bool aIsFirstPaint, bool aThisLayerTreeUpdated);
+                           LayersUpdateFlags aLayersUpdateFlags);
 
   /**
    * The platform implementation must set the compositor controller so that we
@@ -560,6 +565,10 @@ class AsyncPanZoomController {
   // Return whether or not a scroll delta will be able to scroll in either
   // direction.
   bool CanScroll(const ParentLayerPoint& aDelta) const;
+
+  // Return whether or not a scroll delta will be able to scroll or overscroll
+  // in either direction
+  bool CanScrollOrOverscroll(const ParentLayerPoint& aDelta) const;
 
   // Return whether or not a scroll delta will be able to scroll in either
   // direction with wheel.
@@ -1500,6 +1509,12 @@ class AsyncPanZoomController {
   bool InScrollAnimation(ScrollAnimationKind aKind) const;
 
   /**
+   * Check whether there is an ongoing smooth scroll animation triggered by
+   * script.
+   */
+  bool InScrollAnimationTriggeredByScript() const;
+
+  /**
    * Returns whether the specified PanZoomState does not need to be reset when
    * a scroll offset update is processed.
    */
@@ -1926,6 +1941,8 @@ class AsyncPanZoomController {
     return mState == PINCHING || mState == ANIMATING_ZOOM;
   }
 
+  void SetFixedLayerMargins(const ScreenMargin& aMargins);
+
  private:
   // The timestamp of the latest touch start event.
   TimeStamp mTouchStartTime;
@@ -1947,6 +1964,8 @@ class AsyncPanZoomController {
   Maybe<ParentLayerCoord> mMinimumVelocityDuringPan;
   // This variable needs to be protected by |mRecursiveMutex|.
   ScrollSnapTargetIds mLastSnapTargetIds;
+  // This variable needs to be protected by |mRecursiveMutex|.
+  ScreenMargin mCompositorFixedLayerMargins;
   // Extra offset to add to the async scroll position for testing
   CSSPoint mTestAsyncScrollOffset;
   // Extra zoom to include in the aync zoom for testing
@@ -2042,6 +2061,9 @@ class AsyncPanZoomController {
   // position change delta if filling out happened, CSSPoint() otherwise.
   CSSPoint MaybeFillOutOverscrollGutter(
       const RecursiveMutexAutoLock& aProofOfLock);
+
+  ScreenMargin GetFixedLayerMargins(
+      const RecursiveMutexAutoLock& aProofOfLock) const;
 
   friend std::ostream& operator<<(
       std::ostream& aOut, const AsyncPanZoomController::PanZoomState& aState);

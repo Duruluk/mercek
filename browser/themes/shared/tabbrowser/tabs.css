@@ -30,7 +30,7 @@
   --tab-pinned-min-width-expanded: calc(var(--tab-pinned-expanded-background-width) + 2 * var(--tab-pinned-margin-inline-expanded));
   --tab-pinned-container-margin-inline-expanded: var(--space-small);
   --tab-border-radius: var(--toolbarbutton-border-radius);
-  --tab-overflow-clip-margin: 4px;
+  --tab-overflow-clip-margin: 2px;
   --tab-close-button-padding: 6px;
   --tab-block-margin: 4px;
   --tab-icon-end-margin: 5.5px;
@@ -67,7 +67,7 @@
     --tab-selected-outline-color: var(--lwt-tab-line-color, currentColor);
   }
   --tab-dragover-transition: transform 200ms var(--animation-easing-function);
-
+  --tab-dragover-outline-color: var(--focus-outline-color);
   --vertical-tabs-scrollbar-color: auto;
   @media (-moz-platform: macos) {
     --vertical-tabs-scrollbar-color: color-mix(in srgb, currentColor 26%, transparent) transparent;
@@ -127,13 +127,21 @@
    * taking all the toolbar space. */
   flex: 1000 1000;
 
+  &[movingtab-group] {
+    --tab-dragover-outline-color: var(--dragover-tab-group-color);
+  }
+
   &[orient="horizontal"] {
     min-height: var(--tabstrip-min-height);
 
     --tab-min-width: 76px;
-    :root[uidensity="touch"] & .tabbrowser-tab[fadein]:not([pinned]) {
-      /* Touch mode needs additional space for the close button. */
-      min-width: max(var(--tab-min-width-pref, var(--tab-min-width)), 86px);
+    --tab-min-width-extra-icons: 0px;
+    --tab-min-width-uidensity: 0px;
+    --tab-max-width: 225px;
+
+    /* Touch mode needs additional space for the close button. */
+    :root[uidensity="touch"] & {
+      --tab-min-width-uidensity: 10px;
     }
 
     /* Make it easier to drag tabs by expanding the drag area downwards. */
@@ -141,6 +149,8 @@
       padding-bottom: 15px;
       margin-bottom: -15px;
     }
+
+    --tab-width-transition: min-width 100ms ease-out, max-width 100ms ease-out;
   }
 
   &[noshadowfortests] {
@@ -182,6 +192,19 @@
   position: relative;
 }
 
+.tabbrowser-tab[dragtarget],
+tab-split-view-wrapper[dragtarget] {
+  /* Margin needs to be at least 4px to not clip multiselect stacking effect */
+  overflow-clip-margin: 4px;
+  z-index: 3 !important;
+  position: absolute !important;
+  pointer-events: none; /* avoid blocking dragover events on scroll buttons */
+
+  &[multiselected]:not([small-stack], [big-stack], [hasactivetab]) {
+    visibility: hidden;
+  }
+}
+
 .tabbrowser-tab {
   --tab-label-mask-size: 1em;
 
@@ -202,46 +225,40 @@
   /* Needed to avoid clipping the tab-background shadow, which has a 4px blur. */
   overflow-clip-margin: var(--tab-overflow-clip-margin);
 
-  &:not([pinned]) {
+  #tabbrowser-tabs[orient="horizontal"] &:not([pinned]) {
     flex: 100 100;
-    max-width: 225px;
-    transition:
-      min-width 100ms ease-out,
-      max-width 100ms ease-out;
+    max-width: var(--tab-max-width);
+    transition: var(--tab-width-transition);
 
-    #tabbrowser-tabs[orient="horizontal"] &[fadein] {
-      min-width: var(--tab-min-width-pref, var(--tab-min-width));
+    &:not([fadein]) {
+      max-width: 0.1px;
+      min-width: 0.1px;
+      visibility: hidden;
     }
-  }
 
-  &[dragtarget] {
-    z-index: 3 !important;
-    position: absolute !important;
-    pointer-events: none; /* avoid blocking dragover events on scroll buttons */
-
-    /* stylelint-disable-next-line media-query-no-invalid */
-    @media -moz-pref("browser.tabs.dragDrop.multiselectStacking") {
-      &[multiselected]:not([small-stack], [big-stack]) {
-        visibility: hidden;
+    &[fadein] {
+      min-width: calc(var(--tab-min-width-pref, var(--tab-min-width)) + var(--tab-min-width-extra-icons) + var(--tab-min-width-uidensity));
+      &:is([muted], [soundplaying], [activemedia-blocked]):not([tab-note]) {
+        --tab-min-width-extra-icons: 24px;
+      }
+      &[tab-note]:not([muted], [soundplaying], [activemedia-blocked]) {
+        --tab-min-width-extra-icons: 20px;
+      }
+      &[tab-note]:is([muted], [soundplaying], [activemedia-blocked]) {
+        --tab-min-width-extra-icons: 44px;
       }
     }
   }
 
-  &:not([pinned], [fadein]) {
-    max-width: 0.1px;
-    min-width: 0.1px;
-    visibility: hidden;
-  }
-
   #tabbrowser-tabs[movingtab] & {
     position: relative;
-  }
 
-  @media (prefers-reduced-motion: no-preference) {
-    #tabbrowser-tabs[movingtab] :not(tab-group:active) > &[fadein]:not(:active, [multiselected]),
-    &[multiselected-move-together],
-    &[tabdrop-samewindow] {
-      transition: var(--tab-dragover-transition);
+    @media (prefers-reduced-motion: no-preference) {
+      :not(tab-group:active) > &[fadein]:not(:active, [multiselected]),
+      &[multiselected-move-together],
+      &[tabdrop-samewindow] {
+        transition: var(--tab-dragover-transition);
+      }
     }
   }
 
@@ -265,10 +282,6 @@
     removed from root such as when toggling the sidebar to expand with the toolbar button. */
     &:is([muted], [soundplaying], [activemedia-blocked]) {
       --tab-icon-end-margin: 2px;
-
-      #tabbrowser-tabs[orient="horizontal"] &[fadein]:not([pinned]) {
-        min-width: max(var(--tab-min-width-pref, var(--tab-min-width)), 100px);
-      }
     }
   }
 }
@@ -318,13 +331,9 @@
     }
 
     &[bursting]::before {
-      background-image: url("chrome://browser/skin/tabbrowser/loading-burst.svg");
-      background-position: center center;
-      background-size: 100% auto;
-      background-repeat: no-repeat;
+      background-color: var(--tab-loading-fill);
+      clip-path: circle(closest-side);
       animation: tab-burst-animation 375ms cubic-bezier(0, 0, 0.58, 1);
-      -moz-context-properties: fill;
-      fill: var(--tab-loading-fill);
     }
 
     &[bursting][notselectedsinceload]::before {
@@ -555,7 +564,8 @@
 }
 
 .tab-sharing-icon-overlay,
-.tab-icon-overlay {
+.tab-icon-overlay,
+.tab-note-icon-overlay {
   display: none;
 }
 
@@ -625,14 +635,22 @@
        */
       --audio-overlay-extra-background: transparent;
       background-color: var(--lwt-accent-color);
-      background-image: linear-gradient(var(--audio-overlay-extra-background)), linear-gradient(var(--toolbox-bgcolor));
       -moz-context-properties: fill;
       fill: var(--tab-selected-textcolor);
       color-scheme: var(--tab-selected-color-scheme);
       border-radius: var(--border-radius-circle);
 
-      .browser-toolbox-background:-moz-window-inactive &:not([selected]) {
+      background-image: linear-gradient(var(--audio-overlay-extra-background)), linear-gradient(var(--toolbox-bgcolor));
+      &:-moz-window-inactive {
         background-image: linear-gradient(var(--audio-overlay-extra-background)), linear-gradient(var(--toolbox-bgcolor-inactive));
+      }
+      &[selected] {
+        background-image:
+          linear-gradient(var(--audio-overlay-extra-background)), linear-gradient(var(--tab-selected-bgcolor)), linear-gradient(var(--toolbox-bgcolor));
+      }
+      &[selected]:-moz-window-inactive {
+        background-image:
+          linear-gradient(var(--audio-overlay-extra-background)), linear-gradient(var(--tab-selected-bgcolor)), linear-gradient(var(--toolbox-bgcolor-inactive));
       }
 
       &:hover {
@@ -641,16 +659,6 @@
 
       &:hover:active {
         --audio-overlay-extra-background: var(--button-background-color-ghost-active);
-      }
-
-      &[selected] {
-        background-image:
-          linear-gradient(var(--audio-overlay-extra-background)), linear-gradient(var(--tab-selected-bgcolor)), linear-gradient(var(--toolbox-bgcolor));
-      }
-
-      .browser-toolbox-background:-moz-window-inactive &[selected] {
-        background-image:
-          linear-gradient(var(--audio-overlay-extra-background)), linear-gradient(var(--tab-selected-bgcolor)), linear-gradient(var(--toolbox-bgcolor-inactive));
       }
     }
   }
@@ -703,8 +711,19 @@
         color-scheme: var(--tab-selected-color-scheme);
         border-radius: var(--border-radius-circle);
 
-        .browser-toolbox-background:-moz-window-inactive &:not([selected]) {
+        &:-moz-window-inactive {
           background-image: linear-gradient(var(--audio-overlay-extra-background)), linear-gradient(var(--toolbox-bgcolor-inactive));
+        }
+
+        &[selected] {
+          background-image:
+            linear-gradient(var(--audio-overlay-extra-background)), linear-gradient(var(--tab-selected-bgcolor)), linear-gradient(var(--toolbox-bgcolor));
+        }
+
+        &[selected]:-moz-window-inactive {
+          background-image:
+            linear-gradient(var(--audio-overlay-extra-background)), linear-gradient(var(--tab-selected-bgcolor)),
+            linear-gradient(var(--toolbox-bgcolor-inactive));
         }
 
         &:hover {
@@ -713,17 +732,6 @@
 
         &:hover:active {
           --audio-overlay-extra-background: var(--button-background-color-ghost-active);
-        }
-
-        &[selected] {
-          background-image:
-            linear-gradient(var(--audio-overlay-extra-background)), linear-gradient(var(--tab-selected-bgcolor)), linear-gradient(var(--toolbox-bgcolor));
-        }
-
-        .browser-toolbox-background:-moz-window-inactive &[selected] {
-          background-image:
-            linear-gradient(var(--audio-overlay-extra-background)), linear-gradient(var(--tab-selected-bgcolor)),
-            linear-gradient(var(--toolbox-bgcolor-inactive));
         }
       }
     }
@@ -736,6 +744,71 @@
     has not been added to root. There are certain scenarios when that attribute is temporarily
     removed from root such as when toggling the sidebar to expand with the toolbar button. */
     #tabbrowser-tabs[orient="vertical"]:not([expanded]) &:is([soundplaying], [muted], [activemedia-blocked]) {
+      display: revert;
+    }
+  }
+}
+
+/*
+ * Tab note icon that overlays the favicon for pinned tabs and the collapsed
+ * vertical tab strip. The horizontal tab strip and expanded vertical tab strip
+ * get a separate, more spacious treatment using the `.tab-notes-icon` image.
+ * Note: This is intended to display instead of the `.tab-icon-overlay`. This
+ * is defined separately from `.tab-icon-overlay` since the tab notes icon has
+ * fewer features (e.g. no icon interactivity) and
+ */
+.tab-note-icon-overlay {
+  position: relative;
+  padding: 2px;
+  top: -7px;
+  inset-inline-end: -7px;
+  z-index: 1; /* Overlay tab title */
+  list-style-image: url("chrome://global/skin/icons/tab-notes-12.svg");
+
+  background-color: var(--lwt-accent-color);
+  background-image: linear-gradient(transparent), linear-gradient(var(--toolbox-bgcolor));
+  -moz-context-properties: fill;
+  fill: var(--icon-color);
+  color-scheme: var(--tab-selected-color-scheme);
+  border-radius: var(--border-radius-circle);
+
+  .tabbrowser-tab &:-moz-window-inactive {
+    background-image: linear-gradient(transparent), linear-gradient(var(--toolbox-bgcolor-inactive));
+  }
+  .tabbrowser-tab[selected] & {
+    background-image: linear-gradient(transparent), linear-gradient(var(--tab-selected-bgcolor)), linear-gradient(var(--toolbox-bgcolor));
+  }
+  .tabbrowser-tab[selected] &:-moz-window-inactive {
+    background-image: linear-gradient(transparent), linear-gradient(var(--tab-selected-bgcolor)), linear-gradient(var(--toolbox-bgcolor-inactive));
+  }
+
+  #tabbrowser-tabs[orient="vertical"] & {
+    top: 7px;
+  }
+
+  #tabbrowser-tabs[orient="vertical"]:not([expanded]) .tabbrowser-tab[tab-note]:not([crashed], [soundplaying], [muted], [activemedia-blocked]) &,
+  .tabbrowser-tab[pinned][tab-note]:not([crashed], [soundplaying], [muted], [activemedia-blocked]) & {
+    display: revert;
+  }
+
+  /* stylelint-disable-next-line media-query-no-invalid */
+  @media -moz-pref("sidebar.visibility", "expand-on-hover") {
+    /* We need these rules to apply at all times when the sidebar.visibility
+    pref is set to "expand-on-hover" as opposed to when the "sidebar-expand-on-hover" attribute
+    has been added to root. There are certain scenarios when that attribute is temporarily
+    removed from root such as when toggling the sidebar to expand with the toolbar button. */
+    #tabbrowser-tabs[orient="vertical"] .tabbrowser-tab[tab-note]:not([crashed], [soundplaying], [muted], [activemedia-blocked]) & {
+      display: revert;
+    }
+  }
+
+  /* stylelint-disable-next-line media-query-no-invalid */
+  @media not -moz-pref("sidebar.visibility", "expand-on-hover") {
+    /* We need these rules to apply at all times when the sidebar.visibility
+    pref is not set to "expand-on-hover" as opposed to when the "sidebar-expand-on-hover" attribute
+    has not been added to root. There are certain scenarios when that attribute is temporarily
+    removed from root such as when toggling the sidebar to expand with the toolbar button. */
+    #tabbrowser-tabs[orient="vertical"]:not([expanded]) .tabbrowser-tab[tab-note]:not([crashed], [soundplaying], [muted], [activemedia-blocked]) & {
       display: revert;
     }
   }
@@ -833,7 +906,7 @@
  * the button has a visible outline shown */
 @media not (forced-colors) {
   #tabbrowser-tabs[orient="horizontal"] {
-    .tabbrowser-tab:not([labelendaligned], :hover) > .tab-stack > .tab-content > .tab-close-button {
+    .tabbrowser-tab:not([labelendaligned], [tab-note], :hover) > .tab-stack > .tab-content > .tab-close-button {
       padding-inline-start: 0;
       width: 18px;
     }
@@ -892,98 +965,50 @@
     }
   }
 
-  #tabbrowser-tabs[orient="vertical"]:not([movingtab-group]) & {
+  #tabbrowser-tabs[orient="vertical"] & {
     .tabbrowser-tab[small-stack] > .tab-stack > & {
       box-shadow:
         0 5px 0 -3px var(--tab-selected-bgcolor),
-        0 3px var(--focus-outline-color);
+        0 3px var(--tab-dragover-outline-color);
     }
 
     .tabbrowser-tab[big-stack] > .tab-stack > & {
       box-shadow:
         0 5px 0 -3px var(--tab-selected-bgcolor),
-        0 3px var(--focus-outline-color),
+        0 3px var(--tab-dragover-outline-color),
         0 8px 0 -3px var(--tab-selected-bgcolor),
-        0 6px var(--focus-outline-color);
+        0 6px var(--tab-dragover-outline-color);
     }
   }
 
-  #tabbrowser-tabs[orient="horizontal"]:not([movingtab-group]) & {
+  #tabbrowser-tabs[orient="horizontal"] & {
     .tabbrowser-tab[small-stack] > .tab-stack > & {
       box-shadow:
         5px 0 0 -3px var(--tab-selected-bgcolor),
-        3px 0 var(--focus-outline-color);
+        3px 0 var(--tab-dragover-outline-color);
     }
 
     .tabbrowser-tab[big-stack] > .tab-stack > & {
       box-shadow:
         5px 0 0 -3px var(--tab-selected-bgcolor),
-        3px 0 var(--focus-outline-color),
+        3px 0 var(--tab-dragover-outline-color),
         8px 0 0 -3px var(--tab-selected-bgcolor),
-        6px 0 var(--focus-outline-color);
+        6px 0 var(--tab-dragover-outline-color);
     }
 
     &:-moz-locale-dir(rtl) {
       .tabbrowser-tab[small-stack] > .tab-stack > & {
         box-shadow:
           -5px 0 0 -3px var(--tab-selected-bgcolor),
-          -3px 0 var(--focus-outline-color);
+          -3px 0 var(--tab-dragover-outline-color);
       }
 
       .tabbrowser-tab[big-stack] > .tab-stack > & {
         box-shadow:
           -5px 0 0 -3px var(--tab-selected-bgcolor),
-          -3px 0 var(--focus-outline-color),
+          -3px 0 var(--tab-dragover-outline-color),
           -8px 0 0 -3px var(--tab-selected-bgcolor),
-          -6px 0 var(--focus-outline-color);
-      }
-    }
-  }
-
-  #tabbrowser-tabs[orient="vertical"][movingtab-group] & {
-    .tabbrowser-tab[small-stack] > .tab-stack > & {
-      box-shadow:
-        0 5px 0 -3px var(--tab-selected-bgcolor),
-        0 3px var(--dragover-tab-group-color);
-    }
-
-    .tabbrowser-tab[big-stack] > .tab-stack > & {
-      box-shadow:
-        0 5px 0 -3px var(--tab-selected-bgcolor),
-        0 3px var(--dragover-tab-group-color),
-        0 8px 0 -3px var(--tab-selected-bgcolor),
-        0 6px var(--dragover-tab-group-color);
-    }
-  }
-
-  #tabbrowser-tabs[orient="horizontal"][movingtab-group] & {
-    .tabbrowser-tab[small-stack] > .tab-stack > & {
-      box-shadow:
-        5px 0 0 -3px var(--tab-selected-bgcolor),
-        3px 0 var(--dragover-tab-group-color);
-    }
-
-    .tabbrowser-tab[big-stack] > .tab-stack > & {
-      box-shadow:
-        5px 0 0 -3px var(--tab-selected-bgcolor),
-        3px 0 var(--dragover-tab-group-color),
-        8px 0 0 -3px var(--tab-selected-bgcolor),
-        6px 0 var(--dragover-tab-group-color);
-    }
-
-    &:-moz-locale-dir(rtl) {
-      .tabbrowser-tab[small-stack] > .tab-stack > & {
-        box-shadow:
-          -5px 0 0 -3px var(--tab-selected-bgcolor),
-          -3px 0 var(--dragover-tab-group-color);
-      }
-
-      .tabbrowser-tab[big-stack] > .tab-stack > & {
-        box-shadow:
-          -5px 0 0 -3px var(--tab-selected-bgcolor),
-          -3px 0 var(--dragover-tab-group-color),
-          -8px 0 0 -3px var(--tab-selected-bgcolor),
-          -6px 0 var(--dragover-tab-group-color);
+          -6px 0 var(--tab-dragover-outline-color);
       }
     }
   }
@@ -1055,7 +1080,7 @@
 }
 
 .tab-label[attention]:not([selected]) {
-  font-weight: bold;
+  font-weight: var(--font-weight-bold);
 }
 
 #pinned-tabs-container[orient="horizontal"] {
@@ -1134,18 +1159,18 @@
 }
 
 #tabbrowser-tabs[orient="horizontal"] > #pinned-drop-indicator {
-  transition-property: width;
+  transition-property: min-width;
 
   &[visible] {
     margin-inline: var(--space-small);
     align-self: center;
     align-items: flex-start;
-    width: calc(2 * var(--size-item-large));
+    min-width: calc(2 * var(--size-item-large));
     height: var(--tab-min-height);
     padding-inline-start: var(--space-small);
 
     @starting-style {
-      width: 0;
+      min-width: 0;
     }
 
     > #pinned-drop-indicator-text {
@@ -1157,9 +1182,6 @@
 /* Split View */
 
 tab-group > tab-split-view-wrapper {
-  &[aria-hidden="true"] {
-    display: none;
-  }
   #tabbrowser-tabs[orient="vertical"] & {
     margin-inline-end: var(--space-medium);
 
@@ -1187,10 +1209,6 @@ tab-group > tab-split-view-wrapper {
       .tab-group-line {
         inset-inline-start: calc(var(--space-medium) * -1) !important;
         inset-block: calc(var(--space-xsmall) * -1);
-
-        @container vertical-tabs-container (max-width: 210px) {
-          inset-inline-start: calc(var(--space-large) * -1) !important;
-        }
       }
 
       &:last-child {
@@ -1210,10 +1228,27 @@ tab-group > tab-split-view-wrapper {
   margin-block: var(--tab-block-margin);
   margin-inline: 0;
   align-items: flex-end;
+  flex: 100 100;
   padding: 2px 0;
+  min-width: calc(var(--tab-min-width-pref, var(--tab-min-width)) * 2 + 6px);
+  max-width: var(--tab-max-width);
+  transition: var(--tab-width-transition);
 
   &[last-tab-or-split-view] .tabbrowser-tab:last-child .tab-group-line {
     inset-inline-end: calc(var(--tab-border-radius) / 2);
+  }
+
+  &:has(tab:is([muted], [soundplaying], [activemedia-blocked])) {
+    min-width: 200px;
+  }
+
+  tab-group[collapsed] &:not([hasactivetab]) {
+    min-width: 0 !important;
+    max-width: 0 !important;
+    max-height: 0 !important;
+    padding: 0;
+    margin: 0;
+    overflow: hidden;
   }
 
   .tabbrowser-tab {
@@ -1239,18 +1274,41 @@ tab-group > tab-split-view-wrapper {
   margin-inline: var(--space-small);
   padding: var(--space-xsmall);
   border-radius: var(--tab-border-radius);
+  position: relative; /* prevents splitview wrappers from shifting during other drag events*/
 
   &[hasactivetab] {
     background-color: var(--tab-hover-background-color);
 
     @media (forced-colors) {
       border: 1px solid SelectedItem;
-      background: ButtonFace;
+      background: SelectedItemText;
     }
+  }
+
+  /* Prevent the close button from being cutoff by the bookmarks toolbar / nav bar
+  if split view is first in list if non-pinned vertical tabs */
+  #tabbrowser-tabs[orient="vertical"]:not([expanded]) &:first-child {
+    margin-block-start: var(--space-xsmall);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    #tabbrowser-tabs[movingtab] &:not(:active) {
+      transition: var(--tab-dragover-transition);
+    }
+  }
+
+  &[multiselected][small-stack],
+  &[multiselected][big-stack] {
+    outline: 1px solid var(--tab-dragover-outline-color);
   }
 
   .tabbrowser-tab {
     padding-block: 0 !important;
+
+    /* Allow close button to overflow the split view wrapper */
+    #tabbrowser-tabs[orient="vertical"]:not([expanded]) & {
+      overflow: visible;
+    }
 
     .tab-background {
       margin-inline: var(--space-xxsmall);
@@ -1259,6 +1317,12 @@ tab-group > tab-split-view-wrapper {
 
     .tab-content {
       padding-inline: var(--space-medium);
+
+      @media (forced-colors) {
+        #tabbrowser-tabs tab-split-view-wrapper[hasactivetab] .tabbrowser-tab:not([selected]) & {
+          color: SelectedItem;
+        }
+      }
     }
 
     &:first-child {
@@ -1292,13 +1356,15 @@ tab-group > tab-split-view-wrapper {
     }
 
     .tabbrowser-tab {
-      .tab-background {
-        outline-color: transparent;
-      }
+      &:not([multiselected]) {
+        .tab-background {
+          outline-color: transparent;
+        }
 
-      &:hover .tab-background {
-        background-color: transparent;
-        outline-color: transparent;
+        &:hover .tab-background {
+          background-color: transparent;
+          outline-color: transparent;
+        }
       }
 
       &:last-child {
@@ -1332,6 +1398,54 @@ tab-group > tab-split-view-wrapper {
     .tab-close-button {
       top: -5px;
       inset-inline-start: -7px;
+    }
+  }
+}
+
+#tabbrowser-tabs[orient="vertical"] tab-split-view-wrapper {
+  &[small-stack] {
+    box-shadow:
+      0 5px 0 -3px var(--tab-selected-bgcolor),
+      0 3px var(--tab-dragover-outline-color);
+  }
+
+  &[big-stack] {
+    box-shadow:
+      0 6px 0 -3px var(--tab-selected-bgcolor),
+      0 4px var(--tab-dragover-outline-color),
+      0 9px 0 -3px var(--tab-selected-bgcolor),
+      0 7px var(--tab-dragover-outline-color);
+  }
+}
+
+#tabbrowser-tabs[orient="horizontal"] tab-split-view-wrapper {
+  &[small-stack] {
+    box-shadow:
+      5px 0 0 -3px var(--tab-selected-bgcolor),
+      3px 0 0 1px var(--tab-dragover-outline-color);
+  }
+
+  &[big-stack] {
+    box-shadow:
+      5px 0 0 -3px var(--tab-selected-bgcolor),
+      3px 0 0 1px var(--tab-dragover-outline-color),
+      8px 0 0 -3px var(--tab-selected-bgcolor),
+      6px 0 0 1px var(--tab-dragover-outline-color);
+  }
+
+  &:-moz-locale-dir(rtl) {
+    &[small-stack] {
+      box-shadow:
+        -5px 0 0 -3px var(--tab-selected-bgcolor),
+        -3px 0 0 1px var(--tab-dragover-outline-color);
+    }
+
+    &[big-stack] {
+      box-shadow:
+        -5px 0 0 -3px var(--tab-selected-bgcolor),
+        -3px 0 0 1px var(--tab-dragover-outline-color),
+        -8px 0 0 -3px var(--tab-selected-bgcolor),
+        -6px 0 0 1px var(--tab-dragover-outline-color);
     }
   }
 }
@@ -1423,7 +1537,9 @@ tab-group {
     overflow-clip-margin: 0;
   }
 
+  #tabbrowser-tabs[orient="horizontal"] &[movingtabgroup][collapsed] > tab-split-view-wrapper[hasactivetab],
   #tabbrowser-tabs[orient="vertical"] &[movingtabgroup][collapsed] > .tabbrowser-tab[visuallyselected],
+  #tabbrowser-tabs[orient="vertical"] &[movingtabgroup][collapsed] > tab-split-view-wrapper[hasactivetab],
   #tabbrowser-tabs[orient="vertical"] &[collapsed] > .tabbrowser-tab:not([visuallyselected], [multiselected]),
   #tabbrowser-tabs[orient="vertical"] &[collapsed] > tab-split-view-wrapper:not([hasactivetab]) {
     display: none;
@@ -1677,19 +1793,10 @@ tab-group {
 
 .tab-group-editor-panel {
   --panel-width: 22em;
-  --panel-padding: var(--space-large);
-  --panel-separator-padding: var(--space-medium) 0;
   font: menu;
 
-  .panel-header {
-    min-height: auto;
-    > h1 {
-      margin-top: 0;
-    }
-  }
-
-  .panel-body {
-    padding-block: var(--space-medium);
+  &.tab-group-editor-panel-expanded {
+    --panel-width: 25em;
   }
 
   &.tab-group-editor-mode-create .tab-group-edit-mode-only,
@@ -1700,6 +1807,9 @@ tab-group {
   .tab-group-editor-name {
     display: flex;
     flex-direction: column;
+    margin: var(--arrowpanel-menuitem-margin);
+    padding-top: var(--arrowpanel-menuitem-padding-block);
+
     > label {
       margin-inline: 0;
       margin-bottom: var(--space-small);
@@ -1713,6 +1823,8 @@ tab-group {
     display: flex;
     flex-flow: row nowrap;
     justify-content: space-between;
+    margin: var(--arrowpanel-menuitem-margin);
+    padding-block: var(--arrowpanel-menuitem-padding-block);
   }
 
   input[name="tab-group-color"] {
@@ -1729,6 +1841,7 @@ tab-group {
     font-size: 0;
     width: 16px;
     height: 16px;
+    /* stylelint-disable-next-line stylelint-plugin-mozilla/use-design-tokens */
     padding: var(--focus-outline-offset);
     border: var(--focus-outline-width) solid transparent;
     border-radius: var(--border-radius-medium);
@@ -1748,26 +1861,57 @@ tab-group {
       outline-offset: 1px;
     }
   }
-
-  .tab-group-edit-actions,
-  .tab-group-delete {
-    padding-block: 0;
-    > toolbarbutton {
-      justify-content: flex-start;
-    }
-  }
-
-  toolbarbutton {
-    margin: 0;
-  }
-}
-
-.tab-group-editor-panel.tab-group-editor-panel-expanded {
-  --panel-width: 25em;
 }
 
 @media not (prefers-contrast) {
   #tabGroupEditor_deleteGroup {
+    color: var(--text-color-error);
+  }
+}
+
+/* Tab Notes */
+.tab-note-editor-panel {
+  --panel-width: 300px;
+  font: menu;
+
+  > toolbarseparator {
+    padding-inline: var(--panel-padding);
+  }
+
+  > .panel-subview-body {
+    padding-top: var(--panel-subview-body-padding-block);
+    padding-inline: var(--panel-padding);
+  }
+
+  > .panel-action-row {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-large);
+  }
+}
+
+#tab-note-text {
+  padding: var(--space-medium);
+  resize: none;
+  min-height: 3lh;
+  max-height: 352px;
+  overflow-y: auto;
+}
+
+#tab-note-overflow-indicator {
+  font-size: 0.85em;
+  visibility: hidden;
+  color: var(--text-color-deemphasized);
+
+  /* This will apply to both the overflow=warn state (the user has almost
+   * overflowed the limit) and the overflow=overflow state (the user actually
+   * has overflowed the limit).
+   */
+  .tab-note-editor-panel[overflow] & {
+    visibility: inherit;
+  }
+
+  .tab-note-editor-panel[overflow="overflow"] & {
     color: var(--text-color-error);
   }
 }
@@ -2092,7 +2236,7 @@ tab-group {
 
     /* prevent the shadow of the close button from being cutoff by the toolbar on the first tab */
     &:nth-child(1 of :not([hidden], [pinned])) {
-      padding-block-start: 5px;
+      padding-block-start: var(--space-xsmall);
     }
   }
 
@@ -2432,29 +2576,72 @@ toolbar:not(#TabsToolbar) #firefox-view-button {
   }
 }
 
+/*
+ * Tab note icon that displays inline on unpinned tabs in the horizontal tab
+ * strip and the expanded vertical tab strip. Pinned tabs and the collapsed
+ * vertical tab strip get a separate space-constrained treatment using the
+ * `.tab-notes-icon-overlay` image.
+ */
+.tab-note-icon {
+  display: none;
+  box-sizing: border-box;
+
+  width: calc(var(--icon-size-xsmall) + 8px);
+  height: calc(var(--icon-size-xsmall) + 8px);
+  padding: 4px;
+  margin-inline-end: calc(var(--tab-close-button-padding) / -2);
+
+  list-style-image: url("chrome://global/skin/icons/tab-notes-12.svg");
+  -moz-context-properties: fill;
+  fill: var(--icon-color);
+
+  #tabbrowser-tabs[orient="vertical"][expanded] & {
+    /*
+     * Keep the tab note icon out of the way of the close button, even when
+     * the close button is not showing because the tab is not being hovered.
+     */
+    .tabbrowser-tab:not(:hover) & {
+      /* .tab-close-button is 24px wide with border-box sizing */
+      margin-inline-end: calc(24px - var(--tab-close-button-padding));
+    }
+    .tabbrowser-tab:is([visuallyselected], :hover) & {
+      margin-inline-end: calc(var(--tab-close-button-padding) / -2);
+    }
+  }
+}
+
+/* stylelint-disable-next-line media-query-no-invalid */
+@media -moz-pref("browser.tabs.notes.enabled") and (not -moz-pref("sidebar.visibility", "expand-on-hover")) {
+  .tabbrowser-tab[tab-note]:not([pinned]) .tab-note-icon {
+    #tabbrowser-tabs[orient="horizontal"] &,
+    #tabbrowser-tabs[orient="vertical"][expanded] & {
+      display: revert;
+    }
+  }
+}
+
 /* NOTE(emilio): The double class is an specificity hack to win over the
  * .subviewbutton-iconic rules */
 .tab-group-icon.tab-group-icon {
   list-style-image: url("chrome://browser/skin/tabbrowser/tab-group-chicklet.svg");
   --menuitem-icon: url("chrome://browser/skin/tabbrowser/tab-group-chicklet.svg");
+  --menuitem-icon-fill: light-dark(var(--tab-group-color), var(--tab-group-color-invert));
   -moz-context-properties: fill, stroke;
-  fill: light-dark(var(--tab-group-color), var(--tab-group-color-invert));
   stroke: light-dark(var(--tab-group-color), var(--tab-group-color-invert));
 
+  > .toolbarbutton-icon {
+    fill: var(--menuitem-icon-fill);
+  }
+
   &.tab-group-icon-collapsed {
-    fill: light-dark(var(--tab-group-color-pale), var(--tab-group-color));
+    --menuitem-icon-fill: light-dark(var(--tab-group-color-pale), var(--tab-group-color));
     stroke: light-dark(var(--tab-group-color), var(--tab-group-color-pale));
   }
 
   &.tab-group-icon-closed {
-    fill: transparent;
+    --menuitem-icon-fill: transparent;
     stroke: light-dark(var(--tab-group-color), var(--tab-group-color-invert));
   }
-}
-
-#tab-group-suggestions-heading,
-#tab-group-main {
-  flex-direction: column;
 }
 
 #tab-group-default-actions {
@@ -2497,12 +2684,13 @@ toolbar:not(#TabsToolbar) #firefox-view-button {
 }
 
 #tab-group-suggestion-button {
-  --button-border-color-ghost: var(--color-accent-primary);
+  --button-border-color-ghost: var(--border-color-selected);
   color: var(--color-accent-primary);
-  width: 100%;
+  width: auto;
+  padding: 0;
 
   &:hover {
-    --button-border-color-ghost-hover: var(--color-accent-primary);
+    --button-border-color-ghost-hover: var(--border-color-selected);
   }
 }
 
@@ -2529,6 +2717,11 @@ toolbar:not(#TabsToolbar) #firefox-view-button {
     margin-top: 0;
     padding-inline: 35px var(--space-medium);
   }
+}
+
+#tab-group-suggestions-container,
+#tab-group-suggestions-optin-container {
+  margin: var(--arrowpanel-menuitem-margin);
 }
 
 .tab-group-suggestions-loading-header,

@@ -19,7 +19,7 @@ add_task(async function () {
   const { inspector, view } = await openRuleView();
   await selectNode("#testid", inspector);
 
-  let elementRuleEditor = getRuleViewRuleEditor(view, 1);
+  let elementRuleEditor = getRuleViewRuleEditorAt(view, 1);
   is(
     elementRuleEditor.rule.textProps.length,
     1,
@@ -63,7 +63,7 @@ add_task(async function () {
     "Correct element has focus"
   );
 
-  elementRuleEditor = getRuleViewRuleEditor(view, 1);
+  elementRuleEditor = getRuleViewRuleEditorAt(view, 1);
   is(
     elementRuleEditor.rule.textProps.length,
     1,

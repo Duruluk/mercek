@@ -33,6 +33,9 @@ nimbus_targeting_environment:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1967328
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1983122
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1997164
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1995896
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2011286
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2017267
     data_reviews: &targeting_context_data_reviews
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1928107
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1937207
@@ -44,6 +47,9 @@ nimbus_targeting_environment:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1967328
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1983122
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1997164
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1995896
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2011286
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2017267
     notification_emails: &targeting_context_notification_emails
       - beth@mozilla.com
       - project-nimbus@mozilla.com
@@ -74,6 +80,7 @@ nimbus_targeting_environment:
       - technical
     type: labeled_counter
     labels:
+      - "browser.ai.control.default"
       - "browser.newtabpage.activity-stream.asrouter.userprefs.cfr.addons"
       - "browser.newtabpage.activity-stream.asrouter.userprefs.cfr.features"
       - "browser.newtabpage.activity-stream.feeds.section.highlights"
@@ -86,7 +93,6 @@ nimbus_targeting_environment:
       - "browser.startup.page"
       - "browser.toolbars.bookmarks.visibility"
       - "browser.urlbar.lastUrlbarSearchSeconds"
-      - "browser.urlbar.quicksuggest.dataCollection.enabled"
       - "browser.urlbar.showSearchSuggestionsFirst"
       - "browser.urlbar.suggest.quicksuggest.sponsored"
       - "media.videocontrols.picture-in-picture.enabled"
@@ -97,6 +103,10 @@ nimbus_targeting_environment:
       - "nimbus.qa.pref-1"
       - "nimbus.qa.pref-2"
       - "security.sandbox.content.level"
+      - "termsofuse.acceptedDate"
+      - "termsofuse.acceptedVersion"
+      - "termsofuse.bypassNotification"
+      - "termsofuse.firstAcceptedDate"
       - "trailhead.firstrun.didSeeAboutWelcome"
 
   attr_eval_errors:
@@ -176,6 +186,8 @@ nimbus_targeting_environment:
     structure:
       type: object
       properties:
+        browser__ai__control__default:
+          type: string
         browser__newtabpage__activity_stream__asrouter__userprefs__cfr__addons:
           type: boolean
         browser__newtabpage__activity_stream__asrouter__userprefs__cfr__features:
@@ -200,8 +212,6 @@ nimbus_targeting_environment:
           type: string
         browser__urlbar__lastUrlbarSearchSeconds:
           type: number
-        browser__urlbar__quicksuggest__dataCollection__enabled:
-          type: boolean
         browser__urlbar__showSearchSuggestionsFirst:
           type: boolean
         browser__urlbar__suggest__quicksuggest__sponsored:
@@ -218,6 +228,14 @@ nimbus_targeting_environment:
           type: number
         security__sandbox__content__level:
           type: number
+        termsofuse__acceptedDate:
+          type: string
+        termsofuse__acceptedVersion:
+          type: number
+        termsofuse__bypassNotification:
+          type: boolean
+        termsofuse__firstAcceptedDate:
+          type: string
         trailhead__firstrun__didSeeAboutWelcome:
           type: boolean
 
@@ -792,9 +810,11 @@ nimbus_events:
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1773563
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1781953
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1997467
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1773563
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1781953
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1997467
     data_sensitivity:
       - technical
     notification_emails:
@@ -844,6 +864,15 @@ nimbus_events:
         description: >
           If reason == "l10n-missing-entry" or "l10n-missing-locale" this is the
           locale we failed to find in the set of available translations.
+      about_config_change:
+        description: >
+          If reason == "changed-pref", whether or not the change was triggerd
+          via about:config.
+        type: string
+      migration:
+        description: >
+          If reason == "migration", the migration that triggered the unenrollment.
+        type: string
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1773563
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1781953
@@ -851,6 +880,7 @@ nimbus_events:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1896718
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1907649
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1976329
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1993057
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1773563
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1781953
@@ -858,6 +888,7 @@ nimbus_events:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1896718
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1907649
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1976329
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1993057
     data_sensitivity:
       - technical
     notification_emails:
@@ -1021,12 +1052,19 @@ nimbus_events:
       conflict_slug:
         type: string
         description: If the enrollment hit a feature conflict, the slug of the conflicting experiment/rollout
+      migration:
+        type: string
+        description: If the unenrollment was caused by a migration, the name of the migration.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1817481
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1955169
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1997467
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2006752
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1817481
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1955169
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1997467
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2006752
     data_sensitivity:
       - technical
     notification_emails:
@@ -1034,6 +1072,7 @@ nimbus_events:
       - project-nimbus@mozilla.com
     expires: never
     disabled: true
+    send_in_pings: *targeting_context_pings
 
   migration:
     type: event
@@ -1220,7 +1259,7 @@ normandy:
     data_reviews:
       - https://bugzil.la/1675104
     notification_emails:
-      - ujet@mozilla.com
+      - omc-core@mozilla.com
     expires: never
     extra_keys:
       value:

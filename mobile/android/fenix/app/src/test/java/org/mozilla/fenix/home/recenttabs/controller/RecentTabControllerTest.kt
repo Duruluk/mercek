@@ -16,7 +16,6 @@ import mozilla.components.browser.state.state.LastMediaAccessState
 import mozilla.components.browser.state.state.createTab
 import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.feature.tabs.TabsUseCases
-import mozilla.components.support.test.ext.joinBlocking
 import mozilla.components.support.test.robolectric.testContext
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -28,7 +27,6 @@ import org.mozilla.fenix.GleanMetrics.RecentTabs
 import org.mozilla.fenix.R
 import org.mozilla.fenix.components.AppStore
 import org.mozilla.fenix.helpers.FenixGleanTestRule
-import org.mozilla.fenix.utils.Settings
 import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
@@ -40,7 +38,6 @@ class RecentTabControllerTest {
     private val navController: NavController = mockk(relaxed = true)
     private val selectTabUseCase: TabsUseCases = mockk(relaxed = true)
     private val appStore: AppStore = mockk()
-    private val settings: Settings = mockk(relaxed = true)
 
     private lateinit var store: BrowserStore
 
@@ -56,7 +53,6 @@ class RecentTabControllerTest {
                 selectTabUseCase = selectTabUseCase.selectTab,
                 navController = navController,
                 appStore = appStore,
-                settings = settings,
             ),
         )
     }
@@ -73,8 +69,8 @@ class RecentTabControllerTest {
             url = "https://mozilla.org",
             title = "Mozilla",
         )
-        store.dispatch(TabListAction.AddTabAction(tab)).joinBlocking()
-        store.dispatch(TabListAction.SelectTabAction(tab.id)).joinBlocking()
+        store.dispatch(TabListAction.AddTabAction(tab))
+        store.dispatch(TabListAction.SelectTabAction(tab.id))
 
         controller.handleRecentTabClicked(tab.id)
 
@@ -99,8 +95,8 @@ class RecentTabControllerTest {
             lastMediaAccessState = LastMediaAccessState("https://mozilla.com", 123, true),
         )
 
-        store.dispatch(TabListAction.AddTabAction(inProgressMediaTab)).joinBlocking()
-        store.dispatch(TabListAction.SelectTabAction(inProgressMediaTab.id)).joinBlocking()
+        store.dispatch(TabListAction.AddTabAction(inProgressMediaTab))
+        store.dispatch(TabListAction.SelectTabAction(inProgressMediaTab.id))
 
         controller.handleRecentTabClicked(inProgressMediaTab.id)
 
@@ -119,7 +115,7 @@ class RecentTabControllerTest {
 
         verify {
             navController.navigate(
-                match<NavDirections> { it.actionId == R.id.action_global_tabsTrayFragment },
+                match<NavDirections> { it.actionId == R.id.action_global_tabManagementFragment },
             )
         }
 
@@ -134,7 +130,7 @@ class RecentTabControllerTest {
 
         verify {
             navController.navigate(
-                match<NavDirections> { it.actionId == R.id.action_global_tabsTrayFragment },
+                match<NavDirections> { it.actionId == R.id.action_global_tabManagementFragment },
             )
         }
 

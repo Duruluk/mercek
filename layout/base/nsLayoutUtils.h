@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsLayoutUtils_h__
-#define nsLayoutUtils_h__
+#ifndef nsLayoutUtils_h_
+#define nsLayoutUtils_h_
 
 #include <algorithm>
 #include <limits>
@@ -249,6 +249,12 @@ class nsLayoutUtils {
   static void NotifyPaintSkipTransaction(ViewID aScrollId);
 
   /**
+   * Similar to above NotifyPaintSkipTransaction, but scroll offset is being
+   * sent to APZ in a full transaction.
+   */
+  static void NotifyApzTransaction(ViewID aScrollId);
+
+  /**
    * Use heuristics to figure out the child list that
    * aChildFrame is currently in.
    */
@@ -286,6 +292,12 @@ class nsLayoutUtils {
    * aContent, if any.
    */
   static nsIFrame* GetMarkerFrame(const nsIContent* aContent);
+
+  /**
+   * Returns the ::backdrop pseudo-element for aContent, if any.
+   */
+  static mozilla::dom::Element* GetBackdropPseudo(const nsIContent* aContent);
+  static nsIFrame* GetBackdropFrame(const nsIContent* aContent);
 
 #ifdef ACCESSIBILITY
   /**
@@ -468,6 +480,17 @@ class nsLayoutUtils {
                                     const nsIFrame* aCommonAncestor = nullptr);
 
   /**
+   * IsProperAncestorFrameConsideringContinuations checks whether aAncestorFrame
+   * or a continuation of it is an ancestor of aFrame and not equal to aFrame.
+   * @param aCommonAncestor nullptr, or a common ancestor of aFrame and
+   * aAncestorFrame. If non-null, this can bound the search and speed up
+   * the function
+   */
+  static bool IsProperAncestorFrameConsideringContinuations(
+      const nsIFrame* aAncestorFrame, const nsIFrame* aFrame,
+      const nsIFrame* aCommonAncestor = nullptr);
+
+  /**
    * Like IsProperAncestorFrame, but looks across document boundaries.
    *
    * Just like IsAncestorFrameCrossDoc, except that it returns false when
@@ -522,6 +545,10 @@ class nsLayoutUtils {
    * another an iframe document domain B, such as A1 -> B1 ->A2 document tree.
    */
   static bool IsAncestorFrameCrossDocInProcess(
+      const nsIFrame* aAncestorFrame, const nsIFrame* aFrame,
+      const nsIFrame* aCommonAncestor = nullptr);
+
+  static bool IsAncestorFrameCrossDocInProcessConsideringContinuations(
       const nsIFrame* aAncestorFrame, const nsIFrame* aFrame,
       const nsIFrame* aCommonAncestor = nullptr);
 
@@ -739,34 +766,11 @@ class nsLayoutUtils {
                                            nsIContent** aContainer,
                                            int32_t* aOffset);
 
-  /**
-   * Translate from widget coordinates to the view's coordinates
-   * @param aPresContext the PresContext for the view
-   * @param aWidget the widget
-   * @param aPt the point relative to the widget
-   * @param aView  view to which returned coordinates are relative
-   * @return the point in the view's coordinates
-   */
-  static nsPoint TranslateWidgetToView(nsPresContext* aPresContext,
-                                       nsIWidget* aWidget,
-                                       const mozilla::LayoutDeviceIntPoint& aPt,
-                                       nsView* aView);
-
-  /**
-   * Translate from view coordinates to the widget's coordinates.
-   * @param aPresContext the PresContext for the view
-   * @param aView the view
-   * @param aPt the point relative to the view
-   * @param aViewportType whether the point is in visual or layout coordinates
-   * @param aWidget the widget to which returned coordinates are relative
-   * @return the point in the view's coordinates
-   */
-  static mozilla::LayoutDeviceIntPoint TranslateViewToWidget(
-      nsPresContext* aPresContext, nsView* aView, nsPoint aPt,
-      ViewportType aViewportType, nsIWidget* aWidget);
-
   static mozilla::LayoutDeviceIntPoint WidgetToWidgetOffset(
       nsIWidget* aFromWidget, nsIWidget* aToWidget);
+
+  static mozilla::Maybe<nsPoint> FrameToWidgetOffset(const nsIFrame* aFrame,
+                                                     nsIWidget* aWidget);
 
   enum class FrameForPointOption {
     /**
@@ -1303,6 +1307,7 @@ class nsLayoutUtils {
     UseMarginBox,
     // Similar to UseMarginBox, but the 'auto' margins are resolved as zero.
     UseMarginBoxWithAutoResolvedAsZero,
+    UseInkOverflowAsBox
   };
   using GetAllInFlowRectsFlags = mozilla::EnumSet<GetAllInFlowRectsFlag>;
   static void GetAllInFlowRects(nsIFrame* aFrame, const nsIFrame* aRelativeTo,
@@ -1409,6 +1414,14 @@ class nsLayoutUtils {
    */
   static nsIFrame* FindChildContainingDescendant(nsIFrame* aParent,
                                                  nsIFrame* aDescendantFrame);
+
+  /**
+   * Returns true if aFrame or any of its descendants have absolutely
+   * positioned children. This is used in a fragmented context to determine
+   * whether a measuring reflow is required for computing unfragmented
+   * positions of absolutely positioned elements.
+   */
+  static bool HasAbsolutelyPositionedDescendants(const nsIFrame* aFrame);
 
   /**
    * Find the nearest ancestor that's a block
@@ -1673,7 +1686,7 @@ class nsLayoutUtils {
    *   internally work with variables that unconditionally represent a
    *   content-box size, regardless of the 'box-sizing' value; and for those
    *   cases, it would be appropriate to unconditionally pass
-   *   StyleBoxSizing::Content to this function, or to just use the
+   *   StyleBoxSizing::ContentBox to this function, or to just use the
    *   convenience-wrapper that has "ContentBox" in the function name.
    */
   static inline nscoord ComputeStretchBSize(
@@ -1683,7 +1696,7 @@ class nsLayoutUtils {
                  "We don't handle situations with unconstrained "
                  "aSizeToFill; caller should handle that!");
     nscoord stretchSize = aSizeToFill - aMargin;
-    if (aBoxSizing == mozilla::StyleBoxSizing::Content) {
+    if (aBoxSizing == mozilla::StyleBoxSizing::ContentBox) {
       stretchSize -= aBorderPadding;
     }
     return std::max(0, stretchSize);
@@ -1693,7 +1706,7 @@ class nsLayoutUtils {
                                                       nscoord aMargin,
                                                       nscoord aBorderPadding) {
     return ComputeStretchBSize(aSizeToFill, aMargin, aBorderPadding,
-                               mozilla::StyleBoxSizing::Content);
+                               mozilla::StyleBoxSizing::ContentBox);
   }
   // Similar to the above convenience-wrapper, but now for inline-axis.
   // TODO(dholbert): would it be useful to add a box-sizing-aware version of
@@ -2506,7 +2519,7 @@ class nsLayoutUtils {
    * not overridden by !important rules.
    */
   static bool HasEffectiveAnimation(const nsIFrame* aFrame,
-                                    nsCSSPropertyID aProperty);
+                                    NonCustomCSSPropertyId aProperty);
 
   /**
    * Returns true if |aFrame| has an animation where at least one of the
@@ -2896,6 +2909,11 @@ class nsLayoutUtils {
   static FrameMetrics CalculateBasicFrameMetrics(
       mozilla::ScrollContainerFrame* aScrollContainerFrame);
 
+  /**
+   * Follows the async scrollable ancestor chain of scroll frames to find
+   * scroll frames that WantAsyncScroll(). This is used when activating scroll
+   * frames and finding APZCs.
+   */
   static mozilla::ScrollContainerFrame* GetAsyncScrollableAncestorFrame(
       nsIFrame* aTarget);
 
@@ -3057,7 +3075,7 @@ class nsLayoutUtils {
    *   assigned to first frame on the next line if such a next line exists, null
    *   otherwise.
    */
-  static bool IsInvisibleBreak(nsINode* aNode,
+  static bool IsInvisibleBreak(const nsINode* aNode,
                                nsIFrame** aNextLineFrame = nullptr);
 
   static nsRect ComputeSVGOriginBox(mozilla::dom::SVGViewportElement*);
@@ -3183,17 +3201,26 @@ class nsLayoutUtils {
    */
   static void RecomputeSmoothScrollDefault();
 
+  struct CombinedFragments {
+    // Previous continuation, if exists, that got skipped due to being on a
+    // different page, or a different containing block continuation.
+    const nsIFrame* mSkippedPrevContinuation = nullptr;
+    // Same as above, but next continuation.
+    const nsIFrame* mSkippedNextContinuation = nullptr;
+    // The overall frame rect formed by unioning the frame's fragment rects.
+    nsRect mRect;
+  };
   /**
    * Get the union of the rects of aFrame and its continuations (but not if the
    * context is paginated and they're on a different page, as it doesn't make
    * sense to "merge" their rects in that case).
    *
    * @param aFrame The target frame whose combined fragments are wanted.
-   * @param aRelativeToSelf If true, return rect relative to aFrame's origin;
-   *                        if false, return rect in aFrame's parent's space.
+   * @param aContainingBlock If provided, union fragments only up to its
+   * fragmentation boundary.
    */
-  static nsRect GetCombinedFragmentRects(const nsIFrame* aFrame,
-                                         bool aRelativeToSelf = true);
+  static CombinedFragments GetCombinedFragmentRects(
+      const nsIFrame* aFrame, const nsIFrame* aContainingBlock = nullptr);
 
  private:
   /**
@@ -3434,4 +3461,4 @@ class MOZ_RAII SetAndNullOnExit {
   T** mVariable;
 };
 
-#endif  // nsLayoutUtils_h__
+#endif  // nsLayoutUtils_h_

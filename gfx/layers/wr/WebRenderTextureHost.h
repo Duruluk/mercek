@@ -84,8 +84,6 @@ class WebRenderTextureHost final : public TextureHost {
 
   wr::ExternalImageId GetExternalImageKey();
 
-  int32_t GetRGBStride();
-
   bool NeedsDeferredDeletion() const override;
 
   uint32_t NumSubTextures() override;
@@ -103,11 +101,7 @@ class WebRenderTextureHost final : public TextureHost {
 
   bool SupportsExternalCompositing(WebRenderBackend aBackend) override;
 
-  void SetAcquireFence(UniqueFileHandle&& aFenceFd) override;
-
-  void SetReleaseFence(UniqueFileHandle&& aFenceFd) override;
-
-  UniqueFileHandle GetAndResetReleaseFence() override;
+  void SetReadFence(Fence* aReadFence) override;
 
   AndroidHardwareBuffer* GetAndroidHardwareBuffer() const override;
 

@@ -616,11 +616,9 @@ bool nsHttpConnectionInfo::HostIsLocalIPLiteral() const {
 }
 
 // static
-void nsHttpConnectionInfo::BuildOriginFrameHashKey(nsACString& newKey,
-                                                   nsHttpConnectionInfo* ci,
-                                                   const nsACString& host,
-                                                   int32_t port) {
-  newKey.Assign(host);
+HashNumber nsHttpConnectionInfo::BuildOriginFrameHashKey(
+    nsHttpConnectionInfo* ci, const nsACString& host, int32_t port) {
+  nsAutoCString newKey(host);
   if (ci->GetAnonymous()) {
     newKey.AppendLiteral("~A:");
   } else {
@@ -637,6 +635,7 @@ void nsHttpConnectionInfo::BuildOriginFrameHashKey(nsACString& newKey,
   ci->GetOriginAttributes().CreateSuffix(suffix);
   newKey.Append(suffix);
   newKey.AppendLiteral("]viaORIGIN.FRAME");
+  return HashString(newKey);
 }
 
 }  // namespace net

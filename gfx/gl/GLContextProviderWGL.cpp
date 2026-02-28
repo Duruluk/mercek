@@ -31,7 +31,7 @@ namespace gl {
 using namespace mozilla::gfx;
 using namespace mozilla::widget;
 
-MOZ_RUNINIT WGLLibrary sWGLLib;
+constinit WGLLibrary sWGLLib;
 
 /*
 ScopedWindow::~ScopedWindow()
@@ -103,10 +103,7 @@ bool WGLLibrary::EnsureInitialized() {
       }                           \
     }                             \
   }
-#define END_OF_SYMBOLS \
-  {                    \
-    nullptr, {}        \
-  }
+#define END_OF_SYMBOLS {nullptr, {}}
 
   {
     const auto loader = SymbolLoader(*mOGLLibrary);

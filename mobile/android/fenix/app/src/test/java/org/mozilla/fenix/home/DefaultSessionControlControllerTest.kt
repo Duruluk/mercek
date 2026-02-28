@@ -25,7 +25,6 @@ import mozilla.components.feature.session.SessionUseCases
 import mozilla.components.feature.tab.collections.TabCollection
 import mozilla.components.feature.tabs.TabsUseCases
 import mozilla.components.service.nimbus.messaging.Message
-import mozilla.components.support.test.ext.joinBlocking
 import mozilla.components.support.test.robolectric.testContext
 import mozilla.components.support.test.rule.MainCoroutineRule
 import org.junit.Assert.assertEquals
@@ -36,6 +35,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.mozilla.fenix.GleanMetrics.Collections
 import org.mozilla.fenix.GleanMetrics.HomeBookmarks
@@ -71,13 +71,17 @@ import mozilla.components.feature.tab.collections.Tab as ComponentTab
 class DefaultSessionControlControllerTest {
 
     @get:Rule
+    val temporaryFolder = TemporaryFolder()
+
+    @get:Rule
     val coroutinesTestRule = MainCoroutineRule()
 
     @get:Rule
     val gleanTestRule = FenixGleanTestRule(testContext)
 
     private val activity: HomeActivity = mockk(relaxed = true)
-    private val filesDir: File = mockk(relaxed = true)
+
+    private val filesDir: File by lazy { temporaryFolder.newFolder() }
     private val appStore: AppStore = mockk(relaxed = true)
     private val navController: NavController = mockk(relaxed = true)
     private val messageController: MessageController = mockk(relaxed = true)
@@ -100,6 +104,7 @@ class DefaultSessionControlControllerTest {
     private lateinit var store: BrowserStore
     private val appState: AppState = mockk(relaxed = true)
     private var showAddSearchWidgetPromptCalled = false
+    private var requestSetDefaultBrowserPromptCalled = false
 
     @Before
     fun setup() {
@@ -224,9 +229,9 @@ class DefaultSessionControlControllerTest {
 
         val restoredTab = createTab(id = recoverableTab.state.id, url = recoverableTab.state.url)
         val otherTab = createTab(id = "otherTab", url = "https://mozilla.org")
-        store.dispatch(TabListAction.AddTabAction(otherTab)).joinBlocking()
-        store.dispatch(TabListAction.SelectTabAction(otherTab.id)).joinBlocking()
-        store.dispatch(TabListAction.AddTabAction(restoredTab)).joinBlocking()
+        store.dispatch(TabListAction.AddTabAction(otherTab))
+        store.dispatch(TabListAction.SelectTabAction(otherTab.id))
+        store.dispatch(TabListAction.AddTabAction(restoredTab))
 
         createController().handleCollectionOpenTabClicked(tab)
 
@@ -261,7 +266,7 @@ class DefaultSessionControlControllerTest {
         }
 
         val restoredTab = createTab(id = recoverableTab.state.id, url = recoverableTab.state.url)
-        store.dispatch(TabListAction.AddTabAction(restoredTab)).joinBlocking()
+        store.dispatch(TabListAction.AddTabAction(restoredTab))
 
         createController().handleCollectionOpenTabClicked(tab)
 
@@ -473,7 +478,7 @@ class DefaultSessionControlControllerTest {
 
         verify {
             navController.navigate(
-                match<NavDirections> { it.actionId == R.id.action_global_tabsTrayFragment },
+                match<NavDirections> { it.actionId == R.id.action_global_tabManagementFragment },
                 null,
             )
         }
@@ -567,14 +572,13 @@ class DefaultSessionControlControllerTest {
 
     @Test
     fun `GIVEN item is a task WHEN onChecklistItemClicked is called THEN performs the expected actions`() {
-        every { activity.showSetDefaultBrowserPrompt() } just Runs
         val controller = createController()
         val task = mockk<ChecklistItem.Task>()
         every { task.type } returns ChecklistItem.Task.Type.SET_AS_DEFAULT
 
         controller.onChecklistItemClicked(task)
 
-        verify { activity.showSetDefaultBrowserPrompt() }
+        assertTrue("Should have called the new requestSetDefaultBrowserPrompt", requestSetDefaultBrowserPromptCalled)
         verify { appStore.dispatch(AppAction.SetupChecklistAction.ChecklistItemClicked(task)) }
     }
 
@@ -582,12 +586,11 @@ class DefaultSessionControlControllerTest {
     fun `WHEN set as default task THEN navigationActionFor calls the set to default prompt`() {
         val controller = createController()
         val task = mockk<ChecklistItem.Task>()
-        every { activity.showSetDefaultBrowserPrompt() } just Runs
         every { task.type } returns ChecklistItem.Task.Type.SET_AS_DEFAULT
 
         controller.navigationActionFor(task)
 
-        verify { activity.showSetDefaultBrowserPrompt() }
+        assertTrue("Should have called the new requestSetDefaultBrowserPrompt", requestSetDefaultBrowserPromptCalled)
     }
 
     @Test
@@ -708,6 +711,7 @@ class DefaultSessionControlControllerTest {
             navControllerRef = WeakReference(navController),
             viewLifecycleScope = scope,
             showAddSearchWidgetPrompt = { showAddSearchWidgetPromptCalled = true },
+            requestSetDefaultBrowserPrompt = { requestSetDefaultBrowserPromptCalled = true },
         ).apply {
             registerCallback(object : SessionControlControllerCallback {
                 override fun registerCollectionStorageObserver() {

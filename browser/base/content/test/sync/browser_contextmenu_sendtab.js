@@ -54,11 +54,14 @@ function updateTabContextMenu(tab = gBrowser.selectedTab) {
 
 add_setup(async function () {
   await SpecialPowers.pushPrefEnv({
-    set: [["test.wait300msAfterTabSwitch", true]],
+    set: [
+      ["browser.urlbar.trustPanel.featureGate", false],
+      ["test.wait300msAfterTabSwitch", true],
+    ],
   });
 
   await promiseSyncReady();
-  await Services.search.init();
+  await SearchService.init();
   // gSync.init() is called in a requestIdleCallback. Force its initialization.
   gSync.init();
   sinon
@@ -164,9 +167,12 @@ add_task(async function test_tab_contextmenu() {
     .expects("sendTabToDevice")
     .once()
     .withExactArgs(
-      "about:mozilla",
-      [fxaDevices[1]],
-      "The Book of Mozilla, 6:27"
+      {
+        url: "about:mozilla",
+        title: "The Book of Mozilla, 6:27",
+        private: false,
+      },
+      [fxaDevices[1]]
     )
     .returns(true);
 
@@ -176,6 +182,11 @@ add_task(async function test_tab_contextmenu() {
     document.getElementById("context_sendTabToDevice").hidden,
     false,
     "Send tab to device is shown"
+  );
+  is(
+    document.getElementById("context_sendTabToDeviceSeparator").hidden,
+    false,
+    "Send tab to device separator is shown"
   );
   is(
     document.getElementById("context_sendTabToDevice").disabled,
@@ -200,6 +211,11 @@ add_task(async function test_tab_contextmenu_unconfigured() {
     "Send tab to device is hidden"
   );
   is(
+    document.getElementById("context_sendTabToDeviceSeparator").hidden,
+    true,
+    "Send tab to device separator is hidden"
+  );
+  is(
     document.getElementById("context_sendTabToDevice").disabled,
     false,
     "Send tab to device is enabled"
@@ -214,6 +230,11 @@ add_task(async function test_tab_contextmenu_not_sendable() {
   updateTabContextMenu(testTab);
   is(
     document.getElementById("context_sendTabToDevice").hidden,
+    true,
+    "Send tab to device is hidden"
+  );
+  is(
+    document.getElementById("context_sendTabToDeviceSeparator").hidden,
     true,
     "Send tab to device is hidden"
   );
@@ -236,6 +257,11 @@ add_task(async function test_tab_contextmenu_not_synced_yet() {
     "Send tab to device is hidden"
   );
   is(
+    document.getElementById("context_sendTabToDeviceSeparator").hidden,
+    true,
+    "Send tab to device separator is hidden"
+  );
+  is(
     document.getElementById("context_sendTabToDevice").disabled,
     true,
     "Send tab to device is disabled"
@@ -250,6 +276,11 @@ add_task(async function test_tab_contextmenu_sync_not_ready_configured() {
   updateTabContextMenu(testTab);
   is(
     document.getElementById("context_sendTabToDevice").hidden,
+    true,
+    "Send tab to device is hidden"
+  );
+  is(
+    document.getElementById("context_sendTabToDeviceSeparator").hidden,
     true,
     "Send tab to device is hidden"
   );
@@ -275,6 +306,11 @@ add_task(async function test_tab_contextmenu_sync_not_ready_other_state() {
     "Send tab to device is hidden"
   );
   is(
+    document.getElementById("context_sendTabToDeviceSeparator").hidden,
+    true,
+    "Send tab to device separator is hidden"
+  );
+  is(
     document.getElementById("context_sendTabToDevice").disabled,
     false,
     "Send tab to device is enabled"
@@ -293,6 +329,12 @@ add_task(async function test_tab_contextmenu_fxa_disabled() {
     document.getElementById("context_sendTabToDevice").hidden,
     true,
     "Send tab to device is hidden"
+  );
+  updateTabContextMenu(testTab);
+  is(
+    document.getElementById("context_sendTabToDeviceSeparator").hidden,
+    true,
+    "Send tab to device separator is hidden"
   );
 
   getter.restore();

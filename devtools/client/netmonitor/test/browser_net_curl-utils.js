@@ -326,10 +326,10 @@ function testEscapeStringWin() {
     "Percent signs should be escaped."
   );
 
-  const backslashes = "\\A simple string\\";
+  const backslashes = " - \\A simple string\\ - ";
   is(
     CurlUtils.escapeStringWin(backslashes),
-    '^\"^\\A simple string^\\^\"',
+    '^\" - ^\\^\\A simple string^\\^\\ - ^\"',
     "Backslashes should be escaped."
   );
 
@@ -359,6 +359,21 @@ function testEscapeStringWin() {
     CurlUtils.escapeStringWin(evilCommand),
     '^\"query=evil^\n\n^\n\ncmd^\\^\" /c timeout /t 3 ^& calc.exe^\n\n^\n\n^\"',
     "The evil command is escaped properly"
+  );
+
+  // Control characters https://www.ascii-code.com/characters/control-characters
+  const containsControlChars = " - \u0007 \u0010 \u0014 \u001B \x1a - ";
+  is(
+    CurlUtils.escapeStringWin(containsControlChars),
+    '^\" - \u0007 \u0010 \u0014 \u001b \u001a - ^\"',
+    "Control characters should not be escaped with ^."
+  );
+
+  const controlCharsWithWhitespaces = " -\tcalc.exe\f- ";
+  is(
+    CurlUtils.escapeStringWin(controlCharsWithWhitespaces),
+    '^\" - calc.exe - ^\"',
+    "Control (non-printable) characters which are whitespace like charaters e.g (tab & form feed)"
   );
 }
 

@@ -62,8 +62,17 @@ void LIRGraph::dump() {
 #endif
 
 LBlock::LBlock(MBasicBlock* from)
-    : block_(from), entryMoveGroup_(nullptr), exitMoveGroup_(nullptr) {
+    : block_(from),
+      entryMoveGroup_(nullptr),
+      exitMoveGroup_(nullptr),
+      isOutOfLine_(false) {
   from->assignLir(this);
+
+  // If branch hinting is enabled, and this block is unlikely to be executed,
+  // it will be generated out of line.
+  if (from->info().branchHintingEnabled() && from->isUnlikelyFrequency()) {
+    isOutOfLine_ = true;
+  }
 }
 
 bool LBlock::init(TempAllocator& alloc) {
@@ -382,6 +391,10 @@ static const char* DefTypeName(LDefinition::Type type) {
       return "s";
     case LDefinition::WASM_ANYREF:
       return "wr";
+    case LDefinition::WASM_STRUCT_DATA:
+      return "wsd";
+    case LDefinition::WASM_ARRAY_DATA:
+      return "wad";
     case LDefinition::FLOAT32:
       return "f";
     case LDefinition::DOUBLE:
@@ -716,6 +729,10 @@ bool LSafepoint::addGCAllocation(uint32_t vregId, LDefinition* def,
 
     case LDefinition::WASM_ANYREF:
       return addWasmAnyRef(a);
+    case LDefinition::WASM_STRUCT_DATA:
+      return addWasmStructDataPointer(a);
+    case LDefinition::WASM_ARRAY_DATA:
+      return addWasmArrayDataPointer(a);
 
 #ifdef JS_NUNBOX32
     case LDefinition::TYPE:

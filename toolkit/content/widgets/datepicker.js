@@ -19,7 +19,8 @@ function DatePicker(context) {
   DatePicker.prototype = {
     /**
      * Initializes the date picker. Set the default states and properties.
-     * @param  {Object} props
+     *
+     * @param  {object} props
      *         {
      *           {Number} year [optional]
      *           {Number} month [optional]
@@ -379,53 +380,18 @@ function DatePicker(context) {
      */
     handleMessage(event) {
       switch (event.data.name) {
-        case "PickerSetValue": {
-          if (!this.context.root.hidden) {
-            this.set(event.data.detail);
-          }
-          break;
-        }
         case "PickerInit": {
           this.init(event.data.detail);
           break;
         }
       }
     },
-
-    /**
-     * Set the date state and update the components with the new state.
-     *
-     * @param {Object} dateState
-     *        {
-     *          {Number} year [optional]
-     *          {Number} month [optional]
-     *          {Number} date [optional]
-     *        }
-     */
-    set({ year, month, day }) {
-      if (!this.state) {
-        return;
-      }
-
-      const { dateKeeper } = this.state;
-
-      dateKeeper.setCalendarMonth({
-        year,
-        month,
-      });
-      dateKeeper.setSelection({
-        year,
-        month,
-        day,
-      });
-      this._update({ noSmoothScroll: true });
-    },
   };
 
   /**
    * MonthYear is a component that handles the month & year spinners
    *
-   * @param {Object} options
+   * @param {object} options
    *        {
    *          {String} locale
    *          {Function} setYear
@@ -493,7 +459,7 @@ function DatePicker(context) {
     /**
      * Set new properties and pass them to components
      *
-     * @param {Object} props
+     * @param {object} props
      *        {
      *          {Boolean} isVisible
      *          {Date} dateObj
@@ -551,6 +517,7 @@ function DatePicker(context) {
 
     /**
      * Handle events
+     *
      * @param  {DOMEvent} event
      */
     handleEvent(event) {

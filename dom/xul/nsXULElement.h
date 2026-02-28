@@ -9,8 +9,8 @@
 
 */
 
-#ifndef nsXULElement_h__
-#define nsXULElement_h__
+#ifndef nsXULElement_h_
+#define nsXULElement_h_
 
 #include <stdint.h>
 #include <stdio.h>
@@ -49,6 +49,7 @@
 #include "nsStyledElement.h"
 #include "nsTArray.h"
 #include "nsTLiteralString.h"
+#include "nsWindowSizes.h"
 #include "nscore.h"
 
 class JSObject;
@@ -167,9 +168,6 @@ class nsXULPrototypeElement : public nsXULPrototypeNode {
   explicit nsXULPrototypeElement(mozilla::dom::NodeInfo* aNodeInfo = nullptr)
       : nsXULPrototypeNode(eType_Element),
         mNodeInfo(aNodeInfo),
-        mHasIdAttribute(false),
-        mHasClassAttribute(false),
-        mHasStyleAttribute(false),
         mIsAtom(nullptr) {}
 
  private:
@@ -201,9 +199,6 @@ class nsXULPrototypeElement : public nsXULPrototypeNode {
 
   RefPtr<mozilla::dom::NodeInfo> mNodeInfo;
 
-  uint32_t mHasIdAttribute : 1;
-  uint32_t mHasClassAttribute : 1;
-  uint32_t mHasStyleAttribute : 1;
   nsTArray<nsXULPrototypeAttribute> mAttributes;  // [OWNER]
   RefPtr<nsAtom> mIsAtom;
 };
@@ -265,6 +260,8 @@ class nsXULPrototypeScript : public nsXULPrototypeNode {
 
   nsresult InstantiateScript(JSContext* aCx,
                              JS::MutableHandle<JSScript*> aScript);
+
+  void AddSizeOfExcludingThis(nsWindowSizes& aSizes, size_t* aNodeSize) const;
 
   nsCOMPtr<nsIURI> mSrcURI;
   uint32_t mLineNo;
@@ -359,11 +356,6 @@ class nsXULElement : public nsStyledElement {
   // nsISupports
   NS_DECL_ISUPPORTS_INHERITED
   NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED(nsXULElement, nsStyledElement)
-
-  // This doesn't work on XUL elements! You probably want
-  // GetXULBoolAttr(nsGkAtoms::disabled) or so.
-  // TODO(emilio): Maybe we should unify HTML and XUL here.
-  bool IsDisabled() const = delete;
 
   // nsINode
   void GetEventTargetParent(mozilla::EventChainPreVisitor& aVisitor) override;
@@ -521,7 +513,6 @@ class nsXULElement : public nsStyledElement {
   /**
    * Add a listener for the specified attribute, if appropriate.
    */
-  void AddListenerForAttributeIfNeeded(const nsAttrName& aName);
   void AddListenerForAttributeIfNeeded(nsAtom* aLocalName);
 
  protected:
@@ -530,7 +521,6 @@ class nsXULElement : public nsStyledElement {
 
   bool SupportsAccessKey() const;
   void RegUnRegAccessKey(bool aDoReg) override;
-  bool BoolAttrIsTrue(nsAtom* aName) const;
 
   friend nsXULElement* NS_NewBasicXULElement(
       already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo);
@@ -551,4 +541,4 @@ class nsXULElement : public nsStyledElement {
                               nsAutoString& aCommand);
 };
 
-#endif  // nsXULElement_h__
+#endif  // nsXULElement_h_

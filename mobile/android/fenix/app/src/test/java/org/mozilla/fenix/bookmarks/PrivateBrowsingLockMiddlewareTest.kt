@@ -6,15 +6,11 @@ package org.mozilla.fenix.bookmarks
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import mozilla.components.lib.state.Middleware
-import mozilla.components.lib.state.MiddlewareContext
-import mozilla.components.support.test.ext.joinBlocking
-import mozilla.components.support.test.libstate.ext.waitUntilIdle
-import mozilla.components.support.test.rule.MainCoroutineRule
+import mozilla.components.lib.state.Store
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mozilla.fenix.components.AppStore
@@ -22,9 +18,6 @@ import org.mozilla.fenix.components.appstate.AppState
 
 @RunWith(AndroidJUnit4::class)
 class PrivateBrowsingLockMiddlewareTest {
-
-    @get:Rule
-    val coroutinesTestRule = MainCoroutineRule()
 
     // Locked cases
 
@@ -50,8 +43,7 @@ class PrivateBrowsingLockMiddlewareTest {
         assertFalse(testMiddlewareInvoked)
         assertNull(middleware.pendingAction)
 
-        store.dispatch(action).joinBlocking()
-        store.waitUntilIdle()
+        store.dispatch(action)
 
         assertTrue(verificationRequested)
         assertFalse(testMiddlewareInvoked)
@@ -80,8 +72,7 @@ class PrivateBrowsingLockMiddlewareTest {
         assertFalse(testMiddlewareInvoked)
         assertNull(middleware.pendingAction)
 
-        store.dispatch(action).joinBlocking()
-        store.waitUntilIdle()
+        store.dispatch(action)
 
         assertTrue(verificationRequested)
         assertFalse(testMiddlewareInvoked)
@@ -110,8 +101,7 @@ class PrivateBrowsingLockMiddlewareTest {
         assertFalse(testMiddlewareInvoked)
         assertNull(middleware.pendingAction)
 
-        store.dispatch(action).joinBlocking()
-        store.waitUntilIdle()
+        store.dispatch(action)
 
         assertTrue(verificationRequested)
         assertFalse(testMiddlewareInvoked)
@@ -142,8 +132,7 @@ class PrivateBrowsingLockMiddlewareTest {
         assertFalse(testMiddlewareInvoked)
         assertNull(middleware.pendingAction)
 
-        store.dispatch(action).joinBlocking()
-        store.waitUntilIdle()
+        store.dispatch(action)
 
         assertFalse(verificationRequested)
         assertTrue(testMiddlewareInvoked)
@@ -172,8 +161,7 @@ class PrivateBrowsingLockMiddlewareTest {
         assertFalse(testMiddlewareInvoked)
         assertNull(middleware.pendingAction)
 
-        store.dispatch(action).joinBlocking()
-        store.waitUntilIdle()
+        store.dispatch(action)
 
         assertFalse(verificationRequested)
         assertTrue(testMiddlewareInvoked)
@@ -202,8 +190,7 @@ class PrivateBrowsingLockMiddlewareTest {
         assertFalse(testMiddlewareInvoked)
         assertNull(middleware.pendingAction)
 
-        store.dispatch(action).joinBlocking()
-        store.waitUntilIdle()
+        store.dispatch(action)
 
         assertFalse(verificationRequested)
         assertTrue(testMiddlewareInvoked)
@@ -230,8 +217,7 @@ class PrivateBrowsingLockMiddlewareTest {
         assertFalse(testMiddlewareInvoked)
         assertNotNull(middleware.pendingAction)
 
-        store.dispatch(action).joinBlocking()
-        store.waitUntilIdle()
+        store.dispatch(action)
 
         assertTrue(testMiddlewareInvoked)
         assertNull(middleware.pendingAction)
@@ -270,7 +256,7 @@ private class TestMiddleware(
     private val onExpectedActionProcessed: () -> Unit,
 ) : Middleware<BookmarksState, BookmarksAction> {
     override fun invoke(
-        context: MiddlewareContext<BookmarksState, BookmarksAction>,
+        store: Store<BookmarksState, BookmarksAction>,
         next: (BookmarksAction) -> Unit,
         action: BookmarksAction,
     ) {

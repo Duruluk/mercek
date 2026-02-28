@@ -16,7 +16,7 @@ const {
 loader.lazyRequireGetter(
   this,
   "UPDATE_GENERAL",
-  "resource://devtools/server/actors/utils/stylesheets-manager.js",
+  "resource://devtools/server/actors/stylesheets/stylesheets-manager.js",
   true
 );
 loader.lazyRequireGetter(
@@ -53,10 +53,7 @@ class StyleSheetsActor extends Actor {
 
   getTraits() {
     return {
-      traits: {
-        // @backward-compat { version 146 } getStyleSheetIndentation was added in 146
-        hasGetStyleSheetIndentation: true,
-      },
+      traits: {},
     };
   }
 
@@ -83,7 +80,12 @@ class StyleSheetsActor extends Actor {
    */
   async addStyleSheet(text, fileName = null) {
     const styleSheetsManager = this._getStyleSheetsManager();
-    await styleSheetsManager.addStyleSheet(this.document, text, fileName);
+    await styleSheetsManager.addStyleSheet(
+      this.document,
+      this.document.documentElement,
+      text,
+      fileName
+    );
   }
 
   _getStyleSheetsManager() {

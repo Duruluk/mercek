@@ -51,18 +51,29 @@ const withTabMenu = async function (tab, callback) {
     "context_moveTabToSplitView"
   );
   const unsplitTabItem = document.getElementById("context_separateSplitView");
+  const addSplitViewToNewGroup = document.getElementById(
+    "context_moveSplitViewToNewGroup"
+  );
+  const removeSplitViewFromGroup = document.getElementById(
+    "context_ungroupSplitView"
+  );
 
   let contextMenuHidden = BrowserTestUtils.waitForPopupEvent(
     tabContextMenu,
     "hidden"
   );
-  await callback(moveTabToNewSplitViewItem, unsplitTabItem);
+  await callback(
+    moveTabToNewSplitViewItem,
+    unsplitTabItem,
+    addSplitViewToNewGroup,
+    removeSplitViewFromGroup
+  );
   tabContextMenu.hidePopup();
   info("Hide popup");
   return await contextMenuHidden;
 };
 
-add_task(async function test_tabGroupContextMenuMoveTabsToNewGroup() {
+add_task(async function test_contextMenuMoveTabsToNewSplitView() {
   await SpecialPowers.pushPrefEnv({
     set: [["browser.tabs.splitView.enabled", true]],
   });
@@ -117,7 +128,7 @@ add_task(async function test_tabGroupContextMenuMoveTabsToNewGroup() {
 
   [tabs[0], tabs[2]].forEach(t => {
     gBrowser.addToMultiSelectedTabs(t);
-    ok(t.multiselected, "added tab to mutliselection");
+    ok(t.multiselected, "added tab to multiselection");
   });
 
   await withTabMenu(
@@ -151,7 +162,7 @@ add_task(async function test_tabGroupContextMenuMoveTabsToNewGroup() {
 
   await BrowserTestUtils.waitForMutationCondition(
     tabContainer,
-    { children: true },
+    { childList: true },
     () => {
       return (
         Array.from(tabContainer.children).some(
@@ -180,7 +191,7 @@ add_task(async function test_tabGroupContextMenuMoveTabsToNewGroup() {
 
   await BrowserTestUtils.waitForMutationCondition(
     tabContainer,
-    { children: true },
+    { childList: true },
     () => {
       return (
         !Array.from(tabContainer.children).some(
@@ -238,7 +249,7 @@ add_task(async function test_tabGroupContextMenuMoveTabsToNewGroup() {
 
   await BrowserTestUtils.waitForMutationCondition(
     tabContainer,
-    { children: true },
+    { childList: true },
     () => {
       return (
         Array.from(tabContainer.children).some(
@@ -289,7 +300,7 @@ add_task(async function test_tabGroupContextMenuMoveTabsToNewGroup() {
 
   await BrowserTestUtils.waitForMutationCondition(
     tabContainer,
-    { children: true },
+    { childList: true },
     () => {
       return (
         !Array.from(tabContainer.children).some(
@@ -339,7 +350,7 @@ add_task(async function test_tabGroupContextMenuMoveTabsToNewGroup() {
 
   await BrowserTestUtils.waitForMutationCondition(
     tabContainer,
-    { children: true },
+    { childList: true },
     () => {
       return (
         Array.from(tabContainer.children).some(
@@ -363,6 +374,238 @@ add_task(async function test_tabGroupContextMenuMoveTabsToNewGroup() {
   Assert.ok(!tab3.splitview, "tab3 is not in split view");
 
   splitview.close();
+  while (gBrowser.tabs.length > 1) {
+    BrowserTestUtils.removeTab(gBrowser.tabs.at(-1));
+  }
+});
+
+add_task(async function test_contextMenuAddSplitViewToNewTabGroup() {
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.tabs.splitView.enabled", true]],
+  });
+  const tab1 = await addTabAndLoadBrowser();
+  const tab2 = await addTabAndLoadBrowser();
+  let tabContainer = document.getElementById("tabbrowser-arrowscrollbox");
+
+  gBrowser.addTabSplitView([tab1, tab2]);
+
+  await BrowserTestUtils.waitForMutationCondition(
+    tabContainer,
+    { childList: true },
+    () => {
+      return (
+        Array.from(tabContainer.children).some(
+          tabChild => tabChild.tagName === "tab-split-view-wrapper"
+        ) &&
+        tab1.splitview &&
+        tab2.splitview
+      );
+    },
+    "Split view has been added"
+  );
+  info("Split view has been added");
+
+  let splitview = tab1.splitview;
+
+  Assert.ok(tab1.splitview, "tab is in split view");
+  [tab1, tab2].forEach((t, idx) => {
+    Assert.equal(t.splitview, splitview, `tabs[${idx}] is in split view`);
+  });
+
+  EventUtils.synthesizeMouseAtCenter(tab1, {});
+
+  let tabToClick = tab2;
+  await withTabMenu(
+    tabToClick,
+    async (
+      moveTabToNewSplitViewItem,
+      unsplitTabItem,
+      addSplitViewToNewGroupItem
+    ) => {
+      await BrowserTestUtils.waitForMutationCondition(
+        addSplitViewToNewGroupItem,
+        { attributes: true },
+        () =>
+          !addSplitViewToNewGroupItem.hidden &&
+          addSplitViewToNewGroupItem.textContent ===
+            "Add Split View to New Group",
+        "addSplitViewToNewGroupItem is visible and has the expected label"
+      );
+
+      info("Click menu option to add split view to new group");
+      addSplitViewToNewGroupItem.click();
+    }
+  );
+
+  await BrowserTestUtils.waitForMutationCondition(
+    tabContainer,
+    { childList: true },
+    () => {
+      return Array.from(tabContainer.children).some(
+        tabChild => tabChild.tagName === "tab-group"
+      );
+    },
+    "Split view has been added to a new tab group"
+  );
+  Assert.ok(
+    tab1.splitview.group && tab2.splitview.group,
+    "Split view is within a tab group"
+  );
+  info("Split view has been added to new group");
+
+  await withTabMenu(
+    tabToClick,
+    async (
+      moveTabToNewSplitViewItem,
+      unsplitTabItem,
+      addSplitViewToNewGroupItem,
+      removeSplitViewFromGroupItem
+    ) => {
+      await BrowserTestUtils.waitForMutationCondition(
+        removeSplitViewFromGroupItem,
+        // `attributes` catches `.hidden`
+        // `characterData` and `subtree` catches when the l10n engine modifies
+        // the text content in menuitem > label::before
+        { subtree: true, attributes: true, characterData: true },
+        () => {
+          return (
+            !removeSplitViewFromGroupItem.hidden &&
+            removeSplitViewFromGroupItem.textContent === "Remove from Group"
+          );
+        },
+        "removeSplitViewFromGroupItem is visible and has the expected label"
+      );
+
+      info("Click menu option to remove split view from group");
+      removeSplitViewFromGroupItem.click();
+    }
+  );
+
+  await BrowserTestUtils.waitForMutationCondition(
+    tabContainer,
+    { childList: true },
+    () => {
+      return !Array.from(tabContainer.children).some(
+        tabChild => tabChild.tagName === "tab-group"
+      );
+    },
+    "Split view has been removed from tab group"
+  );
+  Assert.ok(
+    !tab1.splitview.group && !tab2.splitview.group,
+    "Split view is no longer within a tab group"
+  );
+  info("Split view has been removed from group");
+
+  splitview.close();
+  while (gBrowser.tabs.length > 1) {
+    BrowserTestUtils.removeTab(gBrowser.tabs.at(-1));
+  }
+});
+
+add_task(async function test_move_to_split_view_disabled_in_customize_mode() {
+  await SpecialPowers.pushPrefEnv({
+    set: [["sidebar.verticalTabs", false]],
+  });
+
+  info("Enter customize mode.");
+  let customizeStateChange = BrowserTestUtils.waitForEvent(
+    gNavToolbox,
+    "customizationready"
+  );
+  gCustomizeMode.enter();
+  await customizeStateChange;
+
+  await withTabMenu(gBrowser.selectedTab, moveTabToNewSplitViewItem =>
+    BrowserTestUtils.waitForMutationCondition(
+      moveTabToNewSplitViewItem,
+      { attributes: true },
+      () =>
+        !moveTabToNewSplitViewItem.hidden && moveTabToNewSplitViewItem.disabled,
+      "moveTabToNewSplitViewItem is visible and disabled."
+    )
+  );
+
+  info("Exit customize mode.");
+  customizeStateChange = BrowserTestUtils.waitForEvent(
+    gNavToolbox,
+    "aftercustomization"
+  );
+  gCustomizeMode.exit();
+  await customizeStateChange;
+
+  await SpecialPowers.popPrefEnv();
+});
+
+add_task(async function test_new_tab_to_right_of_tab_before_splitview() {
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.newtab.preload", false]],
+  });
+  const tab1 = await addTabAndLoadBrowser();
+  const tab2 = await addTabAndLoadBrowser();
+  const tab3 = await addTabAndLoadBrowser();
+
+  let splitViewCreated = BrowserTestUtils.waitForEvent(
+    gBrowser.tabContainer,
+    "SplitViewCreated"
+  );
+  gBrowser.addTabSplitView([tab2, tab3]);
+  await splitViewCreated;
+
+  info("Split view has been added");
+
+  let splitview = tab2.splitview;
+
+  let tab1Index = tab1.elementIndex;
+  let splitviewIndex = splitview.elementIndex;
+  Assert.equal(
+    splitviewIndex,
+    tab1Index + 1,
+    "Split view is directly after tab1"
+  );
+
+  gBrowser.selectedTab = tab1;
+
+  const newTabPromise = BrowserTestUtils.waitForNewTab(gBrowser);
+
+  const tabContextMenu = document.getElementById("tabContextMenu");
+  const contextMenuShown = BrowserTestUtils.waitForPopupEvent(
+    tabContextMenu,
+    "shown"
+  );
+
+  EventUtils.synthesizeMouseAtCenter(
+    tab1,
+    { type: "contextmenu", button: 2 },
+    window
+  );
+  await contextMenuShown;
+
+  const openNewTabItem = document.getElementById("context_openANewTab");
+  tabContextMenu.activateItem(openNewTabItem);
+
+  let newTab = await newTabPromise;
+
+  let newTabIndex = newTab.elementIndex;
+  let updatedTab1Index = tab1.elementIndex;
+  let updatedSplitviewIndex = splitview.elementIndex;
+
+  Assert.equal(
+    newTabIndex,
+    updatedTab1Index + 1,
+    "New tab is directly after tab1"
+  );
+  Assert.equal(
+    updatedSplitviewIndex,
+    newTabIndex + 1,
+    "Split view is directly after new tab"
+  );
+  Assert.ok(!newTab.splitview, "New tab is not part of the split view");
+
+  info("New tab was correctly inserted between tab1 and the split view");
+
+  splitview.close();
+  BrowserTestUtils.removeTab(newTab);
   while (gBrowser.tabs.length > 1) {
     BrowserTestUtils.removeTab(gBrowser.tabs.at(-1));
   }

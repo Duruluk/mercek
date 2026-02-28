@@ -85,7 +85,7 @@ class RemoteMediaManagerChild final
       const EncoderConfig& aConfig);
 
   // Can be called from any thread.
-  static nsISerialEventTarget* GetManagerThread();
+  static nsCOMPtr<nsISerialEventTarget> GetManagerThread();
 
   // Return the track support information based on the location of the remote
   // process. Thread-safe.
@@ -165,7 +165,8 @@ class RemoteMediaManagerChild final
   explicit RemoteMediaManagerChild(RemoteMediaIn aLocation);
   ~RemoteMediaManagerChild() = default;
   static RefPtr<PlatformDecoderModule::CreateDecoderPromise> Construct(
-      RefPtr<RemoteDecoderChild>&& aChild, RemoteMediaIn aLocation);
+      RefPtr<RemoteDecoderChild>&& aChild,
+      CreateDecoderParamsForAsync&& aParams, RemoteMediaIn aLocation);
 
   static void OpenRemoteMediaManagerChildForProcess(
       Endpoint<PRemoteMediaManagerChild>&& aEndpoint, RemoteMediaIn aLocation);

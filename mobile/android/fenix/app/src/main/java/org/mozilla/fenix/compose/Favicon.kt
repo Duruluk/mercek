@@ -4,19 +4,23 @@
 
 package org.mozilla.fenix.compose
 
-import android.content.res.Configuration
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.dimensionResource
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import mozilla.components.browser.icons.IconRequest
@@ -25,6 +29,10 @@ import mozilla.components.browser.icons.compose.WithIcon
 import mozilla.components.compose.base.utils.inComposePreview
 import org.mozilla.fenix.components.components
 import org.mozilla.fenix.theme.FirefoxTheme
+import org.mozilla.fenix.theme.PreviewThemeProvider
+import org.mozilla.fenix.theme.Theme
+
+internal val FAVICON_ROUNDED_CORNER_SHAPE = RoundedCornerShape(2.dp)
 
 /**
  * Load and display the favicon of a particular website.
@@ -36,7 +44,7 @@ import org.mozilla.fenix.theme.FirefoxTheme
  * download the icon (if needed).
  * @param imageUrl Optional image URL to create an [IconRequest.Resource] from.
  * @param shape The shape used to clip the favicon. Defaults to a slightly rounded rectangle.
- *              Use [CircleShape] for a round image.
+ * Use [CircleShape] for a round image.
  */
 @Composable
 fun Favicon(
@@ -45,15 +53,13 @@ fun Favicon(
     modifier: Modifier = Modifier,
     isPrivate: Boolean = false,
     imageUrl: String? = null,
-    shape: Shape = RoundedCornerShape(2.dp),
+    shape: Shape = FAVICON_ROUNDED_CORNER_SHAPE,
 ) {
-    if (inComposePreview) {
-        FaviconPlaceholder(
-            size = size,
-            modifier = modifier,
-            shape = shape,
-        )
-    } else {
+    Favicon(
+        size = size,
+        modifier = modifier,
+        shape = shape,
+    ) {
         val iconResource = imageUrl?.let {
             IconRequest.Resource(
                 url = imageUrl,
@@ -90,6 +96,65 @@ fun Favicon(
 }
 
 /**
+ * Load and display the favicon of a particular website.
+ *
+ * @param imageResource ID of a drawable resource to be shown.
+ * @param size [Dp] height and width of the image to be displayed.
+ * @param modifier [Modifier] to be applied to the layout.
+ * @param shape The shape used to clip the favicon. Defaults to a slightly rounded rectangle.
+ * Use [CircleShape] for a round image.
+ */
+@Composable
+fun Favicon(
+    @DrawableRes imageResource: Int,
+    size: Dp,
+    modifier: Modifier = Modifier,
+    shape: Shape = RoundedCornerShape(2.dp),
+) {
+    Favicon(
+        size = size,
+        modifier = modifier,
+        shape = shape,
+    ) {
+        Image(
+            painter = painterResource(id = imageResource),
+            contentDescription = null,
+            modifier = modifier
+                .size(size)
+                .clip(shape),
+            contentScale = ContentScale.Crop,
+        )
+    }
+}
+
+/**
+ * Displays a favicon given a [content] slot.
+ *
+ * @param size [Dp] height and width of the placeholder to display.
+ * @param modifier [Modifier] to be applied to the layout.
+ * @param shape The shape used to clip the favicon. Defaults to a slightly rounded rectangle.
+ * Use [CircleShape] for a round image.
+ * @param content The content to be displayed in the favicon.
+ */
+@Composable
+private fun Favicon(
+    size: Dp,
+    modifier: Modifier = Modifier,
+    shape: Shape = RoundedCornerShape(2.dp),
+    content: @Composable () -> Unit,
+) {
+    if (inComposePreview) {
+        FaviconPlaceholder(
+            size = size,
+            modifier = modifier,
+            shape = shape,
+        )
+    } else {
+        content()
+    }
+}
+
+/**
  * Placeholder used while the Favicon image is loading.
  *
  * @param size [Dp] height and width of the image.
@@ -107,21 +172,24 @@ private fun FaviconPlaceholder(
             .size(size)
             .clip(shape)
             .background(
-                color = FirefoxTheme.colors.layer2,
+                color = MaterialTheme.colorScheme.surfaceContainerHighest,
             ),
     )
 }
 
+@Preview
 @Composable
-@Preview(uiMode = Configuration.UI_MODE_NIGHT_YES)
-private fun FaviconPreview() {
-    FirefoxTheme {
-        Box(Modifier.background(FirefoxTheme.colors.layer1)) {
-            Favicon(
-                url = "www.mozilla.com",
-                size = 64.dp,
-            )
-        }
+private fun FaviconPreview(
+    @PreviewParameter(PreviewThemeProvider::class) theme: Theme,
+) {
+    FirefoxTheme(theme) {
+        Favicon(
+            url = "www.mozilla.com",
+            size = 64.dp,
+            modifier = Modifier
+                .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                .padding(all = FirefoxTheme.layout.space.static200),
+        )
     }
 }
 

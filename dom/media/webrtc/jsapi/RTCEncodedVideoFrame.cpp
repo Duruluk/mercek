@@ -9,7 +9,6 @@
 #include <stdint.h>
 
 #include <memory>
-#include <string>
 #include <utility>
 
 #include "api/frame_transformer_factory.h"
@@ -111,8 +110,8 @@ void RTCEncodedVideoFrame::InitMetadata() {
 
   // The metadata timestamp is different, and not presently present in the
   // libwebrtc types
-  if (!videoFrame.GetRid().empty()) {
-    mRid = Some(videoFrame.GetRid().c_str());
+  if (videoFrame.Rid().has_value() && !videoFrame.Rid()->empty()) {
+    mRid = Some(videoFrame.Rid()->c_str());
   }
 }
 

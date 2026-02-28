@@ -10,27 +10,28 @@
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
-  AddonManager: "resource://gre/modules/AddonManager.sys.mjs",
-  CustomizableUI:
-    "moz-src:///browser/components/customizableui/CustomizableUI.sys.mjs",
   IPPExceptionsManager:
-    "resource:///modules/ipprotection/IPPExceptionsManager.sys.mjs",
-  IPProtection: "resource:///modules/ipprotection/IPProtection.sys.mjs",
-  IPProtectionWidget: "resource:///modules/ipprotection/IPProtection.sys.mjs",
+    "moz-src:///browser/components/ipprotection/IPPExceptionsManager.sys.mjs",
+  IPProtection:
+    "moz-src:///browser/components/ipprotection/IPProtection.sys.mjs",
   IPProtectionService:
-    "resource:///modules/ipprotection/IPProtectionService.sys.mjs",
+    "moz-src:///browser/components/ipprotection/IPProtectionService.sys.mjs",
   IPProtectionStates:
-    "resource:///modules/ipprotection/IPProtectionService.sys.mjs",
+    "moz-src:///browser/components/ipprotection/IPProtectionService.sys.mjs",
 });
 
-import { IPPAutoStartHelpers } from "resource:///modules/ipprotection/IPPAutoStart.sys.mjs";
-import { IPPEnrollAndEntitleManager } from "resource:///modules/ipprotection/IPPEnrollAndEntitleManager.sys.mjs";
-import { IPPNimbusHelper } from "resource:///modules/ipprotection/IPPNimbusHelper.sys.mjs";
-import { IPProtectionServerlist } from "resource:///modules/ipprotection/IPProtectionServerlist.sys.mjs";
-import { IPPSignInWatcher } from "resource:///modules/ipprotection/IPPSignInWatcher.sys.mjs";
-import { IPPStartupCache } from "resource:///modules/ipprotection/IPPStartupCache.sys.mjs";
-
-const VPN_ADDON_ID = "vpn@mozilla.com";
+import { IPPProxyManager } from "moz-src:///browser/components/ipprotection/IPPProxyManager.sys.mjs";
+import { IPPAutoRestoreHelper } from "moz-src:///browser/components/ipprotection/IPPAutoRestore.sys.mjs";
+import { IPPAutoStartHelpers } from "moz-src:///browser/components/ipprotection/IPPAutoStart.sys.mjs";
+import { IPPEnrollAndEntitleManager } from "moz-src:///browser/components/ipprotection/IPPEnrollAndEntitleManager.sys.mjs";
+import { IPPNimbusHelper } from "moz-src:///browser/components/ipprotection/IPPNimbusHelper.sys.mjs";
+import { IPPOnboardingMessage } from "moz-src:///browser/components/ipprotection/IPPOnboardingMessageHelper.sys.mjs";
+import { IPProtectionServerlist } from "moz-src:///browser/components/ipprotection/IPProtectionServerlist.sys.mjs";
+import { IPPSignInWatcher } from "moz-src:///browser/components/ipprotection/IPPSignInWatcher.sys.mjs";
+import { IPPStartupCache } from "moz-src:///browser/components/ipprotection/IPPStartupCache.sys.mjs";
+import { IPPOptOutHelper } from "moz-src:///browser/components/ipprotection/IPPOptOutHelper.sys.mjs";
+import { IPProtectionAlertManager } from "moz-src:///browser/components/ipprotection/IPProtectionAlertManager.sys.mjs";
+import { IPProtectionInfobarManager } from "moz-src:///browser/components/ipprotection/IPProtectionInfobarManager.sys.mjs";
 
 /**
  * This simple class controls the UI activation/deactivation.
@@ -69,101 +70,32 @@ class UIHelper {
       lazy.IPProtection.init();
       lazy.IPPExceptionsManager.init();
     }
-  }
-}
-
-/**
- * This simple class resets the account data when needed
- */
-class ProxyResetHelper {
-  constructor() {
-    this.handleEvent = this.#handleEvent.bind(this);
-  }
-
-  init() {
-    lazy.IPProtectionService.addEventListener(
-      "IPProtectionService:StateChanged",
-      this.handleEvent
-    );
-  }
-
-  initOnStartupCompleted() {}
-
-  uninit() {
-    lazy.IPProtectionService.removeEventListener(
-      "IPProtectionService:StateChanged",
-      this.handleEvent
-    );
-  }
-
-  #handleEvent(_event) {
-    if (!lazy.IPProtectionService.proxyManager) {
-      return;
-    }
 
     if (
-      lazy.IPProtectionService.state === lazy.IPProtectionStates.UNAVAILABLE ||
-      lazy.IPProtectionService.state === lazy.IPProtectionStates.UNAUTHENTICATED
+      lazy.IPProtection.isInitialized &&
+      (state === lazy.IPProtectionStates.UNINITIALIZED ||
+        state === lazy.IPProtectionStates.UNAVAILABLE)
     ) {
-      if (lazy.IPProtectionService.proxyManager.active) {
-        lazy.IPProtectionService.proxyManager.stop(false);
-      }
-
-      lazy.IPProtectionService.proxyManager.reset();
+      lazy.IPProtection.uninit();
+      lazy.IPPExceptionsManager.uninit();
     }
   }
 }
 
-/**
- * This class removes the UI widget if the VPN add-on is installed.
- */
-class VPNAddonHelper {
-  init() {}
-
-  /**
-   * Adds an observer to monitor the VPN add-on installation
-   */
-  initOnStartupCompleted() {
-    this.addonVPNListener = {
-      onInstallEnded(_install, addon) {
-        if (
-          addon.id === VPN_ADDON_ID &&
-          IPPEnrollAndEntitleManager.hasUpgraded
-        ) {
-          // Place the widget in the customization palette.
-          lazy.CustomizableUI.removeWidgetFromArea(
-            lazy.IPProtectionWidget.WIDGET_ID
-          );
-        }
-      },
-    };
-
-    lazy.AddonManager.addInstallListener(this.addonVPNListener);
-  }
-
-  /**
-   * Removes the VPN add-on installation observer
-   */
-  uninit() {
-    if (this.addonVPNListener) {
-      lazy.AddonManager.removeInstallListener(this.addonVPNListener);
-    }
-  }
-}
-
-// The order is important! NimbusHelper must be the last one because nimbus
-// triggers the callback immdiately, which could compute a new state for all
-// the helpers.
 const IPPHelpers = [
   IPPStartupCache,
   IPPSignInWatcher,
   IPProtectionServerlist,
   IPPEnrollAndEntitleManager,
+  IPPOnboardingMessage,
+  IPPProxyManager,
   new UIHelper(),
-  new ProxyResetHelper(),
-  new VPNAddonHelper(),
+  IPPAutoRestoreHelper,
   ...IPPAutoStartHelpers,
+  IPPOptOutHelper,
   IPPNimbusHelper,
+  IPProtectionAlertManager,
+  IPProtectionInfobarManager,
 ];
 
 export { IPPHelpers };

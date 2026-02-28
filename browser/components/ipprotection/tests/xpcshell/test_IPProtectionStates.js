@@ -3,17 +3,11 @@ https://creativecommons.org/publicdomain/zero/1.0/ */
 
 "use strict";
 
-const { IPProtectionService, IPProtectionStates } = ChromeUtils.importESModule(
-  "resource:///modules/ipprotection/IPProtectionService.sys.mjs"
-);
 const { IPPNimbusHelper } = ChromeUtils.importESModule(
-  "resource:///modules/ipprotection/IPPNimbusHelper.sys.mjs"
-);
-const { IPPSignInWatcher } = ChromeUtils.importESModule(
-  "resource:///modules/ipprotection/IPPSignInWatcher.sys.mjs"
+  "moz-src:///browser/components/ipprotection/IPPNimbusHelper.sys.mjs"
 );
 const { IPPEnrollAndEntitleManager } = ChromeUtils.importESModule(
-  "resource:///modules/ipprotection/IPPEnrollAndEntitleManager.sys.mjs"
+  "moz-src:///browser/components/ipprotection/IPPEnrollAndEntitleManager.sys.mjs"
 );
 
 do_get_profile();
@@ -39,9 +33,9 @@ add_task(async function test_IPProtectionStates_uninitialized() {
 
   await IPProtectionService.init();
 
-  Assert.equal(
+  Assert.notEqual(
     IPProtectionService.state,
-    IPProtectionStates.UNAVAILABLE,
+    IPProtectionStates.UNINITIALIZED,
     "IP Protection service should be initialized"
   );
 
@@ -63,6 +57,7 @@ add_task(async function test_IPProtectionStates_uninitialized() {
   sandbox
     .stub(IPProtectionService.guardian, "isLinkedToGuardian")
     .resolves(false);
+  sandbox.stub(IPPNimbusHelper, "isEligible").get(() => false);
 
   await IPProtectionService.init();
 
@@ -107,6 +102,9 @@ add_task(async function test_IPProtectionStates_unauthenticated() {
   );
 
   sandbox.stub(IPPNimbusHelper, "isEligible").get(() => true);
+  sandbox
+    .stub(IPPEnrollAndEntitleManager, "isEnrolledAndEntitled")
+    .get(() => true);
 
   IPProtectionService.updateState();
 
@@ -144,15 +142,15 @@ add_task(async function test_IPProtectionStates_enrolling() {
   sandbox.stub(IPProtectionService.guardian, "fetchUserInfo").resolves({
     status: 200,
     error: null,
-    entitlement: { uid: 42 },
+    entitlement: createTestEntitlement(),
   });
 
   await IPProtectionService.init();
 
   Assert.equal(
     IPProtectionService.state,
-    IPProtectionStates.READY,
-    "IP Protection service should be ready"
+    IPProtectionStates.UNAUTHENTICATED,
+    "IP Protection service should be unauthenticated"
   );
 
   IPProtectionService.guardian.isLinkedToGuardian.resolves(true);
@@ -182,7 +180,7 @@ add_task(async function test_IPProtectionStates_ready() {
   sandbox.stub(IPProtectionService.guardian, "fetchUserInfo").resolves({
     status: 200,
     error: null,
-    entitlement: { uid: 42 },
+    entitlement: createTestEntitlement(),
   });
 
   await IPProtectionService.init();
@@ -201,103 +199,6 @@ add_task(async function test_IPProtectionStates_ready() {
     IPProtectionService.state,
     IPProtectionStates.READY,
     "IP Protection service should not be ready"
-  );
-
-  IPProtectionService.uninit();
-  sandbox.restore();
-});
-
-/**
- * Tests the active state.
- */
-add_task(async function test_IPProtectionStates_active() {
-  let sandbox = sinon.createSandbox();
-  sandbox.stub(IPPSignInWatcher, "isSignedIn").get(() => true);
-  sandbox
-    .stub(IPProtectionService.guardian, "isLinkedToGuardian")
-    .resolves(true);
-  sandbox.stub(IPProtectionService.guardian, "fetchUserInfo").resolves({
-    status: 200,
-    error: undefined,
-    entitlement: { uid: 42 },
-  });
-  sandbox.stub(IPProtectionService.guardian, "fetchProxyPass").resolves({
-    status: 200,
-    error: undefined,
-    pass: {
-      isValid: () => options.validProxyPass,
-      asBearerToken: () => "Bearer helloworld",
-    },
-  });
-
-  const waitForReady = waitForEvent(
-    IPProtectionService,
-    "IPProtectionService:StateChanged",
-    () => IPProtectionService.state === IPProtectionStates.READY
-  );
-
-  IPProtectionService.init();
-
-  await waitForReady;
-
-  Assert.equal(
-    IPProtectionService.state,
-    IPProtectionStates.READY,
-    "IP Protection service should be ready"
-  );
-
-  await IPProtectionService.start(false);
-
-  Assert.equal(
-    IPProtectionService.state,
-    IPProtectionStates.ACTIVE,
-    "IP Protection service should be active"
-  );
-
-  await IPProtectionService.stop(false);
-
-  Assert.equal(
-    IPProtectionService.state,
-    IPProtectionStates.READY,
-    "IP Protection service should be ready again"
-  );
-
-  IPProtectionService.uninit();
-  sandbox.restore();
-});
-
-/**
- * Tests the error state.
- */
-add_task(async function test_IPProtectionStates_error() {
-  let sandbox = sinon.createSandbox();
-  sandbox.stub(IPPSignInWatcher, "isSignedIn").get(() => true);
-  sandbox
-    .stub(IPProtectionService.guardian, "isLinkedToGuardian")
-    .resolves(true);
-  sandbox.stub(IPProtectionService.guardian, "fetchUserInfo").resolves({
-    status: 200,
-    error: undefined,
-    entitlement: { uid: 42 },
-  });
-  sandbox.stub(IPProtectionService.guardian, "fetchProxyPass").resolves({
-    status: 403,
-  });
-
-  await IPProtectionService.init();
-
-  Assert.equal(
-    IPProtectionService.state,
-    IPProtectionStates.READY,
-    "IP Protection service should be ready"
-  );
-
-  await IPProtectionService.start(false);
-
-  Assert.equal(
-    IPProtectionService.state,
-    IPProtectionStates.ERROR,
-    "IP Protection service should be active"
   );
 
   IPProtectionService.uninit();

@@ -386,7 +386,7 @@ impl Http3Client {
     ///
     /// Never, because clients always have this field.
     #[must_use]
-    pub fn connection_id(&self) -> &ConnectionId {
+    pub const fn connection_id(&self) -> &ConnectionId {
         self.conn.odcid().expect("Client always has odcid")
     }
 
@@ -876,8 +876,6 @@ impl Http3Client {
     /// # Errors
     ///
     /// It may return `InvalidStreamId` if a stream does not exist anymore.
-    //
-    // TODO: Not used in neqo, but Gecko calls it. Needs a test to call it.
     pub fn webtransport_set_sendorder(
         &mut self,
         stream_id: StreamId,
@@ -1019,9 +1017,9 @@ impl Http3Client {
     /// library, but instead must be driven by the application).
     ///
     /// [`Http3Client::process_multiple_output`] can return:
-    /// - a [`OutputBatch::Datagram(Datagram)`]: data that should be sent as a UDP payload,
-    /// - a [`OutputBatch::Callback(Duration)`]: the duration of a  timer. `process_output` should
-    ///   be called at least after the time expires,
+    /// - a [`OutputBatch::DatagramBatch`]: data that should be sent as a UDP payload,
+    /// - a [`OutputBatch::Callback`]: the duration of a  timer. `process_output` should be called
+    ///   at least after the time expires,
     /// - [`OutputBatch::None`]: this is returned when `Http3Client` is done and can be destroyed.
     ///
     /// The application should call this function repeatedly until a timer value or None is
@@ -1378,26 +1376,26 @@ impl EventProvider for Http3Client {
 mod tests {
     use std::time::Duration;
 
+    use http::Uri;
     use neqo_common::{event::Provider as _, qtrace, Datagram, Decoder, Encoder};
     use neqo_crypto::{AllowZeroRtt, AntiReplay, ResumptionToken};
     use neqo_qpack as qpack;
     use neqo_transport::{
         CloseReason, ConnectionEvent, ConnectionParameters, Output, State, StreamId, StreamType,
-        Version, INITIAL_RECV_WINDOW_SIZE, MIN_INITIAL_PACKET_SIZE,
+        Version, INITIAL_LOCAL_MAX_STREAM_DATA, MIN_INITIAL_PACKET_SIZE,
     };
     use test_fixture::{
         anti_replay, default_server_h3, fixture_init, new_server, now,
         CountingConnectionIdGenerator, DEFAULT_ADDR, DEFAULT_ALPN_H3, DEFAULT_KEYS,
         DEFAULT_SERVER_NAME,
     };
-    use url::Url;
 
     use super::{
         AuthenticationStatus, Connection, Error, HSettings, Header, Http3Client, Http3ClientEvent,
         Http3Parameters, Http3State, Rc, RefCell,
     };
     use crate::{
-        frames::{HFrame, H3_FRAME_TYPE_SETTINGS, H3_RESERVED_FRAME_TYPES},
+        frames::{HFrame, HFrameType},
         qpack_encoder_receiver::EncoderRecvStream,
         settings::{HSetting, HSettingType, H3_RESERVED_SETTINGS},
         Http3Server, Priority, PushId, RecvStream as _,
@@ -1836,7 +1834,7 @@ mod tests {
             .fetch(
                 now(),
                 "GET",
-                &Url::parse("https://something.com/").unwrap(),
+                &Uri::from_static("https://something.com/"),
                 headers,
                 Priority::default(),
             )
@@ -2848,7 +2846,7 @@ mod tests {
             if let ConnectionEvent::RecvStreamReadable { stream_id } = e {
                 if stream_id == request_stream_id {
                     // Read the DATA frame.
-                    let mut buf = vec![1_u8; INITIAL_RECV_WINDOW_SIZE];
+                    let mut buf = vec![1_u8; INITIAL_LOCAL_MAX_STREAM_DATA];
                     let (amount, fin) = server.conn.stream_recv(stream_id, &mut buf).unwrap();
                     assert!(fin);
                     assert_eq!(
@@ -2923,7 +2921,7 @@ mod tests {
         // The second frame cannot fit.
         let sent = client.send_data(
             request_stream_id,
-            &vec![0_u8; INITIAL_RECV_WINDOW_SIZE],
+            &vec![0_u8; INITIAL_LOCAL_MAX_STREAM_DATA],
             now(),
         );
         assert_eq!(sent, Ok(expected_second_data_frame.len()));
@@ -2934,7 +2932,7 @@ mod tests {
         let mut out = client.process_output(now());
         // We need to loop a bit until all data has been sent. Once for every 1K
         // of data.
-        for _i in 0..INITIAL_RECV_WINDOW_SIZE / 1000 {
+        for _i in 0..INITIAL_LOCAL_MAX_STREAM_DATA / 1000 {
             out = server.conn.process(out.dgram(), now());
             out = client.process(out.dgram(), now());
         }
@@ -2944,7 +2942,7 @@ mod tests {
             if let ConnectionEvent::RecvStreamReadable { stream_id } = e {
                 if stream_id == request_stream_id {
                     // Read DATA frames.
-                    let mut buf = vec![1_u8; INITIAL_RECV_WINDOW_SIZE];
+                    let mut buf = vec![1_u8; INITIAL_LOCAL_MAX_STREAM_DATA];
                     let (amount, fin) = server.conn.stream_recv(stream_id, &mut buf).unwrap();
                     assert!(fin);
                     assert_eq!(
@@ -2997,7 +2995,7 @@ mod tests {
     // After the first frame there is exactly 63+2 bytes left in the send buffer.
     #[test]
     fn fetch_two_data_frame_second_63bytes() {
-        let (buf, hdr) = alloc_buffer(INITIAL_RECV_WINDOW_SIZE - 88);
+        let (buf, hdr) = alloc_buffer(INITIAL_LOCAL_MAX_STREAM_DATA - 88);
         fetch_with_two_data_frames(&buf, &hdr, &[0x0, 0x3f], &[0_u8; 63]);
     }
 
@@ -3006,7 +3004,7 @@ mod tests {
     // but we can only send 63 bytes.
     #[test]
     fn fetch_two_data_frame_second_63bytes_place_for_66() {
-        let (buf, hdr) = alloc_buffer(INITIAL_RECV_WINDOW_SIZE - 89);
+        let (buf, hdr) = alloc_buffer(INITIAL_LOCAL_MAX_STREAM_DATA - 89);
         fetch_with_two_data_frames(&buf, &hdr, &[0x0, 0x3f], &[0_u8; 63]);
     }
 
@@ -3015,7 +3013,7 @@ mod tests {
     // but we can only send 64 bytes.
     #[test]
     fn fetch_two_data_frame_second_64bytes_place_for_67() {
-        let (buf, hdr) = alloc_buffer(INITIAL_RECV_WINDOW_SIZE - 90);
+        let (buf, hdr) = alloc_buffer(INITIAL_LOCAL_MAX_STREAM_DATA - 90);
         fetch_with_two_data_frames(&buf, &hdr, &[0x0, 0x40, 0x40], &[0_u8; 64]);
     }
 
@@ -3023,7 +3021,7 @@ mod tests {
     // After the first frame there is exactly 16383+3 bytes left in the send buffer.
     #[test]
     fn fetch_two_data_frame_second_16383bytes() {
-        let (buf, hdr) = alloc_buffer(INITIAL_RECV_WINDOW_SIZE - 16409);
+        let (buf, hdr) = alloc_buffer(INITIAL_LOCAL_MAX_STREAM_DATA - 16409);
         fetch_with_two_data_frames(&buf, &hdr, &[0x0, 0x7f, 0xff], &[0_u8; 16383]);
     }
 
@@ -3032,7 +3030,7 @@ mod tests {
     // send 16383 bytes.
     #[test]
     fn fetch_two_data_frame_second_16383bytes_place_for_16387() {
-        let (buf, hdr) = alloc_buffer(INITIAL_RECV_WINDOW_SIZE - 16410);
+        let (buf, hdr) = alloc_buffer(INITIAL_LOCAL_MAX_STREAM_DATA - 16410);
         fetch_with_two_data_frames(&buf, &hdr, &[0x0, 0x7f, 0xff], &[0_u8; 16383]);
     }
 
@@ -3041,7 +3039,7 @@ mod tests {
     // send 16383 bytes.
     #[test]
     fn fetch_two_data_frame_second_16383bytes_place_for_16388() {
-        let (buf, hdr) = alloc_buffer(INITIAL_RECV_WINDOW_SIZE - 16411);
+        let (buf, hdr) = alloc_buffer(INITIAL_LOCAL_MAX_STREAM_DATA - 16411);
         fetch_with_two_data_frames(&buf, &hdr, &[0x0, 0x7f, 0xff], &[0_u8; 16383]);
     }
 
@@ -3050,7 +3048,7 @@ mod tests {
     // 16384 bytes.
     #[test]
     fn fetch_two_data_frame_second_16384bytes_place_for_16389() {
-        let (buf, hdr) = alloc_buffer(INITIAL_RECV_WINDOW_SIZE - 16412);
+        let (buf, hdr) = alloc_buffer(INITIAL_LOCAL_MAX_STREAM_DATA - 16412);
         fetch_with_two_data_frames(&buf, &hdr, &[0x0, 0x80, 0x0, 0x40, 0x0], &[0_u8; 16384]);
     }
 
@@ -4132,7 +4130,7 @@ mod tests {
         hframe.encode(&mut d);
         let d_frame = HFrame::Data { len: 3 };
         d_frame.encode(&mut d);
-        d.encode(&[0x61, 0x62, 0x63]);
+        d.encode([0x61, 0x62, 0x63]);
         server_send_response_and_exchange_packet(
             &mut client,
             &mut server,
@@ -5134,7 +5132,7 @@ mod tests {
         hframe.encode(&mut d);
         let d_frame = HFrame::Data { len: 3 };
         d_frame.encode(&mut d);
-        d.encode(&[0x61, 0x62, 0x63]);
+        d.encode([0x61, 0x62, 0x63]);
         _ = server
             .conn
             .stream_send(request_stream_id, d.as_ref())
@@ -6886,7 +6884,7 @@ mod tests {
 
     #[test]
     fn reserved_frames() {
-        for f in H3_RESERVED_FRAME_TYPES {
+        for f in HFrameType::RESERVED {
             let mut enc = Encoder::default();
             enc.encode_varint(*f);
             test_wrong_frame_on_control_stream(enc.as_ref());
@@ -6907,7 +6905,7 @@ mod tests {
                 .unwrap();
             // Create a settings frame of length 2.
             let mut enc = Encoder::default();
-            enc.encode_varint(H3_FRAME_TYPE_SETTINGS);
+            enc.encode_varint(HFrameType::SETTINGS);
             enc.encode_varint(2_u64);
             // The settings frame contains a reserved settings type and some value (0x1).
             enc.encode_varint(*s);
@@ -7159,10 +7157,11 @@ mod tests {
     #[test]
     fn client_control_stream_create_failed() {
         let mut client = default_http3_client();
-        let mut server = TestServer::new_with_conn(new_server::<CountingConnectionIdGenerator>(
-            DEFAULT_ALPN_H3,
-            ConnectionParameters::default().max_streams(StreamType::UniDi, 0),
-        ));
+        let mut server =
+            TestServer::new_with_conn(new_server::<CountingConnectionIdGenerator, &str>(
+                DEFAULT_ALPN_H3,
+                ConnectionParameters::default().max_streams(StreamType::UniDi, 0),
+            ));
         handshake_client_error(&mut client, &mut server, &Error::StreamLimit);
     }
 
@@ -7170,10 +7169,11 @@ mod tests {
     #[test]
     fn client_qpack_stream_create_failed() {
         let mut client = default_http3_client();
-        let mut server = TestServer::new_with_conn(new_server::<CountingConnectionIdGenerator>(
-            DEFAULT_ALPN_H3,
-            ConnectionParameters::default().max_streams(StreamType::UniDi, 2),
-        ));
+        let mut server =
+            TestServer::new_with_conn(new_server::<CountingConnectionIdGenerator, &str>(
+                DEFAULT_ALPN_H3,
+                ConnectionParameters::default().max_streams(StreamType::UniDi, 2),
+            ));
         handshake_client_error(&mut client, &mut server, &Error::StreamLimit);
     }
 

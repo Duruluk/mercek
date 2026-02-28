@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsTextFrame_h__
-#define nsTextFrame_h__
+#ifndef nsTextFrame_h_
+#define nsTextFrame_h_
 
 #include "JustificationUtils.h"
 #include "gfxSkipChars.h"
@@ -161,7 +161,7 @@ class nsTextFrame : public nsIFrame {
     void InitializeForMeasure();
 
     bool GetSpacing(Range aRange, Spacing* aSpacing) const final;
-    nscoord GetHyphenWidth() const final;
+    gfxFloat GetHyphenWidth() const final;
     void GetHyphenationBreaks(Range aRange,
                               HyphenType* aBreakBefore) const final;
     mozilla::StyleHyphens GetHyphensOption() const final {
@@ -270,8 +270,8 @@ class nsTextFrame : public nsIFrame {
     // min advance for <tab> char
     mutable gfxFloat mMinTabAdvance;
 
-    mutable nscoord mHyphenWidth;
-    mutable nscoord mOffsetFromBlockOriginForTabs;
+    mutable gfxFloat mHyphenWidth;
+    mutable gfxFloat mOffsetFromBlockOriginForTabs;
 
     // The values in mJustificationSpacings corresponds to unskipped
     // characters start from mJustificationArrayStart.
@@ -483,7 +483,7 @@ class nsTextFrame : public nsIFrame {
   void AddInlinePrefISize(const mozilla::IntrinsicSizeInput& aInput,
                           InlinePrefISizeData* aData) override;
   SizeComputationResult ComputeSize(
-      gfxContext* aRenderingContext, mozilla::WritingMode aWM,
+      const SizeComputationInput& aSizingInput, mozilla::WritingMode aWM,
       const mozilla::LogicalSize& aCBSize, nscoord aAvailableISize,
       const mozilla::LogicalSize& aMargin,
       const mozilla::LogicalSize& aBorderPadding,
@@ -685,24 +685,24 @@ class nsTextFrame : public nsIFrame {
   // Return false if the text was not painted and we should continue with
   // the fast path.
   bool PaintTextWithSelection(const PaintTextSelectionParams& aParams,
-                              const ClipEdges& aClipEdges);
+                              const ClipEdges& aClipEdges,
+                              const SelectionDetails& aDetails);
   // helper: paint text with foreground and background colors determined
   // by selection(s). Also computes a mask of all selection types applying to
   // our text, returned in aAllSelectionTypeMask.
   // Return false if the text was not painted and we should continue with
   // the fast path.
-  bool PaintTextWithSelectionColors(
-      const PaintTextSelectionParams& aParams,
-      const mozilla::UniquePtr<SelectionDetails>& aDetails,
-      SelectionTypeMask* aAllSelectionTypeMask, const ClipEdges& aClipEdges);
+  bool PaintTextWithSelectionColors(const PaintTextSelectionParams& aParams,
+                                    const SelectionDetails& aDetails,
+                                    SelectionTypeMask* aAllSelectionTypeMask,
+                                    const ClipEdges& aClipEdges);
   // helper: paint text decorations for text selected by aSelectionType
-  void PaintTextSelectionDecorations(
-      const PaintTextSelectionParams& aParams,
-      const mozilla::UniquePtr<SelectionDetails>& aDetails,
-      SelectionType aSelectionType);
+  void PaintTextSelectionDecorations(const PaintTextSelectionParams& aParams,
+                                     const SelectionDetails& aDetails,
+                                     SelectionType aSelectionType);
 
   SelectionTypeMask ResolveSelections(
-      const PaintTextSelectionParams& aParams, const SelectionDetails* aDetails,
+      const PaintTextSelectionParams& aParams, const SelectionDetails& aDetails,
       nsTArray<PriorityOrderedSelectionsForRange>& aResult,
       SelectionType aSelectionType, bool* aAnyBackgrounds = nullptr) const;
 
@@ -937,7 +937,7 @@ class nsTextFrame : public nsIFrame {
 
   void PaintOneShadow(const PaintShadowParams& aParams,
                       const mozilla::StyleSimpleShadow& aShadowDetails,
-                      const gfxRect& aBoundingBox, uint32_t aBlurFlags);
+                      gfxRect& aBoundingBox, uint32_t aBlurFlags);
 
   void PaintShadows(mozilla::Span<const mozilla::StyleSimpleShadow>,
                     const PaintShadowParams& aParams);
@@ -982,19 +982,8 @@ class nsTextFrame : public nsIFrame {
 
     LineDecoration(const LineDecoration& aOther) = default;
 
-    bool operator==(const LineDecoration& aOther) const {
-      return mFrame == aOther.mFrame && mStyle == aOther.mStyle &&
-             mColor == aOther.mColor &&
-             mBaselineOffset == aOther.mBaselineOffset &&
-             mTextUnderlinePosition == aOther.mTextUnderlinePosition &&
-             mTextUnderlineOffset == aOther.mTextUnderlineOffset &&
-             mTextDecorationThickness == aOther.mTextDecorationThickness &&
-             mAllowInkSkipping == aOther.mAllowInkSkipping;
-    }
-
-    bool operator!=(const LineDecoration& aOther) const {
-      return !(*this == aOther);
-    }
+    bool operator==(const LineDecoration& aOther) const = default;
+    bool operator!=(const LineDecoration& aOther) const = default;
   };
   struct TextDecorations {
     AutoTArray<LineDecoration, 1> mOverlines, mUnderlines, mStrikes;
@@ -1007,13 +996,8 @@ class nsTextFrame : public nsIFrame {
     bool HasUnderline() const { return !mUnderlines.IsEmpty(); }
     bool HasOverline() const { return !mOverlines.IsEmpty(); }
     bool HasStrikeout() const { return !mStrikes.IsEmpty(); }
-    bool operator==(const TextDecorations& aOther) const {
-      return mOverlines == aOther.mOverlines &&
-             mUnderlines == aOther.mUnderlines && mStrikes == aOther.mStrikes;
-    }
-    bool operator!=(const TextDecorations& aOther) const {
-      return !(*this == aOther);
-    }
+    bool operator==(const TextDecorations& aOther) const = default;
+    bool operator!=(const TextDecorations& aOther) const = default;
   };
   enum TextDecorationColorResolution { eResolvedColors, eUnresolvedColors };
   void GetTextDecorations(nsPresContext* aPresContext,
@@ -1036,14 +1020,14 @@ class nsTextFrame : public nsIFrame {
   bool CombineSelectionUnderlineRect(nsPresContext* aPresContext,
                                      nsRect& aRect);
 
-  // This sets *aShadows to the appropriate shadows, if any, for the given
+  // Returns the appropriate shadows, if any, for the given
   // type of selection.
-  // If text-shadow was not specified, *aShadows is left untouched.
+  // Returns an empty span if text-shadow was not specified..
   // Note that the returned shadow(s) will only be valid as long as the
   // textPaintStyle remains in scope.
-  void GetSelectionTextShadow(
+  mozilla::Span<const mozilla::StyleSimpleShadow> GetSelectionTextShadow(
       SelectionType aSelectionType, nsTextPaintStyle& aTextPaintStyle,
-      mozilla::Span<const mozilla::StyleSimpleShadow>* aShadows);
+      nsAtom* aHighlightName = nullptr);
 
   /**
    * Utility methods to paint selection.
@@ -1106,7 +1090,7 @@ class nsTextFrame : public nsIFrame {
    * ranges.
    */
   static SelectionTypeMask CreateSelectionRangeList(
-      const SelectionDetails* aDetails, SelectionType aSelectionType,
+      const SelectionDetails& aDetails, SelectionType aSelectionType,
       const PaintTextSelectionParams& aParams,
       nsTArray<SelectionRange>& aSelectionRanges, bool* aAnyBackgrounds);
 

@@ -331,6 +331,13 @@ void MacroAssembler::add32(Imm32 imm, const Address& dest) {
   store32(scratch, dest);
 }
 
+void MacroAssembler::add32(const Address& src, Register dest) {
+  UseScratchRegisterScope temps(asMasm());
+  Register scratch = temps.Acquire();
+  load32(src, scratch);
+  as_add_w(dest, dest, scratch);
+}
+
 void MacroAssembler::addPtr(Imm32 imm, const Address& dest) {
   UseScratchRegisterScope temps(asMasm());
   Register scratch = temps.Acquire();
@@ -457,6 +464,14 @@ void MacroAssembler::mul64(const Register64& src, const Register64& dest,
 
 void MacroAssembler::mulPtr(Register rhs, Register srcDest) {
   as_mul_d(srcDest, srcDest, rhs);
+}
+
+void MacroAssembler::mulPtr(ImmWord rhs, Register srcDest) {
+  UseScratchRegisterScope temps(asMasm());
+  Register scratch = temps.Acquire();
+  MOZ_ASSERT(srcDest != scratch);
+  mov(rhs, scratch);
+  mulPtr(scratch, srcDest);
 }
 
 void MacroAssembler::mulBy3(Register src, Register dest) {

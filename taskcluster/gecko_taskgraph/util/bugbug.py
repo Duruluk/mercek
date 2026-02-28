@@ -3,13 +3,14 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 
+import functools
+import hashlib
 import os
 import pathlib
 import sys
 import time
 
 import requests
-from mozbuild.util import memoize
 from taskgraph import create
 from taskgraph.util import json
 from taskgraph.util.taskcluster import requests_retry_session
@@ -21,7 +22,6 @@ except ImportError:
     from time import time as monotonic
 
 BUGBUG_BASE_URL = "https://bugbug.moz.tools"
-BUGBUG_BASE_FALLBACK_URL = "https://bugbug.herokuapp.com"
 RETRY_TIMEOUT = 9 * 60  # seconds
 RETRY_INTERVAL = 10  # seconds
 
@@ -48,25 +48,21 @@ class BugbugTimeoutException(Exception):
     pass
 
 
-@memoize
+@functools.cache
 def get_session():
     s = requests.Session()
     s.headers.update({"X-API-KEY": "gecko-taskgraph"})
     return requests_retry_session(retries=5, session=s)
 
 
-def _next_indexed_path(base_path):
+def _perfherder_artifact_path(base_path, perfherder_data):
     base_dir = base_path.parent
     stem = base_path.stem
-    pattern = f"{stem}-*.json"
-    max_index = 1
-    for file in base_dir.glob(pattern):
-        try:
-            index = int(file.stem.replace(stem + "-", ""))
-            max_index = max(max_index, index + 1)
-        except ValueError:
-            continue
-    return base_dir / f"{stem}-{max_index}.json"
+    sequence = int(time.monotonic() * 1000)
+    payload = json.dumps(perfherder_data, sort_keys=True).encode("utf-8")
+    digest = hashlib.sha1(payload).hexdigest()[:8]
+
+    return base_dir / f"{stem}-{sequence}-{digest}.json"
 
 
 def _write_perfherder_data(lower_is_better):
@@ -97,19 +93,18 @@ def _write_perfherder_data(lower_is_better):
             return
 
         upload_path.parent.mkdir(parents=True, exist_ok=True)
-        target = _next_indexed_path(upload_path)
+        target = _perfherder_artifact_path(upload_path, perfherder_data)
         with target.open("w", encoding="utf-8") as f:
             json.dump(perfherder_data, f)
 
 
-@memoize
+@functools.cache
 def push_schedules(branch, rev):
     # Noop if we're in test-action-callback
     if create.testing:
         return
 
     url = BUGBUG_BASE_URL + f"/push/{branch}/{rev}/schedules"
-    fallback_url = url.replace(BUGBUG_BASE_URL, BUGBUG_BASE_FALLBACK_URL)
     start = monotonic()
     session = get_session()
 
@@ -122,20 +117,11 @@ def push_schedules(branch, rev):
 
     attempts = timeout / RETRY_INTERVAL
     i = 0
-    did_fallback = 0
     while i < attempts:
         r = session.get(url)
         r.raise_for_status()
 
         if r.status_code != 202:
-            break
-
-        r = session.get(fallback_url)
-        r.raise_for_status()
-
-        if r.status_code != 202:
-            did_fallback = 1
-            print("bugbug fallback answered quicker")
             break
 
         time.sleep(RETRY_INTERVAL)
@@ -146,7 +132,6 @@ def push_schedules(branch, rev):
         lower_is_better={
             "bugbug_push_schedules_time": end - start,
             "bugbug_push_schedules_retries": i,
-            "bugbug_push_schedules_fallback": did_fallback,
         }
     )
 
@@ -163,3 +148,71 @@ def push_schedules(branch, rev):
         }
 
     return data
+
+
+@functools.cache
+def patch_schedules(base_rev, patch_content, mode="quick"):
+    """Query BugBug API with a patch to get test recommendations.
+
+    This is used by `./mach test --auto` to get test recommendations for local changes.
+
+    Args:
+        base_rev (str): The base revision hash.
+        patch_content (str): The patch content with commit metadata.
+        mode (str): The mode of test selection, which determines the confidence
+            threshold. One of 'extensive', 'moderate', or 'quick'.
+    Returns:
+        dict: A dictionary with containing test recommendations filtered by
+            confidence threshold.
+
+    Raises:
+        BugbugTimeoutException: If the API times out.
+    """
+
+    import hashlib
+    import re
+
+    # This ensures consistent hashing across multiple runs with identical
+    # changes by stripping the date before hashing.
+    filtered_content = re.sub(r"^Date: .*$", "", patch_content, flags=re.MULTILINE)
+    patch_hash = hashlib.md5(filtered_content.encode("utf-8")).hexdigest()
+
+    url = BUGBUG_BASE_URL + f"/patch/{base_rev}/{patch_hash}/schedules"
+
+    session = get_session()
+
+    r = session.post(
+        url,
+        data=patch_content.encode("utf-8"),
+        headers={"Content-Type": "text/plain"},
+    )
+    r.raise_for_status()
+
+    timeout = RETRY_TIMEOUT
+    attempts = timeout / RETRY_INTERVAL
+    i = 0
+    while i < attempts:
+        if r.status_code != 202:
+            break
+
+        time.sleep(RETRY_INTERVAL)
+        r = session.get(url)
+        r.raise_for_status()
+        i += 1
+
+    data = r.json()
+    if r.status_code == 202:
+        raise BugbugTimeoutException(f"Timed out waiting for result from '{url}'")
+
+    if mode == "extensive":
+        confidence_threshold = CT_LOW
+    elif mode == "moderate":
+        confidence_threshold = CT_MEDIUM
+    elif mode == "quick":
+        confidence_threshold = CT_HIGH
+    else:
+        raise ValueError(
+            f"Invalid mode: '{mode}'; expected one of 'extensive', 'moderate', 'quick'"
+        )
+
+    return {k: v for k, v in data["groups"].items() if v >= confidence_threshold}

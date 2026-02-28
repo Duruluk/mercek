@@ -49,7 +49,7 @@ class WebAppIntentProcessorTest {
     @Test
     fun `process returns false if no manifest is in storage`() = runTest {
         val storage: ManifestStorage = mock()
-        val processor = WebAppIntentProcessor(mock(), mock(), mock(), storage)
+        val processor = WebAppIntentProcessor(BrowserStore(), mock(), mock(), storage)
 
         `when`(storage.loadManifest("https://mozilla.com")).thenReturn(null)
 
@@ -77,7 +77,6 @@ class WebAppIntentProcessorTest {
                     enableUrlbarHiding = true,
                     showCloseButton = false,
                     showShareMenuItem = true,
-
                 ),
                 webAppManifest = manifest,
             ),
@@ -118,7 +117,6 @@ class WebAppIntentProcessorTest {
                 enableUrlbarHiding = true,
                 showCloseButton = false,
                 showShareMenuItem = true,
-
             ),
             webAppManifest = manifest,
         )

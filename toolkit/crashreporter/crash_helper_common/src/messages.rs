@@ -2,18 +2,45 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+use bytes::{Buf, BufMut, Bytes, BytesMut, TryGetError};
 #[cfg(any(target_os = "android", target_os = "linux"))]
 use minidump_writer::minidump_writer::{AuxvType, DirectAuxvDumpInfo};
 use num_derive::{FromPrimitive, ToPrimitive};
 use num_traits::FromPrimitive;
 use std::{
-    ffi::{CString, OsString},
+    array::TryFromSliceError,
+    ffi::{CString, FromBytesWithNulError, NulError, OsString},
     mem::size_of,
 };
+use thiserror::Error;
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::System::Diagnostics::Debug::{CONTEXT, EXCEPTION_RECORD};
 
-use crate::{breakpad::Pid, errors::MessageError, ipc_connector::AncillaryData, BreakpadString};
+use crate::{
+    breakpad::Pid,
+    ipc_connector::{AncillaryData, CONNECTOR_ANCILLARY_DATA_LEN},
+    BreakpadString, GeckoChildId,
+};
+
+#[derive(Debug, Error)]
+pub enum MessageError {
+    #[error("Nul terminator found within a string")]
+    InteriorNul(#[from] NulError),
+    #[error("The message contained an invalid payload")]
+    InvalidData,
+    #[error("Message kind is invalid")]
+    InvalidKind,
+    #[error("Invalid message size")]
+    InvalidSize(#[from] TryFromSliceError),
+    #[error("Missing ancillary data")]
+    MissingAncillary,
+    #[error("Missing nul terminator")]
+    MissingNul(#[from] FromBytesWithNulError),
+    #[error("Truncated message")]
+    Truncated(#[from] TryGetError),
+    #[error("Unexpected ancillary data")]
+    UnexpectedAncillaryData,
+}
 
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, FromPrimitive, ToPrimitive, PartialEq)]
@@ -46,19 +73,143 @@ pub enum Kind {
     /// to talk to the crash helper. This is sent from the main process to the
     /// crash helper.
     RegisterChildProcess = 10,
-    /// Reply sent by the crash helper to a newly registered child process.
-    /// Note that this won't be sent back to the main process, it's sent from
-    /// the crash helper to the newly launched child process.
-    ChildProcessRegistered = 11,
+    /// Message sent by the crash helper to rendez-vous with a newly-createdù
+    /// child process.
+    ChildProcessRendezVous = 11,
+    /// Reply to a `ChildProcessRendezVous` message sent by a child after
+    /// preparing itself for being dumped.
+    ChildProcessRendezVousReply = 12,
+}
+
+// Bytes helpers to serialize/deserialize values not supported directly by the
+// `bytes` crate. Note that all of these could be implemented by simply
+// transmuting a generic type T into an appropriate byte-sized slice. However
+// doing so for arbitrary objects would also copy whatever data might be in
+// the padding between the fields or at the end of the object, potentially
+// creating a channel to leak information from a process, which is why we only
+// have helpers for types that we know are not padded.
+
+trait BytesMutExtensions {
+    fn put_usize_ne(&mut self, n: usize);
+    fn put_pid_ne(&mut self, pid: Pid);
+    #[cfg(target_os = "windows")]
+    fn put_context(&mut self, contextref: &CONTEXT);
+    #[cfg(target_os = "windows")]
+    fn put_exception_record(&mut self, recordref: &EXCEPTION_RECORD);
+}
+
+impl BytesMutExtensions for BytesMut {
+    fn put_usize_ne(&mut self, n: usize) {
+        #[cfg(target_pointer_width = "32")]
+        self.put_u32_ne(n as u32);
+        #[cfg(target_pointer_width = "64")]
+        self.put_u64_ne(n as u64);
+    }
+
+    fn put_pid_ne(&mut self, pid: Pid) {
+        #[cfg(target_os = "windows")]
+        self.put_u32_ne(pid);
+        #[cfg(not(target_os = "windows"))]
+        self.put_i32_ne(pid);
+    }
+
+    #[cfg(target_os = "windows")]
+    fn put_context(&mut self, contextref: &CONTEXT) {
+        // SAFETY: The `CONTEXT` structure does not contain padding and can
+        // thus be stored as a simple slice of bytes of the same size.
+        let bytes: [u8; size_of::<CONTEXT>()] = unsafe { std::mem::transmute(*contextref) };
+        self.put_slice(&bytes);
+    }
+
+    #[cfg(target_os = "windows")]
+    fn put_exception_record(&mut self, recordref: &EXCEPTION_RECORD) {
+        self.put_i32_ne(recordref.ExceptionCode);
+        self.put_u32_ne(recordref.ExceptionFlags);
+        // We skip the `ExceptionRecord` field because it's a pointer and it
+        // would be invalid in the destination process, we rebuild it there.
+        self.put_usize_ne(recordref.ExceptionAddress as usize);
+        self.put_u32_ne(recordref.NumberParameters);
+        for info in recordref.ExceptionInformation {
+            self.put_usize_ne(info);
+        }
+    }
+}
+
+trait BytesExtensions {
+    fn try_get_usize_ne(&mut self) -> Result<usize, TryGetError>;
+    fn try_get_pid_ne(&mut self) -> Result<Pid, TryGetError>;
+    fn try_get_vec(&mut self, len: usize) -> Result<Vec<u8>, TryGetError>;
+    #[cfg(target_os = "windows")]
+    fn try_get_context(&mut self) -> Result<CONTEXT, TryGetError>;
+    #[cfg(target_os = "windows")]
+    fn try_get_exception_record(&mut self) -> Result<EXCEPTION_RECORD, TryGetError>;
+}
+
+impl BytesExtensions for Bytes {
+    fn try_get_usize_ne(&mut self) -> Result<usize, TryGetError> {
+        #[cfg(target_pointer_width = "32")]
+        return self.try_get_u32_ne().map(|v| v as usize);
+        #[cfg(target_pointer_width = "64")]
+        return self.try_get_u64_ne().map(|v| v as usize);
+    }
+
+    fn try_get_pid_ne(&mut self) -> Result<Pid, TryGetError> {
+        #[cfg(target_os = "windows")]
+        return self.try_get_u32_ne();
+        #[cfg(not(target_os = "windows"))]
+        return self.try_get_i32_ne();
+    }
+
+    fn try_get_vec(&mut self, len: usize) -> Result<Vec<u8>, TryGetError> {
+        let mut buffer = vec![0u8; len];
+        self.try_copy_to_slice(&mut buffer)?;
+        Ok(buffer)
+    }
+
+    #[cfg(target_os = "windows")]
+    fn try_get_context(&mut self) -> Result<CONTEXT, TryGetError> {
+        let buffer = self.try_get_vec(size_of::<CONTEXT>())?;
+        // SAFETY: The `CONTEXT` structure has no padding, so it can be
+        // populated by copying over its contents from a slice of bytes.
+        // Unrwapping the result of the slice `try_into()` will also never
+        // fail as the size is guaranteed to be right.
+        let context = unsafe {
+            std::mem::transmute::<[u8; size_of::<CONTEXT>()], CONTEXT>(
+                (*buffer.as_slice()).try_into().unwrap(),
+            )
+        };
+
+        Ok(context)
+    }
+
+    #[cfg(target_os = "windows")]
+    fn try_get_exception_record(&mut self) -> Result<EXCEPTION_RECORD, TryGetError> {
+        let exception_code = self.try_get_i32_ne()?;
+        let exception_flags = self.try_get_u32_ne()?;
+        let exception_address = self.try_get_usize_ne()?;
+        let number_parameters = self.try_get_u32_ne()?;
+        let mut exception_information: [usize; 15] = [0usize; 15];
+        for ei in exception_information.iter_mut() {
+            *ei = self.try_get_usize_ne()?;
+        }
+
+        Ok(EXCEPTION_RECORD {
+            ExceptionCode: exception_code,
+            ExceptionFlags: exception_flags,
+            ExceptionRecord: std::ptr::null_mut(),
+            ExceptionAddress: exception_address as *mut std::ffi::c_void,
+            NumberParameters: number_parameters,
+            ExceptionInformation: exception_information,
+        })
+    }
 }
 
 pub trait Message {
-    fn kind() -> Kind
-    where
-        Self: Sized;
-    fn header(&self) -> Vec<u8>;
-    fn into_payload(self) -> (Vec<u8>, Option<AncillaryData>);
-    fn decode(data: &[u8], ancillary_data: Option<AncillaryData>) -> Result<Self, MessageError>
+    fn kind() -> Kind;
+    fn payload_size(&self) -> usize;
+    fn ancillary_data_len(&self) -> usize;
+    fn encode(self) -> (Bytes, Bytes, Vec<AncillaryData>);
+    fn decode(data: Vec<u8>, ancillary_data: Vec<AncillaryData>) -> Result<Self, MessageError>
     where
         Self: Sized;
 }
@@ -76,20 +227,20 @@ pub struct Header {
 }
 
 impl Header {
-    fn encode(&self) -> Vec<u8> {
-        let mut buffer = Vec::with_capacity(HEADER_SIZE);
-        buffer.push(self.kind as u8);
-        buffer.extend(&self.size.to_ne_bytes());
+    fn encode(kind: Kind, size: usize) -> Bytes {
+        let mut buffer = BytesMut::with_capacity(HEADER_SIZE);
+
+        buffer.put_u8(kind as u8);
+        buffer.put_usize_ne(size);
         debug_assert!(buffer.len() == HEADER_SIZE, "Header size mismatch");
-        buffer
+        buffer.freeze()
     }
 
-    pub fn decode(buffer: &[u8]) -> Result<Header, MessageError> {
-        let kind = buffer.first().ok_or(MessageError::Truncated)?;
-        let kind = Kind::from_u8(*kind).ok_or(MessageError::InvalidKind)?;
-        let size_bytes: [u8; size_of::<usize>()] =
-            buffer[size_of::<Kind>()..size_of::<Kind>() + size_of::<usize>()].try_into()?;
-        let size = usize::from_ne_bytes(size_bytes);
+    pub fn decode(buffer: Vec<u8>) -> Result<Header, MessageError> {
+        let mut buffer = Bytes::from(buffer);
+        let kind = buffer.try_get_u8()?;
+        let kind = Kind::from_u8(kind).ok_or(MessageError::InvalidKind)?;
+        let size = buffer.try_get_usize_ne()?;
 
         Ok(Header { kind, size })
     }
@@ -105,11 +256,6 @@ impl SetCrashReportPath {
     pub fn new(path: OsString) -> SetCrashReportPath {
         SetCrashReportPath { path }
     }
-
-    fn payload_size(&self) -> usize {
-        let path_len = self.path.serialize().len();
-        size_of::<usize>() + path_len
-    }
 }
 
 impl Message for SetCrashReportPath {
@@ -117,36 +263,35 @@ impl Message for SetCrashReportPath {
         Kind::SetCrashReportPath
     }
 
-    fn header(&self) -> Vec<u8> {
-        Header {
-            kind: Self::kind(),
-            size: self.payload_size(),
-        }
-        .encode()
+    fn payload_size(&self) -> usize {
+        let path_len = self.path.clone().serialize().len();
+        size_of::<usize>().checked_add(path_len).unwrap()
     }
 
-    fn into_payload(self) -> (Vec<u8>, Option<AncillaryData>) {
-        let mut payload = Vec::with_capacity(self.payload_size());
+    fn ancillary_data_len(&self) -> usize {
+        0
+    }
+
+    fn encode(self) -> (Bytes, Bytes, Vec<AncillaryData>) {
+        let header = Header::encode(Self::kind(), self.payload_size());
+        let mut payload = BytesMut::with_capacity(self.payload_size());
         let path = self.path.serialize();
-        payload.extend(path.len().to_ne_bytes());
-        payload.extend(self.path.serialize());
-        (payload, None)
+        payload.put_usize_ne(path.len());
+        payload.put(path);
+
+        (header, payload.freeze(), vec![])
     }
 
-    fn decode(
-        data: &[u8],
-        ancillary_data: Option<AncillaryData>,
-    ) -> Result<SetCrashReportPath, MessageError> {
-        debug_assert!(
-            ancillary_data.is_none(),
-            "SetCrashReportPath messages cannot carry ancillary data"
-        );
+    fn decode(data: Vec<u8>, ancillary_data: Vec<AncillaryData>) -> Result<Self, MessageError> {
+        if !ancillary_data.is_empty() {
+            return Err(MessageError::UnexpectedAncillaryData);
+        }
 
-        let path_len_bytes: [u8; size_of::<usize>()] = data[0..size_of::<usize>()].try_into()?;
-        let path_len = usize::from_ne_bytes(path_len_bytes);
-        let offset = size_of::<usize>();
+        let mut data = Bytes::from(data);
 
-        let path = <OsString as BreakpadString>::deserialize(&data[offset..offset + path_len])
+        let path_len = data.try_get_usize_ne()?;
+        let path = data.try_get_vec(path_len)?;
+        let path = <OsString as BreakpadString>::deserialize(path)
             .map_err(|_| MessageError::InvalidData)?;
 
         Ok(SetCrashReportPath { path })
@@ -157,12 +302,12 @@ impl Message for SetCrashReportPath {
  * generated for the specified pid. */
 
 pub struct TransferMinidump {
-    pub pid: Pid,
+    pub id: GeckoChildId,
 }
 
 impl TransferMinidump {
-    pub fn new(pid: Pid) -> TransferMinidump {
-        TransferMinidump { pid }
+    pub fn new(id: GeckoChildId) -> TransferMinidump {
+        TransferMinidump { id }
     }
 }
 
@@ -171,30 +316,31 @@ impl Message for TransferMinidump {
         Kind::TransferMinidump
     }
 
-    fn header(&self) -> Vec<u8> {
-        Header {
-            kind: Self::kind(),
-            size: size_of::<Pid>(),
+    fn payload_size(&self) -> usize {
+        size_of::<GeckoChildId>()
+    }
+
+    fn ancillary_data_len(&self) -> usize {
+        0
+    }
+
+    fn encode(self) -> (Bytes, Bytes, Vec<AncillaryData>) {
+        let header = Header::encode(Self::kind(), self.payload_size());
+        let mut payload = BytesMut::with_capacity(self.payload_size());
+        payload.put_i32_ne(self.id);
+
+        (header, payload.freeze(), vec![])
+    }
+
+    fn decode(data: Vec<u8>, ancillary_data: Vec<AncillaryData>) -> Result<Self, MessageError> {
+        if !ancillary_data.is_empty() {
+            return Err(MessageError::UnexpectedAncillaryData);
         }
-        .encode()
-    }
 
-    fn into_payload(self) -> (Vec<u8>, Option<AncillaryData>) {
-        (self.pid.to_ne_bytes().to_vec(), None)
-    }
+        let mut data = Bytes::from(data);
+        let id = data.try_get_i32_ne()?;
 
-    fn decode(
-        data: &[u8],
-        ancillary_data: Option<AncillaryData>,
-    ) -> Result<TransferMinidump, MessageError> {
-        debug_assert!(
-            ancillary_data.is_none(),
-            "TransferMinidump messages cannot carry ancillary data"
-        );
-        let bytes: [u8; size_of::<Pid>()] = data[0..size_of::<Pid>()].try_into()?;
-        let pid = Pid::from_ne_bytes(bytes);
-
-        Ok(TransferMinidump { pid })
+        Ok(TransferMinidump { id })
     }
 }
 
@@ -210,17 +356,6 @@ impl TransferMinidumpReply {
     pub fn new(path: OsString, error: Option<CString>) -> TransferMinidumpReply {
         TransferMinidumpReply { path, error }
     }
-
-    fn payload_size(&self) -> usize {
-        let path_len = self.path.serialize().len();
-        // TODO: We should use checked arithmetic here
-        (size_of::<usize>() * 2)
-            + path_len
-            + self
-                .error
-                .as_ref()
-                .map_or(0, |error| error.as_bytes().len())
-    }
 }
 
 impl Message for TransferMinidumpReply {
@@ -228,57 +363,60 @@ impl Message for TransferMinidumpReply {
         Kind::TransferMinidumpReply
     }
 
-    fn header(&self) -> Vec<u8> {
-        Header {
-            kind: Self::kind(),
-            size: self.payload_size(),
-        }
-        .encode()
+    fn payload_size(&self) -> usize {
+        let path_len = self.path.clone().serialize().len();
+        (size_of::<usize>() * 2)
+            .checked_add(path_len)
+            .and_then(|l| {
+                l.checked_add(
+                    self.error
+                        .as_ref()
+                        .map_or(0, |error| error.as_bytes().len()),
+                )
+            })
+            .unwrap()
     }
 
-    fn into_payload(self) -> (Vec<u8>, Option<AncillaryData>) {
+    fn ancillary_data_len(&self) -> usize {
+        0
+    }
+
+    fn encode(self) -> (Bytes, Bytes, Vec<AncillaryData>) {
+        let header = Header::encode(Self::kind(), self.payload_size());
+        let mut payload = BytesMut::with_capacity(self.payload_size());
+
         let path_bytes = self.path.serialize();
-        let mut buffer = Vec::with_capacity(self.payload_size());
-        buffer.extend(path_bytes.len().to_ne_bytes());
-        buffer.extend(
-            (self
-                .error
-                .as_ref()
-                .map_or(0, |error| error.as_bytes().len()))
-            .to_ne_bytes(),
-        );
-        buffer.extend(path_bytes);
-        buffer.extend(
-            self.error
-                .as_ref()
-                .map_or(Vec::new(), |error| Vec::from(error.as_bytes())),
-        );
-        (buffer, None)
+        let error_bytes = self
+            .error
+            .as_ref()
+            .map_or(Vec::new(), |error| Vec::from(error.as_bytes()));
+
+        payload.put_usize_ne(path_bytes.len());
+        payload.put_usize_ne(error_bytes.len());
+        payload.put(path_bytes);
+        payload.put(error_bytes.as_slice());
+
+        (header, payload.freeze(), vec![])
     }
 
     fn decode(
-        data: &[u8],
-        ancillary_data: Option<AncillaryData>,
+        data: Vec<u8>,
+        ancillary_data: Vec<AncillaryData>,
     ) -> Result<TransferMinidumpReply, MessageError> {
-        debug_assert!(
-            ancillary_data.is_none(),
-            "TransferMinidumpReply messages cannot carry ancillary data"
-        );
-        let path_len_bytes: [u8; size_of::<usize>()] = data[0..size_of::<usize>()].try_into()?;
-        let path_len = usize::from_ne_bytes(path_len_bytes);
-        let offset = size_of::<usize>();
+        if !ancillary_data.is_empty() {
+            return Err(MessageError::UnexpectedAncillaryData);
+        }
 
-        let error_len_bytes: [u8; size_of::<usize>()] =
-            data[offset..offset + size_of::<usize>()].try_into()?;
-        let error_len = usize::from_ne_bytes(error_len_bytes);
-        let offset = offset + size_of::<usize>();
+        let mut data = Bytes::from(data);
+        let path_len = data.try_get_usize_ne()?;
+        let error_len = data.try_get_usize_ne()?;
 
-        let path = <OsString as BreakpadString>::deserialize(&data[offset..offset + path_len])
+        let path = data.try_get_vec(path_len)?;
+        let path = <OsString as BreakpadString>::deserialize(path)
             .map_err(|_| MessageError::InvalidData)?;
-        let offset = offset + path_len;
 
         let error = if error_len > 0 {
-            Some(CString::new(&data[offset..offset + error_len])?)
+            Some(CString::new(data.try_get_vec(error_len)?)?)
         } else {
             None
         };
@@ -291,8 +429,8 @@ impl Message for TransferMinidumpReply {
 
 #[cfg(target_os = "windows")]
 pub struct WindowsErrorReportingMinidump {
-    pub pid: Pid,
-    pub tid: Pid, // TODO: This should be a different type
+    pub process: AncillaryData,
+    pub thread: AncillaryData,
     pub exception_records: Vec<EXCEPTION_RECORD>,
     pub context: CONTEXT,
 }
@@ -300,26 +438,32 @@ pub struct WindowsErrorReportingMinidump {
 #[cfg(target_os = "windows")]
 impl WindowsErrorReportingMinidump {
     pub fn new(
-        pid: Pid,
-        tid: Pid,
+        process: AncillaryData,
+        thread: AncillaryData,
         exception_records: Vec<EXCEPTION_RECORD>,
         context: CONTEXT,
     ) -> WindowsErrorReportingMinidump {
         WindowsErrorReportingMinidump {
-            pid,
-            tid,
+            process,
+            thread,
             exception_records,
             context,
         }
     }
-
-    fn payload_size(&self) -> usize {
-        (size_of::<Pid>() * 2)
-            + size_of::<usize>()
-            + (size_of::<EXCEPTION_RECORD>() * self.exception_records.len())
-            + size_of::<CONTEXT>()
-    }
 }
+
+// The size of the structure minus the `ExceptionRecord` pointer and the
+// 4-bytes padding after the `NumberParameters` field.
+#[cfg(all(target_os = "windows", target_pointer_width = "64"))]
+const EXCEPTION_RECORD_SERIALIZED_SIZE: usize =
+    size_of::<EXCEPTION_RECORD>() - (size_of::<usize>() + size_of::<u32>());
+
+// The size of the structure minus the `ExceptionRecord` pointer.
+#[cfg(all(target_os = "windows", target_pointer_width = "32"))]
+const EXCEPTION_RECORD_SERIALIZED_SIZE: usize = size_of::<EXCEPTION_RECORD>() - size_of::<usize>();
+
+#[cfg(target_os = "windows")]
+const WINDOWS_ERROR_REPORTING_MINIDUMP_ANCILLARY_DATA_LEN: usize = 2;
 
 #[cfg(target_os = "windows")]
 impl Message for WindowsErrorReportingMinidump {
@@ -327,69 +471,57 @@ impl Message for WindowsErrorReportingMinidump {
         Kind::WindowsErrorReporting
     }
 
-    fn header(&self) -> Vec<u8> {
-        Header {
-            kind: Self::kind(),
-            size: self.payload_size(),
-        }
-        .encode()
+    fn payload_size(&self) -> usize {
+        size_of::<usize>()
+            + (EXCEPTION_RECORD_SERIALIZED_SIZE * self.exception_records.len())
+            + size_of::<CONTEXT>()
     }
 
-    fn into_payload(self) -> (Vec<u8>, Option<AncillaryData>) {
-        let mut buffer = Vec::<u8>::with_capacity(self.payload_size());
-        buffer.extend(self.pid.to_ne_bytes());
-        buffer.extend(self.tid.to_ne_bytes());
-        buffer.extend(self.exception_records.len().to_ne_bytes());
+    fn ancillary_data_len(&self) -> usize {
+        WINDOWS_ERROR_REPORTING_MINIDUMP_ANCILLARY_DATA_LEN
+    }
+
+    fn encode(self) -> (Bytes, Bytes, Vec<AncillaryData>) {
+        let header = Header::encode(Self::kind(), self.payload_size());
+        let mut payload = BytesMut::with_capacity(self.payload_size());
+
+        payload.put_usize_ne(self.exception_records.len());
         for exception_record in self.exception_records.iter() {
-            let bytes: [u8; size_of::<EXCEPTION_RECORD>()] =
-                unsafe { std::mem::transmute(*exception_record) };
-            buffer.extend(bytes);
+            payload.put_exception_record(exception_record);
         }
-        let bytes: [u8; size_of::<CONTEXT>()] = unsafe { std::mem::transmute(self.context) };
-        buffer.extend(bytes);
-        (buffer, None)
+        payload.put_context(&self.context);
+
+        (header, payload.freeze(), vec![])
     }
 
     fn decode(
-        data: &[u8],
-        ancillary_data: Option<AncillaryData>,
+        data: Vec<u8>,
+        ancillary_data: Vec<AncillaryData>,
     ) -> Result<WindowsErrorReportingMinidump, MessageError> {
-        debug_assert!(
-            ancillary_data.is_none(),
-            "WindowsErrorReportingMinidump messages cannot carry ancillary data"
-        );
-        let bytes: [u8; size_of::<Pid>()] = data[0..size_of::<Pid>()].try_into()?;
-        let pid = Pid::from_ne_bytes(bytes);
-        let offset = size_of::<Pid>();
+        if ancillary_data.len() < WINDOWS_ERROR_REPORTING_MINIDUMP_ANCILLARY_DATA_LEN {
+            return Err(MessageError::MissingAncillary);
+        } else if ancillary_data.len() > WINDOWS_ERROR_REPORTING_MINIDUMP_ANCILLARY_DATA_LEN {
+            return Err(MessageError::UnexpectedAncillaryData);
+        }
 
-        let bytes: [u8; size_of::<Pid>()] = data[offset..(offset + size_of::<Pid>())].try_into()?;
-        let tid = Pid::from_ne_bytes(bytes);
-        let offset = offset + size_of::<Pid>();
-
-        let bytes: [u8; size_of::<usize>()] =
-            data[offset..(offset + size_of::<usize>())].try_into()?;
-        let exception_records_n = usize::from_ne_bytes(bytes);
-        let offset = offset + size_of::<usize>();
+        let mut bytes = Bytes::from(data);
+        let exception_records_n = bytes.try_get_usize_ne()?;
 
         let mut exception_records = Vec::<EXCEPTION_RECORD>::with_capacity(exception_records_n);
-        for i in 0..exception_records_n {
-            let element_offset = offset + (i * size_of::<EXCEPTION_RECORD>());
-            let bytes: [u8; size_of::<EXCEPTION_RECORD>()] = data
-                [element_offset..(element_offset + size_of::<EXCEPTION_RECORD>())]
-                .try_into()?;
-            let exception_record = unsafe {
-                std::mem::transmute::<[u8; size_of::<EXCEPTION_RECORD>()], EXCEPTION_RECORD>(bytes)
-            };
+        for _i in 0..exception_records_n {
+            let exception_record = bytes.try_get_exception_record()?;
             exception_records.push(exception_record);
         }
 
-        let bytes: [u8; size_of::<CONTEXT>()] =
-            data[offset..(offset + size_of::<CONTEXT>())].try_into()?;
-        let context = unsafe { std::mem::transmute::<[u8; size_of::<CONTEXT>()], CONTEXT>(bytes) };
+        let context = bytes.try_get_context()?;
+
+        let mut iter = ancillary_data.into_iter();
+        let process = iter.next().unwrap();
+        let thread = iter.next().unwrap();
 
         Ok(WindowsErrorReportingMinidump {
-            pid,
-            tid,
+            process,
+            thread,
             exception_records,
             context,
         })
@@ -415,10 +547,6 @@ impl WindowsErrorReportingMinidumpReply {
     pub fn new() -> WindowsErrorReportingMinidumpReply {
         WindowsErrorReportingMinidumpReply {}
     }
-
-    fn payload_size(&self) -> usize {
-        0
-    }
 }
 
 #[cfg(target_os = "windows")]
@@ -427,23 +555,29 @@ impl Message for WindowsErrorReportingMinidumpReply {
         Kind::WindowsErrorReportingReply
     }
 
-    fn header(&self) -> Vec<u8> {
-        Header {
-            kind: Self::kind(),
-            size: self.payload_size(),
-        }
-        .encode()
+    fn payload_size(&self) -> usize {
+        0
     }
 
-    fn into_payload(self) -> (Vec<u8>, Option<AncillaryData>) {
-        (Vec::<u8>::new(), None)
+    fn ancillary_data_len(&self) -> usize {
+        0
+    }
+
+    fn encode(self) -> (Bytes, Bytes, Vec<AncillaryData>) {
+        let header = Header::encode(Self::kind(), self.payload_size());
+
+        (header, Bytes::new(), vec![])
     }
 
     fn decode(
-        data: &[u8],
-        ancillary_data: Option<AncillaryData>,
+        data: Vec<u8>,
+        ancillary_data: Vec<AncillaryData>,
     ) -> Result<WindowsErrorReportingMinidumpReply, MessageError> {
-        if ancillary_data.is_some() || !data.is_empty() {
+        if !ancillary_data.is_empty() {
+            return Err(MessageError::UnexpectedAncillaryData);
+        }
+
+        if !data.is_empty() {
             return Err(MessageError::InvalidData);
         }
 
@@ -455,20 +589,14 @@ impl Message for WindowsErrorReportingMinidumpReply {
 
 #[cfg(any(target_os = "android", target_os = "linux"))]
 pub struct RegisterAuxvInfo {
-    pub pid: Pid,
+    pub id: GeckoChildId,
     pub auxv_info: DirectAuxvDumpInfo,
 }
 
 #[cfg(any(target_os = "android", target_os = "linux"))]
 impl RegisterAuxvInfo {
-    pub fn new(pid: Pid, auxv_info: DirectAuxvDumpInfo) -> RegisterAuxvInfo {
-        RegisterAuxvInfo { pid, auxv_info }
-    }
-
-    fn payload_size(&self) -> usize {
-        // A bit hacky but we'll change this when we make
-        // serialization/deserialization later.
-        size_of::<Pid>() + (size_of::<AuxvType>() * 4)
+    pub fn new(id: GeckoChildId, auxv_info: DirectAuxvDumpInfo) -> RegisterAuxvInfo {
+        RegisterAuxvInfo { id, auxv_info }
     }
 }
 
@@ -478,56 +606,45 @@ impl Message for RegisterAuxvInfo {
         Kind::RegisterAuxvInfo
     }
 
-    fn header(&self) -> Vec<u8> {
-        Header {
-            kind: Self::kind(),
-            size: self.payload_size(),
-        }
-        .encode()
+    fn payload_size(&self) -> usize {
+        // A bit hacky but we'll change this when we make
+        // serialization/deserialization later.
+        size_of::<GeckoChildId>() + (size_of::<AuxvType>() * 4)
     }
 
-    fn into_payload(self) -> (Vec<u8>, Option<AncillaryData>) {
-        let mut payload = Vec::with_capacity(self.payload_size());
-        payload.extend(self.pid.to_ne_bytes());
-        payload.extend(self.auxv_info.program_header_count.to_ne_bytes());
-        payload.extend(self.auxv_info.program_header_address.to_ne_bytes());
-        payload.extend(self.auxv_info.linux_gate_address.to_ne_bytes());
-        payload.extend(self.auxv_info.entry_address.to_ne_bytes());
-        debug_assert!(self.payload_size() == payload.len());
-        (payload, None)
+    fn ancillary_data_len(&self) -> usize {
+        0
+    }
+
+    fn encode(self) -> (Bytes, Bytes, Vec<AncillaryData>) {
+        let header = Header::encode(Self::kind(), self.payload_size());
+        let mut payload = BytesMut::with_capacity(self.payload_size());
+
+        payload.put_i32_ne(self.id);
+        // AuxvType is the size of a pointer
+        payload.put_usize_ne(self.auxv_info.program_header_count as usize);
+        payload.put_usize_ne(self.auxv_info.program_header_address as usize);
+        payload.put_usize_ne(self.auxv_info.linux_gate_address as usize);
+        payload.put_usize_ne(self.auxv_info.entry_address as usize);
+
+        (header, payload.freeze(), vec![])
     }
 
     fn decode(
-        data: &[u8],
-        ancillary_data: Option<AncillaryData>,
+        data: Vec<u8>,
+        ancillary_data: Vec<AncillaryData>,
     ) -> Result<RegisterAuxvInfo, MessageError> {
-        debug_assert!(
-            ancillary_data.is_none(),
-            "RegisterAuxvInfo messages cannot carry ancillary data"
-        );
+        if !ancillary_data.is_empty() {
+            return Err(MessageError::UnexpectedAncillaryData);
+        }
 
-        let bytes: [u8; size_of::<Pid>()] = data[0..size_of::<Pid>()].try_into()?;
-        let pid = Pid::from_ne_bytes(bytes);
-        let offset = size_of::<Pid>();
+        let mut data = Bytes::from(data);
 
-        let bytes: [u8; size_of::<AuxvType>()] =
-            data[offset..(offset + size_of::<AuxvType>())].try_into()?;
-        let program_header_count = AuxvType::from_ne_bytes(bytes);
-        let offset = offset + size_of::<AuxvType>();
-
-        let bytes: [u8; size_of::<AuxvType>()] =
-            data[offset..(offset + size_of::<AuxvType>())].try_into()?;
-        let program_header_address = AuxvType::from_ne_bytes(bytes);
-        let offset = offset + size_of::<AuxvType>();
-
-        let bytes: [u8; size_of::<AuxvType>()] =
-            data[offset..(offset + size_of::<AuxvType>())].try_into()?;
-        let linux_gate_address = AuxvType::from_ne_bytes(bytes);
-        let offset = offset + size_of::<AuxvType>();
-
-        let bytes: [u8; size_of::<AuxvType>()] =
-            data[offset..(offset + size_of::<AuxvType>())].try_into()?;
-        let entry_address = AuxvType::from_ne_bytes(bytes);
+        let id = data.try_get_i32_ne()?;
+        let program_header_count = data.try_get_usize_ne()? as AuxvType;
+        let program_header_address = data.try_get_usize_ne()? as AuxvType;
+        let linux_gate_address = data.try_get_usize_ne()? as AuxvType;
+        let entry_address = data.try_get_usize_ne()? as AuxvType;
 
         let auxv_info = DirectAuxvDumpInfo {
             program_header_count,
@@ -536,7 +653,7 @@ impl Message for RegisterAuxvInfo {
             linux_gate_address,
         };
 
-        Ok(RegisterAuxvInfo { pid, auxv_info })
+        Ok(RegisterAuxvInfo { id, auxv_info })
     }
 }
 
@@ -545,17 +662,13 @@ impl Message for RegisterAuxvInfo {
 
 #[cfg(any(target_os = "android", target_os = "linux"))]
 pub struct UnregisterAuxvInfo {
-    pub pid: Pid,
+    pub id: GeckoChildId,
 }
 
 #[cfg(any(target_os = "android", target_os = "linux"))]
 impl UnregisterAuxvInfo {
-    pub fn new(pid: Pid) -> UnregisterAuxvInfo {
-        UnregisterAuxvInfo { pid }
-    }
-
-    fn payload_size(&self) -> usize {
-        size_of::<Pid>()
+    pub fn new(id: GeckoChildId) -> UnregisterAuxvInfo {
+        UnregisterAuxvInfo { id }
     }
 }
 
@@ -565,34 +678,36 @@ impl Message for UnregisterAuxvInfo {
         Kind::UnregisterAuxvInfo
     }
 
-    fn header(&self) -> Vec<u8> {
-        Header {
-            kind: Self::kind(),
-            size: self.payload_size(),
-        }
-        .encode()
+    fn payload_size(&self) -> usize {
+        size_of::<GeckoChildId>()
     }
 
-    fn into_payload(self) -> (Vec<u8>, Option<AncillaryData>) {
-        let mut payload = Vec::with_capacity(self.payload_size());
-        payload.extend(self.pid.to_ne_bytes());
-        debug_assert!(self.payload_size() == payload.len());
-        (payload, None)
+    fn ancillary_data_len(&self) -> usize {
+        0
+    }
+
+    fn encode(self) -> (Bytes, Bytes, Vec<AncillaryData>) {
+        let header = Header::encode(Self::kind(), self.payload_size());
+        let mut payload = BytesMut::with_capacity(self.payload_size());
+
+        payload.put_i32_ne(self.id);
+
+        (header, payload.freeze(), vec![])
     }
 
     fn decode(
-        data: &[u8],
-        ancillary_data: Option<AncillaryData>,
+        data: Vec<u8>,
+        ancillary_data: Vec<AncillaryData>,
     ) -> Result<UnregisterAuxvInfo, MessageError> {
-        debug_assert!(
-            ancillary_data.is_none(),
-            "UnregisterAuxvInfo messages cannot carry ancillary data"
-        );
+        if !ancillary_data.is_empty() {
+            return Err(MessageError::UnexpectedAncillaryData);
+        }
 
-        let bytes: [u8; size_of::<Pid>()] = data[0..size_of::<Pid>()].try_into()?;
-        let pid = Pid::from_ne_bytes(bytes);
+        let mut data = Bytes::from(data);
 
-        Ok(UnregisterAuxvInfo { pid })
+        let id = data.try_get_i32_ne()?;
+
+        Ok(UnregisterAuxvInfo { id })
     }
 }
 
@@ -601,18 +716,14 @@ impl Message for UnregisterAuxvInfo {
  * endpoint which the crash helper will use to talk to the child. */
 
 pub struct RegisterChildProcess {
-    pub ipc_endpoint: AncillaryData,
+    pub ancillary_data: [AncillaryData; CONNECTOR_ANCILLARY_DATA_LEN],
 }
 
 impl RegisterChildProcess {
-    pub fn new(ipc_endpoint: AncillaryData) -> RegisterChildProcess {
-        RegisterChildProcess {
-            ipc_endpoint,
-        }
-    }
-
-    fn payload_size(&self) -> usize {
-        0
+    pub fn new(
+        ancillary_data: [AncillaryData; CONNECTOR_ANCILLARY_DATA_LEN],
+    ) -> RegisterChildProcess {
+        RegisterChildProcess { ancillary_data }
     }
 }
 
@@ -621,76 +732,158 @@ impl Message for RegisterChildProcess {
         Kind::RegisterChildProcess
     }
 
-    fn header(&self) -> Vec<u8> {
-        Header {
-            kind: Self::kind(),
-            size: self.payload_size(),
-        }
-        .encode()
+    fn payload_size(&self) -> usize {
+        0
     }
 
-    fn into_payload(self) -> (Vec<u8>, Option<AncillaryData>) {
-        (Vec::<u8>::new(), Some(self.ipc_endpoint))
+    fn ancillary_data_len(&self) -> usize {
+        self.ancillary_data.len()
+    }
+
+    fn encode(self) -> (Bytes, Bytes, Vec<AncillaryData>) {
+        let header = Header::encode(Self::kind(), self.payload_size());
+        let payload = Bytes::new();
+
+        (header, payload, self.ancillary_data.into())
     }
 
     fn decode(
-        _data: &[u8],
-        ancillary_data: Option<AncillaryData>,
+        _data: Vec<u8>,
+        mut ancillary_data: Vec<AncillaryData>,
     ) -> Result<RegisterChildProcess, MessageError> {
-        let Some(ipc_endpoint) = ancillary_data else {
-            return Err(MessageError::MissingAncillary);
+        #[cfg(any(target_os = "ios", target_os = "macos"))]
+        let ancillary_data: [AncillaryData; CONNECTOR_ANCILLARY_DATA_LEN] = {
+            let receive_right = ancillary_data.pop().ok_or(MessageError::MissingAncillary)?;
+            let send_right = ancillary_data.pop().ok_or(MessageError::MissingAncillary)?;
+            [send_right, receive_right]
         };
+        #[cfg(not(any(target_os = "ios", target_os = "macos")))]
+        let ancillary_data: [AncillaryData; CONNECTOR_ANCILLARY_DATA_LEN] =
+            [ancillary_data.pop().ok_or(MessageError::MissingAncillary)?];
 
-        Ok(RegisterChildProcess { ipc_endpoint })
+        Ok(RegisterChildProcess { ancillary_data })
     }
 }
 
-/* Reply sent from the crash helper process to a newly registered child. It
- * contains platform-dependent information which is required for the child
- * process to prepare itself for crash generation. */
+/* Message sent from the crash helper process to a newly registered child
+ * process. The child will prepare itself for being dumped by the crash helper
+ * after receiving this message, and then reply to inform the crash helper
+ * that it is now possible to dump it. */
 
-pub struct ChildProcessRegistered {
+pub struct ChildProcessRendezVous {
     pub crash_helper_pid: Pid,
 }
 
-impl ChildProcessRegistered {
-    pub fn new(pid: Pid) -> ChildProcessRegistered {
-        ChildProcessRegistered {
+impl ChildProcessRendezVous {
+    pub fn new(pid: Pid) -> ChildProcessRendezVous {
+        ChildProcessRendezVous {
             crash_helper_pid: pid,
         }
     }
 }
 
-impl Message for ChildProcessRegistered {
+impl Message for ChildProcessRendezVous {
     fn kind() -> Kind {
-        Kind::ChildProcessRegistered
+        Kind::ChildProcessRendezVous
     }
 
-    fn header(&self) -> Vec<u8> {
-        Header {
-            kind: Self::kind(),
-            size: size_of::<Pid>(),
-        }
-        .encode()
+    fn payload_size(&self) -> usize {
+        size_of::<Pid>()
     }
 
-    fn into_payload(self) -> (Vec<u8>, Option<AncillaryData>) {
-        (self.crash_helper_pid.to_ne_bytes().to_vec(), None)
+    fn ancillary_data_len(&self) -> usize {
+        0
+    }
+
+    fn encode(self) -> (Bytes, Bytes, Vec<AncillaryData>) {
+        let header = Header::encode(Self::kind(), self.payload_size());
+        let mut payload = BytesMut::with_capacity(self.payload_size());
+
+        payload.put_pid_ne(self.crash_helper_pid);
+
+        (header, payload.freeze(), vec![])
     }
 
     fn decode(
-        data: &[u8],
-        ancillary_data: Option<AncillaryData>,
-    ) -> Result<ChildProcessRegistered, MessageError> {
-        debug_assert!(
-            ancillary_data.is_none(),
-            "ChildProcessRegistered messages cannot carry ancillary data"
-        );
-        let bytes: [u8; size_of::<Pid>()] = data[0..size_of::<Pid>()].try_into()?;
-        let pid = Pid::from_ne_bytes(bytes);
+        data: Vec<u8>,
+        ancillary_data: Vec<AncillaryData>,
+    ) -> Result<ChildProcessRendezVous, MessageError> {
+        if !ancillary_data.is_empty() {
+            return Err(MessageError::UnexpectedAncillaryData);
+        }
 
-        Ok(ChildProcessRegistered {
+        let mut data = Bytes::from(data);
+        let pid = data.try_get_pid_ne()?;
+
+        Ok(ChildProcessRendezVous {
             crash_helper_pid: pid,
+        })
+    }
+}
+
+/* Reply sent by a child process to the crash helper process after receiving
+ * a ChildProcessRendezVous message. The message contains information on
+ * whether the child process managed to set itself up for being dumped, its
+ * PID plus platform-specific information that might be needed by the parent to
+ * dump it. */
+
+pub struct ChildProcessRendezVousReply {
+    pub dumpable: bool,
+    pub child_pid: Pid,
+    pub id: GeckoChildId,
+}
+
+impl ChildProcessRendezVousReply {
+    pub fn new(dumpable: bool, child_pid: Pid, id: GeckoChildId) -> ChildProcessRendezVousReply {
+        ChildProcessRendezVousReply {
+            dumpable,
+            child_pid,
+            id,
+        }
+    }
+}
+
+impl Message for ChildProcessRendezVousReply {
+    fn kind() -> Kind {
+        Kind::ChildProcessRendezVousReply
+    }
+
+    fn payload_size(&self) -> usize {
+        size_of::<u8>() + size_of::<Pid>() + size_of::<GeckoChildId>()
+    }
+
+    fn ancillary_data_len(&self) -> usize {
+        0
+    }
+
+    fn encode(self) -> (Bytes, Bytes, Vec<AncillaryData>) {
+        let header = Header::encode(Self::kind(), self.payload_size());
+        let mut payload = BytesMut::with_capacity(self.payload_size());
+
+        payload.put_u8(self.dumpable.into());
+        payload.put_pid_ne(self.child_pid);
+        payload.put_i32_ne(self.id);
+
+        (header, payload.freeze(), vec![])
+    }
+
+    fn decode(
+        data: Vec<u8>,
+        ancillary_data: Vec<AncillaryData>,
+    ) -> Result<ChildProcessRendezVousReply, MessageError> {
+        if !ancillary_data.is_empty() {
+            return Err(MessageError::UnexpectedAncillaryData);
+        }
+
+        let mut data = Bytes::from(data);
+        let dumpable = data.try_get_u8()? != 0;
+        let child_pid = data.try_get_pid_ne()?;
+        let id = data.try_get_i32_ne()?;
+
+        Ok(ChildProcessRendezVousReply {
+            dumpable,
+            child_pid,
+            id,
         })
     }
 }

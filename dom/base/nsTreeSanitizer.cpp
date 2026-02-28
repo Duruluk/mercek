@@ -8,6 +8,7 @@
 
 #include <iterator>
 
+#include "NonCustomCSSPropertyId.h"
 #include "mozilla/Algorithm.h"
 #include "mozilla/DeclarationBlock.h"
 #include "mozilla/NullPrincipal.h"
@@ -24,7 +25,6 @@
 #include "mozilla/dom/ShadowIncludingTreeIterator.h"
 #include "nsAtom.h"
 #include "nsAttrName.h"
-#include "nsCSSPropertyID.h"
 #include "nsComponentManagerUtils.h"
 #include "nsContentUtils.h"
 #include "nsHashtablesFwd.h"
@@ -37,6 +37,9 @@
 #include "nsString.h"
 #include "nsTHashtable.h"
 #include "nsUnicharInputStream.h"
+
+// Undo some conflicting Windows macro definition.
+#undef small
 
 using namespace mozilla;
 using namespace mozilla::dom;

@@ -43,6 +43,8 @@ edit-profile-page-theme-header-2 =
     .label = Theme
 edit-profile-page-explore-themes = Explore more themes
 edit-profile-page-desktop-shortcut-header = Create desktop shortcut
+edit-profile-page-desktop-shortcut-toggle =
+    .aria-label = Create desktop shortcut
 edit-profile-page-avatar-header-2 =
     .label = Avatar
 edit-profile-page-delete-button =
@@ -78,6 +80,10 @@ new-profile-page-done-button =
 #   $profilename (String) - The name of the copied profile.
 copied-profile-page-header = Your copy of { $profilename } is ready to customize
 copied-profile-page-header-description = We copied your data and settings into a new profile. Now give it a name, pick a look, and make it your own.
+
+restored-profile-page-header = Customize your restored profile
+restored-profile-page-header-description = Each profile keeps its unique browsing history and settings separate from your other profiles. Plus, { -brand-short-name }’s strong privacy protections are on by default.
+restored-profile-page-learn-more = Learn more
 
 ## Delete profile dialogue that allows users to review what they will lose if they choose to delete their profile. Each item (open windows, etc.) is displayed in a table, followed by a column with the number of items.
 

@@ -134,6 +134,7 @@ UNIFIED_SOURCES += [
     "HTMLDivElement.cpp",
     "HTMLDNSPrefetch.cpp",
     "HTMLElement.cpp",
+    "HTMLElementFactory.cpp",
     "HTMLEmbedElement.cpp",
     "HTMLFieldSetElement.cpp",
     "HTMLFontElement.cpp",
@@ -191,10 +192,10 @@ UNIFIED_SOURCES += [
     "nsDOMStringMap.cpp",
     "nsGenericHTMLElement.cpp",
     "nsGenericHTMLFrameElement.cpp",
-    "nsHTMLContentSink.cpp",
     "nsHTMLDocument.cpp",
     "nsIConstraintValidation.cpp",
     "RadioNodeList.cpp",
+    "TextControlElement.cpp",
     "TextControlState.cpp",
     "ValidityState.cpp",
     "VideoDocument.cpp",
@@ -221,6 +222,3 @@ LOCAL_INCLUDES += [
 ]
 
 FINAL_LIBRARY = "xul"
-
-if CONFIG["MOZ_ANDROID_HLS_SUPPORT"]:
-    DEFINES["MOZ_ANDROID_HLS_SUPPORT"] = True

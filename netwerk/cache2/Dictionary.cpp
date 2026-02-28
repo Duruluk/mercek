@@ -3,7 +3,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include <algorithm>
 #include <stdlib.h>
 
 #include "Dictionary.h"
@@ -81,6 +80,7 @@ LazyLogModule gDictionaryLog("CompressionDictionaries");
  */
 StaticRefPtr<DictionaryCache> gDictionaryCache;
 StaticRefPtr<nsICacheStorage> DictionaryCache::sCacheStorage;
+Atomic<bool, Relaxed> DictionaryCache::sShutdown{false};
 
 // about:cache gets upset about entries that don't fit URL specs, so we need
 // to add the trailing '/' to GetPrePath()
@@ -102,6 +102,9 @@ DictionaryCacheEntry::~DictionaryCacheEntry() {
   DICTIONARY_LOG(
       ("Destroyed DictionaryCacheEntry %p, uri=%s, pattern=%s, id=%s", this,
        mURI.get(), mPattern.get(), mId.get()));
+  if (mCachedPattern.isSome()) {
+    urlpattern_pattern_free(mCachedPattern.ref());
+  }
 }
 
 DictionaryCacheEntry::DictionaryCacheEntry(const nsACString& aURI,
@@ -148,6 +151,7 @@ void DictionaryCacheEntry::ConvertMatchDestToEnumArray(
 bool DictionaryCacheEntry::Match(const nsACString& aFilePath,
                                  ExtContentPolicyType aType, uint32_t aNow,
                                  uint32_t& aLongest) {
+  MOZ_ASSERT(NS_IsMainThread());
   if (mHash.IsEmpty()) {
     // We don't have the file yet
     return false;
@@ -158,9 +162,6 @@ bool DictionaryCacheEntry::Match(const nsACString& aFilePath,
     return false;
   }
   // Not worth checking if we wouldn't use it
-  DICTIONARY_LOG(("Match: %p   %s to %s, %s (now=%u, expiration=%u)", this,
-                  PromiseFlatCString(aFilePath).get(), mPattern.get(),
-                  NS_CP_ContentTypeName(aType), aNow, mExpiration));
   if ((mExpiration == 0 || aNow < mExpiration) &&
       mPattern.Length() > aLongest) {
     // Need to match using match-dest, if it exists
@@ -168,31 +169,35 @@ bool DictionaryCacheEntry::Match(const nsACString& aFilePath,
         mMatchDest.IndexOf(
             dom::InternalRequest::MapContentPolicyTypeToRequestDestination(
                 aType)) != mMatchDest.NoIndex) {
-      UrlpPattern pattern;
-      UrlpOptions options;
-      const nsCString base("https://foo.com/"_ns);
-      if (!urlp_parse_pattern_from_string(&mPattern, &base, options,
-                                          &pattern)) {
-        DICTIONARY_LOG(
-            ("Failed to parse dictionary pattern %s", mPattern.get()));
-        return false;
+      // Check if we have a cached pattern, otherwise parse and cache it
+      if (mCachedPattern.isNothing()) {
+        UrlPatternGlue pattern;
+        UrlPatternOptions options{};
+        const nsCString base(mURI);
+        if (!urlpattern_parse_pattern_from_string(&mPattern, &base, options,
+                                                  &pattern)) {
+          DICTIONARY_LOG(
+              ("Failed to parse dictionary pattern %s", mPattern.get()));
+          return false;
+        }
+        mCachedPattern.emplace(pattern);
       }
 
-      UrlpInput input = net::CreateUrlpInput(aFilePath);
-      bool result = net::UrlpPatternTest(pattern, input, Some(base));
-      DICTIONARY_LOG(("URLPattern result was %d", result));
+      UrlPatternInput input = net::CreateUrlPatternInput(aFilePath);
+      const nsCString base(mURI);
+      bool result =
+          net::UrlPatternTest(mCachedPattern.ref(), input, Some(base));
       if (result) {
         aLongest = mPattern.Length();
+        DICTIONARY_LOG(("Match: %p   %s to %s, %s (now=%u, expiration=%u)",
+                        this, PromiseFlatCString(aFilePath).get(),
+                        mPattern.get(), NS_CP_ContentTypeName(aType), aNow,
+                        mExpiration));
         DICTIONARY_LOG(("Match: %s (longest %u)", mURI.get(), aLongest));
       }
       return result;
-    } else {
-      DICTIONARY_LOG(("   Failed on matchDest"));
-    }
-  } else {
-    DICTIONARY_LOG(
-        ("   Failed due to expiration: %u vs %u", aNow, mExpiration));
-  }
+    }  // else failed on match-dest
+  }  // else failed on expiration
   return false;
 }
 
@@ -202,6 +207,7 @@ void DictionaryCacheEntry::InUse() {
 }
 
 void DictionaryCacheEntry::UseCompleted() {
+  MOZ_ASSERT(NS_IsMainThread());
   MOZ_ASSERT(mUsers > 0);
   mUsers--;
   // Purge mDictionaryData
@@ -215,71 +221,129 @@ void DictionaryCacheEntry::UseCompleted() {
   }
 }
 
+nsCString DictionaryCacheEntry::GetHash() const {
+  MOZ_ASSERT(NS_IsMainThread());
+  return mHash;
+}
+
+bool DictionaryCacheEntry::HasHash() {
+  MOZ_ASSERT(NS_IsMainThread());
+  return !mHash.IsEmpty();
+}
+
+void DictionaryCacheEntry::SetHash(const nsACString& aHash) {
+  MOZ_ASSERT(NS_IsMainThread());
+  mHash = aHash;
+}
+
+bool DictionaryCacheEntry::IsReading() const {
+  MOZ_ASSERT(NS_IsMainThread());
+  return mUsers > 0 && !mWaitingPrefetch.IsEmpty();
+}
+
+void DictionaryCacheEntry::CallbackOnCacheRead(
+    const std::function<void(nsresult)>& aFunc) {
+  MOZ_ASSERT(NS_IsMainThread());
+  mWaitingPrefetch.AppendElement(aFunc);
+}
+
+const Vector<uint8_t>& DictionaryCacheEntry::GetDictionary() const
+    MOZ_NO_THREAD_SAFETY_ANALYSIS {
+  MOZ_ASSERT(NS_IsMainThread());
+  // Safe to return without lock: data is immutable after completion
+  // and only accessed on MainThread
+  return mDictionaryData;
+}
+
+void DictionaryCacheEntry::ClearDataForTesting() {
+  MOZ_ASSERT(NS_IsMainThread());
+  mDictionaryData.clear();
+  mDictionaryDataComplete = false;
+}
+
+uint8_t* DictionaryCacheEntry::DictionaryData(size_t* aLength) const {
+  MOZ_ASSERT(NS_IsMainThread());
+  *aLength = mDictionaryData.length();
+  return (uint8_t*)mDictionaryData.begin();
+}
+
+bool DictionaryCacheEntry::DictionaryReady() const {
+  return mDictionaryDataComplete;
+}
+
 // returns aShouldSuspend=true if we should suspend to wait for the prefetch
-nsresult DictionaryCacheEntry::Prefetch(nsILoadContextInfo* aLoadContextInfo,
-                                        bool& aShouldSuspend,
-                                        const std::function<void()>& aFunc) {
+nsresult DictionaryCacheEntry::Prefetch(
+    nsILoadContextInfo* aLoadContextInfo, bool& aShouldSuspend,
+    const std::function<void(nsresult)>& aFunc) {
+  MOZ_ASSERT(NS_IsMainThread());
   DICTIONARY_LOG(("Prefetch for %s", mURI.get()));
   // Start reading the cache entry into memory and call completion
   // function when done
-  if (mWaitingPrefetch.IsEmpty()) {
-    // Note that if the cache entry has been cleared, and we still have active
-    // users of it, we'll hold onto that data since we have outstanding requests
-    // for it.  Probably we shouldn't allow new requests to use this data (and
-    // the WPTs assume we shouldn't).
-    if (mDictionaryDataComplete) {
-      DICTIONARY_LOG(
-          ("Prefetch for %s - already have data in memory (%u users)",
-           mURI.get(), mUsers));
-      aShouldSuspend = false;
-      return NS_OK;
-    }
-
-    // We haven't requested it yet from the Cache and don't have it in memory
-    // already.
-    // We can't use sCacheStorage because we need the correct LoadContextInfo
-    nsCOMPtr<nsICacheStorageService> cacheStorageService(
-        components::CacheStorage::Service());
-    if (!cacheStorageService) {
-      aShouldSuspend = false;
-      return NS_ERROR_FAILURE;
-    }
-    nsCOMPtr<nsICacheStorage> cacheStorage;
-    nsresult rv = cacheStorageService->DiskCacheStorage(
-        aLoadContextInfo, getter_AddRefs(cacheStorage));
-    if (NS_FAILED(rv)) {
-      aShouldSuspend = false;
-      return NS_ERROR_FAILURE;
-    }
-    // If the file isn't available in the cache, AsyncOpenURIString()
-    // will synchronously make a callback to OnCacheEntryAvailable() with
-    // nullptr.  We can key off that to fail Prefetch(), and also to
-    // remove ourselves from the origin.
-    if (NS_FAILED(cacheStorage->AsyncOpenURIString(
-            mURI, ""_ns,
-            nsICacheStorage::OPEN_READONLY |
-                nsICacheStorage::OPEN_COMPLETE_ONLY |
-                nsICacheStorage::CHECK_MULTITHREADED,
-            this)) ||
-        mNotCached) {
-      DICTIONARY_LOG(("AsyncOpenURIString failed for %s", mURI.get()));
-      // For some reason the cache no longer has this entry; fail Prefetch
-      // and also remove this from our origin
-      aShouldSuspend = false;
-      // Remove from origin
-      if (mOrigin) {
-        mOrigin->RemoveEntry(this);
-        mOrigin = nullptr;
-      }
-      return NS_ERROR_FAILURE;
-    }
+  if (!mWaitingPrefetch.IsEmpty()) {
+    DICTIONARY_LOG(("Prefetch for %s - already waiting", mURI.get()));
     mWaitingPrefetch.AppendElement(aFunc);
-    DICTIONARY_LOG(("Started Prefetch for %s, anonymous=%d", mURI.get(),
-                    aLoadContextInfo->IsAnonymous()));
     aShouldSuspend = true;
     return NS_OK;
   }
-  DICTIONARY_LOG(("Prefetch for %s - already waiting", mURI.get()));
+
+  // Note that if the cache entry has been cleared, and we still have active
+  // users of it, we'll hold onto that data since we have outstanding requests
+  // for it.  Probably we shouldn't allow new requests to use this data (and
+  // the WPTs assume we shouldn't).
+  if (mDictionaryDataComplete) {
+    DICTIONARY_LOG(("Prefetch for %s - already have data in memory (%u users)",
+                    mURI.get(), mUsers));
+    aShouldSuspend = false;
+    return NS_OK;
+  }
+
+  // We haven't requested it yet from the Cache and don't have it in memory
+  // already. Add to waiting list.
+  mWaitingPrefetch.AppendElement(aFunc);
+
+  // We can't use sCacheStorage because we need the correct LoadContextInfo
+  nsCOMPtr<nsICacheStorageService> cacheStorageService(
+      components::CacheStorage::Service());
+  if (!cacheStorageService) {
+    mWaitingPrefetch.Clear();
+    aShouldSuspend = false;
+    return NS_ERROR_FAILURE;
+  }
+  nsCOMPtr<nsICacheStorage> cacheStorage;
+  nsresult rv = cacheStorageService->DiskCacheStorage(
+      aLoadContextInfo, getter_AddRefs(cacheStorage));
+  if (NS_FAILED(rv)) {
+    mWaitingPrefetch.Clear();
+    aShouldSuspend = false;
+    return NS_ERROR_FAILURE;
+  }
+  // If the file isn't available in the cache, AsyncOpenURIString()
+  // will synchronously make a callback to OnCacheEntryAvailable() with
+  // nullptr.  We can key off that to fail Prefetch(), and also to
+  // remove ourselves from the origin.
+  // Use OPEN_ALWAYS to ensure we don't get stalled if this is for some
+  // reason a revalidation
+  if (NS_FAILED(cacheStorage->AsyncOpenURIString(
+          mURI, ""_ns,
+          nsICacheStorage::OPEN_READONLY | nsICacheStorage::OPEN_COMPLETE_ONLY |
+              nsICacheStorage::OPEN_ALWAYS |
+              nsICacheStorage::CHECK_MULTITHREADED,
+          this)) ||
+      mNotCached) {
+    DICTIONARY_LOG(("AsyncOpenURIString failed for %s", mURI.get()));
+    // For some reason the cache no longer has this entry; fail Prefetch
+    // and also remove this from our origin
+    mWaitingPrefetch.Clear();
+    aShouldSuspend = false;
+    // Remove from origin
+    if (mOrigin) {
+      mOrigin->RemoveEntry(this);
+      mOrigin = nullptr;
+    }
+    return NS_ERROR_FAILURE;
+  }
+  DICTIONARY_LOG(("Started Prefetch for %s, anonymous=%d", mURI.get(),
+                  aLoadContextInfo->IsAnonymous()));
   aShouldSuspend = true;
   return NS_OK;
 }
@@ -291,6 +355,9 @@ void DictionaryCacheEntry::AccumulateHash(const char* aBuf, int32_t aCount) {
       // We have data from the cache.... but if we change the hash there will
       // be problems
       // XXX dragons here
+      MOZ_DIAGNOSTIC_ASSERT(
+          false,
+          "Accumulate Dictionary hash when we already have a hash and data");
       return;
     }
     // accumulating a new hash when we have an existing?
@@ -300,8 +367,11 @@ void DictionaryCacheEntry::AccumulateHash(const char* aBuf, int32_t aCount) {
     // is an overwrite?   This is an edge case not discussed in the spec - we
     // could separate out a structure for in-flight requests where the data
     // would be used from, so the Entry could be overwritten as needed
+    MOZ_DIAGNOSTIC_ASSERT(
+        false, "Accumulate Dictionary hash when we already have a hash");
     return;  // XXX
   }
+  size_t dataLen = mDictionaryData.length();
   if (!mCrypto) {
     DICTIONARY_LOG(("Calculating new hash for %s", mURI.get()));
     // If mCrypto is null, and mDictionaryData is set, we've already got the
@@ -315,8 +385,8 @@ void DictionaryCacheEntry::AccumulateHash(const char* aBuf, int32_t aCount) {
     NS_WARNING_ASSERTION(NS_SUCCEEDED(rv), "Cache InitCrypto failed");
   }
   mCrypto->Update(reinterpret_cast<const uint8_t*>(aBuf), aCount);
-  DICTIONARY_LOG(("Accumulate Hash %p: %d bytes, total %zu", this, aCount,
-                  mDictionaryData.length()));
+  DICTIONARY_LOG(
+      ("Accumulate Hash %p: %d bytes, total %zu", this, aCount, dataLen));
 }
 
 void DictionaryCacheEntry::FinishHash() {
@@ -386,6 +456,7 @@ static void EscapeMetadataString(const nsACString& aInput, nsCString& aOutput) {
 }
 
 void DictionaryCacheEntry::MakeMetadataEntry(nsCString& aNewValue) {
+  MOZ_ASSERT(NS_IsMainThread());
   aNewValue.AppendLiteral("|"), aNewValue.AppendInt(METADATA_VERSION),
       EscapeMetadataString(mHash, aNewValue);
   EscapeMetadataString(mPattern, aNewValue);
@@ -448,6 +519,7 @@ static const char* GetEncodedString(const char* aSrc, nsACString& aOutput) {
 
 // Parse metadata from DictionaryOrigin
 bool DictionaryCacheEntry::ParseMetadata(const char* aSrc) {
+  MOZ_ASSERT(NS_IsMainThread());
   // Using mHash as a temp for version
   aSrc = GetEncodedString(aSrc, mHash);
   const char* tmp = mHash.get();
@@ -521,37 +593,43 @@ nsresult DictionaryCacheEntry::ReadCacheData(
     uint32_t aToOffset, uint32_t aCount, uint32_t* aWriteCount) {
   DictionaryCacheEntry* self = static_cast<DictionaryCacheEntry*>(aClosure);
 
-  (void)self->mDictionaryData.append(aFromSegment, aCount);
+  (void)self->mPendingDictionaryData.append(aFromSegment, aCount);
   DICTIONARY_LOG(("Accumulate %p (%s): %d bytes, total %zu", self,
-                  self->mURI.get(), aCount, self->mDictionaryData.length()));
+                  self->mURI.get(), aCount,
+                  self->mPendingDictionaryData.length()));
   *aWriteCount = aCount;
   return NS_OK;
 }
 
-NS_IMETHODIMP
-DictionaryCacheEntry::OnStopRequest(nsIRequest* request, nsresult result) {
-  DICTIONARY_LOG(("DictionaryCacheEntry %s OnStopRequest", mURI.get()));
-  if (NS_SUCCEEDED(result)) {
-    mDictionaryDataComplete = true;
-    DICTIONARY_LOG(("Unsuspending %zu channels, Dictionary len %zu",
-                    mWaitingPrefetch.Length(), mDictionaryData.length()));
-    // if we suspended, un-suspend the channel(s)
-    for (auto& lambda : mWaitingPrefetch) {
-      (lambda)();
+void DictionaryCacheEntry::CleanupOnCacheData(nsresult result) {
+  MOZ_ASSERT(NS_IsMainThread());
+
+  DICTIONARY_LOG(("Unsuspending %zu channels", mWaitingPrefetch.Length()));
+
+  // if we suspended, un-suspend the channel(s)
+  nsTArray<std::function<void(nsresult)>> callbacks =
+      std::move(mWaitingPrefetch);
+
+  for (auto& lambda : callbacks) {
+    (lambda)(result);
+  }
+
+  // If we have a replacement entry waiting, unsuspend its channels too
+  if (mReplacement) {
+    DICTIONARY_LOG(("Unsuspending %zu replacement channels",
+                    mReplacement->mWaitingPrefetch.Length()));
+    nsTArray<std::function<void(nsresult)>> replacementCallbacks =
+        std::move(mReplacement->mWaitingPrefetch);
+
+    for (auto& lambda : replacementCallbacks) {
+      (lambda)(result);
     }
-    mWaitingPrefetch.Clear();
-  } else {
-    // XXX
-    // This is problematic - we requested with dcb/dcz, but can't actually
-    // decode them. Probably we should re-request without dcb/dcz, and also nuke
-    // the entry
-    // XXX
   }
 
   // If we're being replaced by a new entry, swap now
   RefPtr<DictionaryCacheEntry> self;
   if (mReplacement) {
-    DICTIONARY_LOG(("Replacing entry %p with %p for %s", this,
+    DICTIONARY_LOG(("*** Replacing entry %p with %p for %s", this,
                     mReplacement.get(), mURI.get()));
     // Make sure we don't destroy ourselves
     self = this;
@@ -561,9 +639,66 @@ DictionaryCacheEntry::OnStopRequest(nsIRequest* request, nsresult result) {
     mReplacement->UnblockAddEntry(mOrigin);
     mOrigin = nullptr;
   }
+}
 
-  mStopReceived = true;
-  return NS_OK;
+NS_IMETHODIMP
+DictionaryCacheEntry::OnStopRequest(nsIRequest* request, nsresult result) {
+  DICTIONARY_LOG(("DictionaryCacheEntry %s OnStopRequest", mURI.get()));
+
+  Vector<uint8_t> pendingData;
+  nsCString computedHash;
+
+  if (NS_SUCCEEDED(result)) {
+    // Move pending data for validation
+    pendingData = std::move(mPendingDictionaryData);
+  }
+
+  // Calculate hash of loaded data (can be done off-thread)
+  if (NS_SUCCEEDED(result) && !pendingData.empty()) {
+    nsCOMPtr<nsICryptoHash> hasher =
+        do_CreateInstance(NS_CRYPTO_HASH_CONTRACTID);
+    if (hasher) {
+      hasher->Init(nsICryptoHash::SHA256);
+      hasher->Update(pendingData.begin(),
+                     static_cast<uint32_t>(pendingData.length()));
+      MOZ_ALWAYS_SUCCEEDS(hasher->Finish(true, computedHash));
+    }
+  }
+
+  // Dispatch to main thread to compare hash and install validated data
+  nsCOMPtr<nsIRunnable> runnable = NS_NewRunnableFunction(
+      "DictionaryCacheEntry::OnStopRequest",
+      [self = RefPtr{this}, result, computedHash,
+       pendingData = std::move(pendingData)]() mutable {
+        nsresult finalResult = result;
+        bool shouldRemoveDictionary = false;
+
+        // Compare computed hash with stored hash on MainThread
+        if (NS_SUCCEEDED(finalResult) && !pendingData.empty()) {
+          if (!self->mHash.IsEmpty() && !computedHash.Equals(self->mHash)) {
+            DICTIONARY_LOG(("Hash mismatch for %s: expected %s, computed %s",
+                            self->mURI.get(), self->mHash.get(),
+                            computedHash.get()));
+            finalResult = NS_ERROR_CORRUPTED_CONTENT;
+            pendingData.clear();
+            shouldRemoveDictionary = true;
+          } else {
+            // Hash matches or no hash to check - install the data
+            self->mDictionaryData = std::move(pendingData);
+            self->mDictionaryDataComplete = true;
+          }
+        }
+
+        self->CleanupOnCacheData(finalResult);
+        self->mStopReceived = true;
+        if (shouldRemoveDictionary) {
+          // Already on MainThread
+          DictionaryCache::RemoveDictionary(self->mURI);
+        }
+      });
+  NS_DispatchToMainThread(runnable);
+
+  return result;
 }
 
 void DictionaryCacheEntry::UnblockAddEntry(DictionaryOrigin* aOrigin) {
@@ -576,14 +711,8 @@ void DictionaryCacheEntry::UnblockAddEntry(DictionaryOrigin* aOrigin) {
 }
 
 void DictionaryCacheEntry::WriteOnHash() {
-  bool hasHash = false;
-  {
-    MOZ_ASSERT(NS_IsMainThread());
-    if (!mHash.IsEmpty()) {
-      hasHash = true;
-    }
-  }
-  if (hasHash && mOrigin) {
+  MOZ_ASSERT(NS_IsMainThread());
+  if (!mHash.IsEmpty() && mOrigin) {
     DICTIONARY_LOG(("Write already hashed"));
     mOrigin->Write(this);
   }
@@ -601,15 +730,17 @@ void DictionaryCacheEntry::WriteOnHash() {
 NS_IMETHODIMP
 DictionaryCacheEntry::OnCacheEntryCheck(nsICacheEntry* aEntry,
                                         uint32_t* result) {
-  DICTIONARY_LOG(("OnCacheEntryCheck %s", mURI.get()));
+  DICTIONARY_LOG(("OnCacheEntryCheck %p", this));
   *result = nsICacheEntryOpenCallback::ENTRY_WANTED;
   return NS_OK;
 }
 
+// This may be called on a random thread due to
+// nsICacheStorage::CHECK_MULTITHREADED
 NS_IMETHODIMP
 DictionaryCacheEntry::OnCacheEntryAvailable(nsICacheEntry* entry, bool isNew,
                                             nsresult status) {
-  DICTIONARY_LOG(("OnCacheEntryAvailable %s, result %u, entry %p", mURI.get(),
+  DICTIONARY_LOG(("OnCacheEntryAvailable %p, result %u, entry %p", this,
                   (uint32_t)status, entry));
   if (entry) {
     nsCOMPtr<nsIInputStream> stream;
@@ -630,10 +761,20 @@ DictionaryCacheEntry::OnCacheEntryAvailable(nsICacheEntry* entry, bool isNew,
     }
     DICTIONARY_LOG(("Waiting for data"));
   } else {
-    // XXX Error out any channels waiting on this cache entry.  Also,
+    // Error out any channels waiting on this cache entry.  Also,
     // remove the dictionary entry from the origin.
     mNotCached = true;  // For Prefetch()
-    DICTIONARY_LOG(("Prefetched cache entry not available!"));
+    DICTIONARY_LOG(("Prefetched cache entry not available!!!"));
+
+    // Dispatch cleanup to main thread
+    nsCString uriCopy = mURI;
+    nsCOMPtr<nsIRunnable> runnable = NS_NewRunnableFunction(
+        "DictionaryCacheEntry::OnCacheEntryAvailable",
+        [self = RefPtr{this}, uriCopy]() {
+          self->CleanupOnCacheData(NS_ERROR_CORRUPTED_CONTENT);
+          DictionaryCache::RemoveDictionary(self->mURI);
+        });
+    NS_DispatchToMainThread(runnable);
   }
 
   return NS_OK;
@@ -644,7 +785,7 @@ DictionaryCacheEntry::OnCacheEntryAvailable(nsICacheEntry* entry, bool isNew,
 // Read the metadata for an Origin and parse it, creating DictionaryCacheEntrys
 // as needed. If aType is TYPE_OTHER, there is no Match() to do
 void DictionaryOriginReader::Start(
-    DictionaryOrigin* aOrigin, nsACString& aKey, nsIURI* aURI,
+    bool aCreate, DictionaryOrigin* aOrigin, nsACString& aKey, nsIURI* aURI,
     ExtContentPolicyType aType, DictionaryCache* aCache,
     const std::function<nsresult(bool, DictionaryCacheEntry*)>& aCallback) {
   mOrigin = aOrigin;
@@ -668,7 +809,7 @@ void DictionaryOriginReader::Start(
                     PromiseFlatCString(aKey).get(), this));
     DictionaryCache::sCacheStorage->AsyncOpenURIString(
         aKey, META_DICTIONARY_PREFIX,
-        aOrigin
+        aCreate
             ? nsICacheStorage::OPEN_NORMALLY |
                   nsICacheStorage::CHECK_MULTITHREADED
             : nsICacheStorage::OPEN_READONLY | nsICacheStorage::OPEN_SECRETLY |
@@ -729,12 +870,16 @@ NS_IMETHODIMP DictionaryOriginReader::OnCacheEntryAvailable(
     return NS_OK;
   }
 
+  mOrigin->SetCacheEntry(aCacheEntry);
   AUTO_PROFILER_FLOW_MARKER("DictionaryOriginReader::VisitMetaData", NETWORK,
                             Flow::FromPointer(this));
-  mOrigin->SetCacheEntry(aCacheEntry);
-  // There's no data in the cache entry, just metadata
-  nsCOMPtr<nsICacheEntryMetaDataVisitor> metadata(mOrigin);
-  aCacheEntry->VisitMetaData(metadata);
+  bool empty = false;
+  aCacheEntry->GetIsEmpty(&empty);
+  if (!empty) {
+    // There's no data in the cache entry, just metadata
+    nsCOMPtr<nsICacheEntryMetaDataVisitor> metadata(mOrigin);
+    aCacheEntry->VisitMetaData(metadata);
+  }  // else new cache entry
 
   // This list is the only thing keeping us alive
   RefPtr<DictionaryOriginReader> safety(this);
@@ -775,6 +920,10 @@ DictionaryOriginReader::OnStopRequest(nsIRequest* request, nsresult result) {
 
 // static
 already_AddRefed<DictionaryCache> DictionaryCache::GetInstance() {
+  // Return nullptr if shutdown has occurred to prevent resurrection
+  if (sShutdown) {
+    return nullptr;
+  }
   // XXX lock?  In practice probably not needed, in theory yes
   if (!gDictionaryCache) {
     gDictionaryCache = new DictionaryCache();
@@ -804,6 +953,7 @@ nsresult DictionaryCache::Init() {
 
 // static
 void DictionaryCache::Shutdown() {
+  sShutdown = true;
   gDictionaryCache = nullptr;
   sCacheStorage = nullptr;
 }
@@ -858,12 +1008,13 @@ already_AddRefed<DictionaryCacheEntry> DictionaryCache::AddEntry(
 
       // This creates a cycle until the dictionary is removed from the cache
       aDictEntry->SetOrigin(origin);
+      DICTIONARY_LOG(("Creating cache entry for origin %s", prepath.get()));
 
       // Open (and parse metadata) or create
       RefPtr<DictionaryOriginReader> reader = new DictionaryOriginReader();
       // the type is irrelevant; we won't be calling Match()
       reader->Start(
-          origin, prepath, aURI, ExtContentPolicy::TYPE_OTHER, this,
+          true, origin, prepath, aURI, ExtContentPolicy::TYPE_OTHER, this,
           [entry = RefPtr(aDictEntry)](
               bool, DictionaryCacheEntry* aDict) {  // XXX avoid so many lambdas
                                                     // which cause allocations
@@ -899,26 +1050,119 @@ nsresult DictionaryCache::RemoveEntry(nsIURI* aURI, const nsACString& aKey) {
 }
 
 void DictionaryCache::Clear() {
-  // There may be active Prefetch()es running, note, and active
-  // fetches using dictionaries.  They will stay alive until the
-  // channels using them go away.
+  // There may be active Prefetch()es running, note, and active fetches
+  // using dictionaries.  They will stay alive until the channels using
+  // them go away.  However, no new requests will see them.
+
+  // This can be used to make the cache return to the state it has at
+  // startup, especially useful for tests.
   mDictionaryCache.Clear();
+}
+
+void DictionaryCache::CorruptHashForTesting(const nsACString& aURI) {
+  DICTIONARY_LOG(("DictionaryCache::CorruptHashForTesting for %s",
+                  PromiseFlatCString(aURI).get()));
+  nsCOMPtr<nsIURI> uri;
+  if (NS_FAILED(NS_NewURI(getter_AddRefs(uri), aURI))) {
+    return;
+  }
+  nsAutoCString prepath;
+  if (NS_FAILED(GetDictPath(uri, prepath))) {
+    return;
+  }
+  if (auto origin = mDictionaryCache.Lookup(prepath)) {
+    for (auto& entry : origin.Data()->mEntries) {
+      if (entry->GetURI().Equals(aURI)) {
+        DICTIONARY_LOG(("Corrupting hash for %s",
+                        PromiseFlatCString(entry->GetURI()).get()));
+        entry->SetHash("CORRUPTED_FOR_TESTING"_ns);
+        return;
+      }
+    }
+    for (auto& entry : origin.Data()->mPendingEntries) {
+      if (entry->GetURI().Equals(aURI)) {
+        DICTIONARY_LOG(("Corrupting hash for %s (pending)",
+                        PromiseFlatCString(entry->GetURI()).get()));
+        entry->SetHash("CORRUPTED_FOR_TESTING"_ns);
+        return;
+      }
+    }
+  }
+}
+
+void DictionaryCache::ClearDictionaryDataForTesting(const nsACString& aURI) {
+  DICTIONARY_LOG(("DictionaryCache::ClearDictionaryDataForTesting for %s",
+                  PromiseFlatCString(aURI).get()));
+  nsCOMPtr<nsIURI> uri;
+  if (NS_FAILED(NS_NewURI(getter_AddRefs(uri), aURI))) {
+    return;
+  }
+  nsAutoCString prepath;
+  if (NS_FAILED(GetDictPath(uri, prepath))) {
+    return;
+  }
+  if (auto origin = mDictionaryCache.Lookup(prepath)) {
+    for (auto& entry : origin.Data()->mEntries) {
+      if (entry->GetURI().Equals(aURI)) {
+        DICTIONARY_LOG(("Clearing data for %s",
+                        PromiseFlatCString(entry->GetURI()).get()));
+        entry->ClearDataForTesting();
+        return;
+      }
+    }
+  }
 }
 
 // Remove a dictionary if it exists for the key given
 // static
-void DictionaryCache::RemoveDictionaryFor(const nsACString& aKey) {
-  RefPtr<DictionaryCache> cache = GetInstance();
-  NS_DispatchToMainThread(NewRunnableMethod<const nsCString>(
-      "DictionaryCache::RemoveDictionaryFor", cache,
-      &DictionaryCache::RemoveDictionary, aKey));
+void DictionaryCache::RemoveDictionaryOMT(const nsACString& aKey) {
+  DICTIONARY_LOG(
+      ("Removing dictionary for %s", PromiseFlatCString(aKey).get()));
+  NS_DispatchToMainThread(NS_NewRunnableFunction(
+      "DictionaryCache::RemoveDictionaryOMT",
+      [key = nsCString(aKey)]() { DictionaryCache::RemoveDictionary(key); }));
 }
 
 // Remove a dictionary if it exists for the key given
+// static
 void DictionaryCache::RemoveDictionary(const nsACString& aKey) {
+  MOZ_ASSERT(NS_IsMainThread());
   DICTIONARY_LOG(
-      ("Removing dictionary for %80s", PromiseFlatCString(aKey).get()));
+      ("Removing dictionary for %s", PromiseFlatCString(aKey).get()));
 
+  RefPtr<DictionaryCache> cache = GetInstance();
+  if (!cache) {
+    // Shutdown has occurred, cannot remove dictionary
+    return;
+  }
+  nsCOMPtr<nsIURI> uri;
+  if (NS_FAILED(NS_NewURI(getter_AddRefs(uri), aKey))) {
+    return;
+  }
+  nsAutoCString prepath;
+  if (NS_SUCCEEDED(GetDictPath(uri, prepath))) {
+    if (auto origin = cache->mDictionaryCache.Lookup(prepath)) {
+      origin.Data()->RemoveEntry(aKey);
+    }
+  }
+}
+
+// static
+void DictionaryCache::RemoveOriginFor(const nsACString& aKey) {
+  RefPtr<DictionaryCache> cache = GetInstance();
+  if (!cache) {
+    // Shutdown has occurred, cannot remove origin
+    return;
+  }
+  DICTIONARY_LOG(
+      ("Removing dictionary origin %s", PromiseFlatCString(aKey).get()));
+  NS_DispatchToMainThread(NewRunnableMethod<const nsCString>(
+      "DictionaryCache::RemoveOriginFor", cache,
+      &DictionaryCache::RemoveOriginForInternal, aKey));
+}
+
+// Remove a dictionary if it exists for the key given, if it's empty
+void DictionaryCache::RemoveOriginForInternal(const nsACString& aKey) {
   nsCOMPtr<nsIURI> uri;
   if (NS_FAILED(NS_NewURI(getter_AddRefs(uri), aKey))) {
     return;
@@ -926,13 +1170,26 @@ void DictionaryCache::RemoveDictionary(const nsACString& aKey) {
   nsAutoCString prepath;
   if (NS_SUCCEEDED(GetDictPath(uri, prepath))) {
     if (auto origin = mDictionaryCache.Lookup(prepath)) {
-      origin.Data()->RemoveEntry(aKey);
+      if (MOZ_UNLIKELY(origin.Data()->IsEmpty())) {
+        DICTIONARY_LOG(
+            ("Removing origin for %s", PromiseFlatCString(aKey).get()));
+        // This removes it from the global list and also dooms the entry
+        origin.Data()->Clear();
+      } else {
+        DICTIONARY_LOG(
+            ("Origin not empty: %s", PromiseFlatCString(aKey).get()));
+      }
     }
   }
 }
 
+// Remove a dictionary if it exists for the key given (key should be prepath)
+void DictionaryCache::RemoveOrigin(const nsACString& aOrigin) {
+  mDictionaryCache.Remove(aOrigin);
+}
+
 // Remove a dictionary if it exists for the key given.  Mainthread only.
-// Note: due to cookie samesite rules, we need to clean for all ports
+// Note: due to cookie samesite rules, we need to clean for all ports!
 // static
 void DictionaryCache::RemoveDictionariesForOrigin(nsIURI* aURI) {
   // There's no PrePathNoPort()
@@ -947,10 +1204,17 @@ void DictionaryCache::RemoveDictionariesForOrigin(nsIURI* aURI) {
   DICTIONARY_LOG(("Removing all dictionaries for origin of %s (%zu)",
                   PromiseFlatCString(origin).get(), origin.Length()));
   RefPtr<DictionaryCache> cache = GetInstance();
+  if (!cache) {
+    // Shutdown has occurred, cannot remove dictionaries
+    return;
+  }
   // We can't just use Remove here; the ClearSiteData service strips the
-  // port.  In that case, We need to clear all that match the host with any
-  // port or none.
-  cache->mDictionaryCache.RemoveIf([&origin](auto& entry) {
+  // port.  We need to clear all that match the host with any port or none.
+
+  // Keep an array of origins to clear since that will want to modify the
+  // hash table we're iterating
+  AutoTArray<RefPtr<DictionaryOrigin>, 1> toClear;
+  for (auto& entry : cache->mDictionaryCache) {
     // We need to drop any port from entry (and origin).  Assuming they're
     // the same up to the / or : in mOrigin, we want to limit the host
     // there.  We also know that entry is https://.
@@ -961,38 +1225,69 @@ void DictionaryCache::RemoveDictionariesForOrigin(nsIURI* aURI) {
     //    https://foo.barsoom.com:666/
     DICTIONARY_LOG(
         ("Possibly removing dictionary origin for %s (vs %s), %zu vs %zu",
-         entry.Data()->mOrigin.get(), PromiseFlatCString(origin).get(),
-         entry.Data()->mOrigin.Length(), origin.Length()));
-    if (entry.Data()->mOrigin.Length() > origin.Length() &&
-        (entry.Data()->mOrigin[origin.Length()] == '/' ||   // no port
-         entry.Data()->mOrigin[origin.Length()] == ':')) {  // port
+         entry.GetData()->mOrigin.get(), PromiseFlatCString(origin).get(),
+         entry.GetData()->mOrigin.Length(), origin.Length()));
+    if (entry.GetData()->mOrigin.Length() > origin.Length() &&
+        (entry.GetData()->mOrigin[origin.Length()] == '/' ||   // no port
+         entry.GetData()->mOrigin[origin.Length()] == ':')) {  // port
       // no strncmp() for nsCStrings...
       nsDependentCSubstring host =
-          Substring(entry.Data()->mOrigin, 0,
+          Substring(entry.GetData()->mOrigin, 0,
                     origin.Length());  // not including '/' or ':'
-      DICTIONARY_LOG(("Compare %s vs %s", entry.Data()->mOrigin.get(),
+      DICTIONARY_LOG(("Compare %s vs %s", entry.GetData()->mOrigin.get(),
                       PromiseFlatCString(host).get()));
       if (origin.Equals(host)) {
         DICTIONARY_LOG(
             ("RemoveDictionaries: Removing dictionary origin %p for %s",
-             entry.Data().get(), entry.Data()->mOrigin.get()));
-        entry.Data()->Clear();
-        return true;
+             entry.GetData().get(), entry.GetData()->mOrigin.get()));
+        toClear.AppendElement(entry.GetData());
       }
     }
-    return false;
-  });
+  }
+  // Now clear and doom all the entries
+  for (auto& entry : toClear) {
+    entry->Clear();
+  }
 }
 
 // Remove a dictionary if it exists for the key given.  Mainthread only
 // static
 void DictionaryCache::RemoveAllDictionaries() {
   RefPtr<DictionaryCache> cache = GetInstance();
+  if (!cache) {
+    // Shutdown has occurred, cannot remove dictionaries
+    return;
+  }
 
   DICTIONARY_LOG(("Removing all dictionaries"));
+  // Clear contents of all origins without calling DictionaryOrigin::Clear()
+  // which would try to modify the hashtable during iteration (causing
+  // reentrancy assertion in PLDHashTable).
+  // Note: This duplicates logic from DictionaryOrigin::Clear() but avoids
+  // the RemoveOrigin() call during iteration. For selective removal, see
+  // RemoveDictionariesForOrigin() which uses a collect-then-clear pattern.
+  AutoTArray<nsCOMPtr<nsICacheEntry>, 8> entriesToDoom;
   for (auto& origin : cache->mDictionaryCache) {
-    origin.GetData()->Clear();
+    DictionaryOrigin* originPtr = origin.GetData();
+    DICTIONARY_LOG(("*** Clearing origin %s", originPtr->mOrigin.get()));
+    originPtr->mEntries.Clear();
+    originPtr->mPendingEntries.Clear();
+    originPtr->mPendingRemove.Clear();
+    if (originPtr->mEntry) {
+      entriesToDoom.AppendElement(originPtr->mEntry);
+    }
   }
+  // Doom all cache entries asynchronously in one task
+  if (!entriesToDoom.IsEmpty()) {
+    NS_DispatchBackgroundTask(NS_NewRunnableFunction(
+        "DictionaryOrigin::ClearAll", [entries = std::move(entriesToDoom)]() {
+          DICTIONARY_LOG(("*** Dooming %zu entries", entries.Length()));
+          for (auto& entry : entries) {
+            entry->AsyncDoom(nullptr);
+          }
+        }));
+  }
+  // Now clear the hashtable after iteration is complete
   cache->mDictionaryCache.Clear();
 }
 
@@ -1002,10 +1297,9 @@ void DictionaryCache::RemoveAllDictionaries() {
 // Once we have a DictionaryOrigin (in-memory or parsed), scan it for matches.
 // If it's not in the cache, return nullptr via callback.
 void DictionaryCache::GetDictionaryFor(
-    nsIURI* aURI, ExtContentPolicyType aType, bool& aAsync,
-    nsHttpChannel* aChan, void (*aSuspend)(nsHttpChannel*),
+    nsIURI* aURI, ExtContentPolicyType aType, nsHttpChannel* aChan,
+    void (*aSuspend)(nsHttpChannel*),
     const std::function<nsresult(bool, DictionaryCacheEntry*)>& aCallback) {
-  aAsync = false;
   // Note: IETF 2.2.3 Multiple Matching Directories
   // We need to return match-dest matches first
   // If no match-dest, then the longest match
@@ -1022,7 +1316,7 @@ void DictionaryCache::GetDictionaryFor(
       nsCString path;
       RefPtr<DictionaryCacheEntry> result;
 
-      aURI->GetPathQueryRef(path);
+      aURI->GetSpec(path);
       DICTIONARY_LOG(("GetDictionaryFor(%s %s)", prepath.get(), path.get()));
 
       result = existing.Data()->Match(path, aType);
@@ -1035,9 +1329,10 @@ void DictionaryCache::GetDictionaryFor(
       RefPtr<DictionaryOriginReader> reader = new DictionaryOriginReader();
       // Must do this before calling start, which can run the callbacks and call
       // Resume
-      aAsync = true;
+      DICTIONARY_LOG(("Suspending to get Dictionary headers"));
       aSuspend(aChan);
-      reader->Start(existing.Data(), prepath, aURI, aType, this, aCallback);
+      reader->Start(false, existing.Data(), prepath, aURI, aType, this,
+                    aCallback);
     }
     return;
   }
@@ -1073,8 +1368,9 @@ void DictionaryCache::GetDictionaryFor(
     RefPtr<DictionaryOriginReader> reader = new DictionaryOriginReader();
     // After Start(), if we drop this ref reader will kill itself on
     // completion; it holds a self-ref
-    reader->Start(origin, prepath, aURI, aType, this, aCallback);
-    aAsync = true;
+    DICTIONARY_LOG(("Suspending to get Dictionary headers"));
+    aSuspend(aChan);
+    reader->Start(false, origin, prepath, aURI, aType, this, aCallback);
     return;
   }
   // No dictionaries for origin
@@ -1098,6 +1394,7 @@ nsresult DictionaryOrigin::Write(DictionaryCacheEntry* aDictEntry) {
 
 void DictionaryOrigin::SetCacheEntry(nsICacheEntry* aEntry) {
   mEntry = aEntry;
+  mEntry->SetContentType(nsICacheEntry::CONTENT_TYPE_DICTIONARY);
   if (mDeferredWrites) {
     for (auto& entry : mEntries) {
       if (NS_FAILED(Write(entry))) {
@@ -1174,7 +1471,9 @@ already_AddRefed<DictionaryCacheEntry> DictionaryOrigin::AddEntry(
           // This stops new requests from trying to use the old data we're in
           // the process of replacing Remove the entry from the Origin and
           // Write().
-          mEntries[i]->RemoveEntry(mEntry);
+          if (mEntry) {
+            mEntries[i]->RemoveEntry(mEntry);
+          }
           mEntries.RemoveElementAt(i);
         }
       } else {
@@ -1215,12 +1514,11 @@ already_AddRefed<DictionaryCacheEntry> DictionaryOrigin::AddEntry(
 nsresult DictionaryOrigin::RemoveEntry(const nsACString& aKey) {
   DICTIONARY_LOG(
       ("DictionaryOrigin::RemoveEntry for %s", PromiseFlatCString(aKey).get()));
+  RefPtr<DictionaryCacheEntry> hold;
   for (const auto& dict : mEntries) {
-    DICTIONARY_LOG(
-        ("       Comparing to %s", PromiseFlatCString(dict->GetURI()).get()));
     if (dict->GetURI().Equals(aKey)) {
       // Ensure it doesn't disappear on us
-      RefPtr<DictionaryCacheEntry> hold(dict);
+      hold = dict;
       DICTIONARY_LOG(("Removing %p", dict.get()));
       mEntries.RemoveElement(dict);
       if (mEntry) {
@@ -1229,25 +1527,29 @@ nsresult DictionaryOrigin::RemoveEntry(const nsACString& aKey) {
         // We don't have the cache entry yet.  Defer the removal from
         // the entry until we do
         mPendingRemove.AppendElement(hold);
+        return NS_OK;
       }
-      return NS_OK;
+      break;
     }
   }
-  DICTIONARY_LOG(("DictionaryOrigin::RemoveEntry (pending) for %s",
-                  PromiseFlatCString(aKey).get()));
-  for (const auto& dict : mPendingEntries) {
-    DICTIONARY_LOG(
-        ("       Comparing to %s", PromiseFlatCString(dict->GetURI()).get()));
-    if (dict->GetURI().Equals(aKey)) {
-      // Ensure it doesn't disappear on us
-      RefPtr<DictionaryCacheEntry> hold(dict);
-      DICTIONARY_LOG(("Removing %p", dict.get()));
-      mPendingEntries.RemoveElement(dict);
-      hold->RemoveEntry(mEntry);
-      return NS_OK;
+  if (!hold) {
+    DICTIONARY_LOG(("DictionaryOrigin::RemoveEntry (pending) for %s",
+                    PromiseFlatCString(aKey).get()));
+    for (const auto& dict : mPendingEntries) {
+      if (dict->GetURI().Equals(aKey)) {
+        // Ensure it doesn't disappear on us
+        RefPtr<DictionaryCacheEntry> hold(dict);
+        DICTIONARY_LOG(("Removing %p", dict.get()));
+        mPendingEntries.RemoveElement(dict);
+        break;
+      }
     }
   }
-  return NS_ERROR_FAILURE;
+  // If this origin has no entries, remove it and doom the entry
+  if (IsEmpty()) {
+    Clear();
+  }
+  return hold ? NS_OK : NS_ERROR_FAILURE;
 }
 
 void DictionaryOrigin::FinishAddEntry(DictionaryCacheEntry* aEntry) {
@@ -1255,6 +1557,7 @@ void DictionaryOrigin::FinishAddEntry(DictionaryCacheEntry* aEntry) {
   if (mPendingEntries.RemoveElement(aEntry)) {
     // We need to give priority to elements fetched most recently if they
     // have an equivalent match length (and dest)
+    // XXX insert at the start of entries of this length
     mEntries.InsertElementAt(0, aEntry);
   }
   DICTIONARY_LOG(("FinishAddEntry(%s)", aEntry->mURI.get()));
@@ -1283,7 +1586,7 @@ void DictionaryOrigin::DumpEntries() {
          dict->mMatchDest.IsEmpty()
              ? ""
              : dom::GetEnumString(dict->mMatchDest[0]).get(),
-         dict->mHash.get(), dict->mExpiration));
+         dict->GetHash().get(), dict->mExpiration));
   }
   DICTIONARY_LOG(("*** Pending ***"));
   for (const auto& dict : mPendingEntries) {
@@ -1294,17 +1597,26 @@ void DictionaryOrigin::DumpEntries() {
          dict->mMatchDest.IsEmpty()
              ? ""
              : dom::GetEnumString(dict->mMatchDest[0]).get(),
-         dict->mHash.get(), dict->mExpiration));
+         dict->GetHash().get(), dict->mExpiration));
   }
 }
 
 void DictionaryOrigin::Clear() {
+  DICTIONARY_LOG(("*** Clearing origin %s", mOrigin.get()));
   mEntries.Clear();
   mPendingEntries.Clear();
+  mPendingRemove.Clear();
   // We may be under a lock; doom this asynchronously
-  NS_DispatchBackgroundTask(NS_NewRunnableFunction(
-      "DictionaryOrigin::Clear",
-      [entry = mEntry]() { entry->AsyncDoom(nullptr); }));
+  if (mEntry) {
+    // This will attempt to delete the DictionaryOrigin, but we'll do
+    // that more directly
+    NS_DispatchBackgroundTask(NS_NewRunnableFunction(
+        "DictionaryOrigin::Clear", [entry = mEntry, origin(mOrigin)]() {
+          DICTIONARY_LOG(("*** Dooming origin %s", origin.get()));
+          entry->AsyncDoom(nullptr);
+        }));
+  }
+  gDictionaryCache->RemoveOrigin(mOrigin);
 }
 
 // caller will throw this into a RefPtr
@@ -1338,6 +1650,12 @@ nsresult DictionaryOrigin::OnMetaDataElement(const char* asciiKey,
   DICTIONARY_LOG(("DictionaryOrigin::OnMetaDataElement %s %s",
                   asciiKey ? asciiKey : "", asciiValue));
 
+  // We set the content ID to CONTENT_TYPE_DICTIONARY, ensure that's correct
+  if (strcmp(asciiKey, "ctid") == 0) {
+    MOZ_ASSERT(strcmp(asciiValue, "7") == 0);
+    return NS_OK;
+  }
+  // All other keys should be URLs for dictionaries
   // If we already have an entry for this key (pending or in the list),
   // don't override it
   for (auto& entry : mEntries) {

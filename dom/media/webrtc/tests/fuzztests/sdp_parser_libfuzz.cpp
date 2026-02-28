@@ -12,8 +12,8 @@
 
 using namespace mozilla;
 
-MOZ_RUNINIT static mozilla::UniquePtr<SdpParser::Results> sdpPtr;
-MOZ_RUNINIT static SipccSdpParser mParser;
+constinit static mozilla::UniquePtr<SdpParser::Results> sdpPtr;
+constinit static SipccSdpParser mParser;
 
 int FuzzingInitSdpParser(int* argc, char*** argv) { return 0; }
 

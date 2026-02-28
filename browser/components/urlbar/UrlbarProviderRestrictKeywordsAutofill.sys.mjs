@@ -106,6 +106,13 @@ export class UrlbarProviderRestrictKeywordsAutofill extends UrlbarProvider {
     return false;
   }
 
+  /**
+   * Starts querying.
+   *
+   * @param {UrlbarQueryContext} queryContext
+   * @param {(provider: UrlbarProvider, result: UrlbarResult) => void} addCallback
+   *   Callback invoked by the provider to add a new result.
+   */
   async startQuery(queryContext, addCallback) {
     if (
       this.#autofillData &&
@@ -142,10 +149,10 @@ export class UrlbarProviderRestrictKeywordsAutofill extends UrlbarProvider {
         source: UrlbarUtils.RESULT_SOURCE.OTHER_LOCAL,
         heuristic: true,
         hideRowLabel: true,
-        ...lazy.UrlbarResult.payloadAndSimpleHighlights(queryContext.tokens, {
+        payload: {
           keyword: restrictSymbol,
           providesSearchMode: false,
-        }),
+        },
       });
       addCallback(this, result);
     }
@@ -190,19 +197,17 @@ export class UrlbarProviderRestrictKeywordsAutofill extends UrlbarProvider {
             selectionStart: queryContext.searchString.length,
             selectionEnd: value.length,
           },
-          ...lazy.UrlbarResult.payloadAndSimpleHighlights(queryContext.tokens, {
+          payload: {
             icon,
             keyword: token,
-            l10nRestrictKeywords: [
-              l10nRestrictKeywords,
-              UrlbarUtils.HIGHLIGHT.TYPED,
-            ],
-            autofillKeyword: [
-              keywordPreservingUserCase,
-              UrlbarUtils.HIGHLIGHT.TYPED,
-            ],
+            l10nRestrictKeywords,
+            autofillKeyword: keywordPreservingUserCase,
             providesSearchMode: true,
-          }),
+          },
+          highlights: {
+            l10nRestrictKeywords: UrlbarUtils.HIGHLIGHT.TYPED,
+            autofillKeyword: UrlbarUtils.HIGHLIGHT.TYPED,
+          },
         });
       }
     }

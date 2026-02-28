@@ -18,6 +18,7 @@
 #include "mozilla/dom/DocumentTimeline.h"
 #include "mozilla/dom/Promise-inl.h"
 #include "mozilla/dom/ViewTransitionBinding.h"
+#include "mozilla/dom/ViewTransitionTypeSet.h"
 #include "mozilla/image/WebRenderImageProvider.h"
 #include "mozilla/layers/RenderRootStateManager.h"
 #include "mozilla/layers/WebRenderBridgeChild.h"
@@ -30,7 +31,6 @@
 #include "nsLayoutUtils.h"
 #include "nsPresContext.h"
 #include "nsString.h"
-#include "nsViewManager.h"
 
 namespace mozilla::dom {
 
@@ -245,7 +245,7 @@ static inline void ImplCycleCollectionTraverse(
 NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE(ViewTransition, mDocument,
                                       mUpdateCallback,
                                       mUpdateCallbackDonePromise, mReadyPromise,
-                                      mFinishedPromise, mNamedElements,
+                                      mFinishedPromise, mNamedElements, mTypes,
                                       mSnapshotContainingBlock)
 
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(ViewTransition)
@@ -257,8 +257,9 @@ NS_IMPL_CYCLE_COLLECTING_ADDREF(ViewTransition)
 NS_IMPL_CYCLE_COLLECTING_RELEASE(ViewTransition)
 
 ViewTransition::ViewTransition(Document& aDoc,
-                               ViewTransitionUpdateCallback* aCb)
-    : mDocument(&aDoc), mUpdateCallback(aCb) {}
+                               ViewTransitionUpdateCallback* aCb,
+                               TypeList&& aTypeList)
+    : mDocument(&aDoc), mUpdateCallback(aCb), mTypeList(std::move(aTypeList)) {}
 
 ViewTransition::~ViewTransition() { ClearTimeoutTimer(); }
 
@@ -572,7 +573,7 @@ static already_AddRefed<Element> MakePseudo(Document& aDoc,
                                             PseudoStyleType aType,
                                             nsAtom* aName) {
   RefPtr<Element> el = aDoc.CreateHTMLElement(nsGkAtoms::div);
-  if (aType == PseudoStyleType::mozSnapshotContainingBlock) {
+  if (aType == PseudoStyleType::MozSnapshotContainingBlock) {
     el->SetIsNativeAnonymousRoot();
   }
   el->SetPseudoElementType(aType);
@@ -581,13 +582,13 @@ static already_AddRefed<Element> MakePseudo(Document& aDoc,
   }
   // This is not needed, but useful for debugging.
   el->SetAttr(nsGkAtoms::type,
-              nsDependentAtomString(nsCSSPseudoElements::GetPseudoAtom(aType)),
+              nsDependentAtomString(PseudoStyle::GetAtom(aType)),
               IgnoreErrors());
   return el.forget();
 }
 
 static bool SetProp(StyleLockedDeclarationBlock* aDecls, Document* aDoc,
-                    nsCSSPropertyID aProp, const nsACString& aValue) {
+                    NonCustomCSSPropertyId aProp, const nsACString& aValue) {
   return Servo_DeclarationBlock_SetPropertyById(
       aDecls, aProp, &aValue,
       /* is_important = */ false, aDoc->DefaultStyleAttrURLData(),
@@ -596,12 +597,14 @@ static bool SetProp(StyleLockedDeclarationBlock* aDecls, Document* aDoc,
 }
 
 static bool SetProp(StyleLockedDeclarationBlock* aDecls, Document*,
-                    nsCSSPropertyID aProp, float aLength, nsCSSUnit aUnit) {
+                    NonCustomCSSPropertyId aProp, float aLength,
+                    nsCSSUnit aUnit) {
   return Servo_DeclarationBlock_SetLengthValue(aDecls, aProp, aLength, aUnit);
 }
 
 static bool SetProp(StyleLockedDeclarationBlock* aDecls, Document*,
-                    nsCSSPropertyID aProp, const CSSToCSSMatrix4x4Flagged& aM) {
+                    NonCustomCSSPropertyId aProp,
+                    const CSSToCSSMatrix4x4Flagged& aM) {
   MOZ_ASSERT(aProp == eCSSProperty_transform);
   AutoTArray<StyleTransformOperation, 1> ops;
   ops.AppendElement(
@@ -612,37 +615,40 @@ static bool SetProp(StyleLockedDeclarationBlock* aDecls, Document*,
 }
 
 static bool SetProp(StyleLockedDeclarationBlock* aDecls, Document* aDoc,
-                    nsCSSPropertyID aProp, const StyleWritingModeProperty aWM) {
+                    NonCustomCSSPropertyId aProp,
+                    const StyleWritingModeProperty aWM) {
   return Servo_DeclarationBlock_SetKeywordValue(aDecls, aProp, (int32_t)aWM);
 }
 
 static bool SetProp(StyleLockedDeclarationBlock* aDecls, Document* aDoc,
-                    nsCSSPropertyID aProp, const StyleDirection aDirection) {
+                    NonCustomCSSPropertyId aProp,
+                    const StyleDirection aDirection) {
   return Servo_DeclarationBlock_SetKeywordValue(aDecls, aProp,
                                                 (int32_t)aDirection);
 }
 
 static bool SetProp(StyleLockedDeclarationBlock* aDecls, Document* aDoc,
-                    nsCSSPropertyID aProp,
+                    NonCustomCSSPropertyId aProp,
                     const StyleTextOrientation aTextOrientation) {
   return Servo_DeclarationBlock_SetKeywordValue(aDecls, aProp,
                                                 (int32_t)aTextOrientation);
 }
 
 static bool SetProp(StyleLockedDeclarationBlock* aDecls, Document* aDoc,
-                    nsCSSPropertyID aProp, const StyleBlend aBlend) {
+                    NonCustomCSSPropertyId aProp, const StyleBlend aBlend) {
   return Servo_DeclarationBlock_SetKeywordValue(aDecls, aProp, (int32_t)aBlend);
 }
 
 static bool SetProp(
-    StyleLockedDeclarationBlock* aDecls, Document*, nsCSSPropertyID aProp,
+    StyleLockedDeclarationBlock* aDecls, Document*,
+    NonCustomCSSPropertyId aProp,
     const StyleOwnedSlice<mozilla::StyleFilter>& aBackdropFilters) {
   return Servo_DeclarationBlock_SetBackdropFilter(aDecls, aProp,
                                                   &aBackdropFilters);
 }
 
 static bool SetProp(StyleLockedDeclarationBlock* aDecls, Document*,
-                    nsCSSPropertyID aProp,
+                    NonCustomCSSPropertyId aProp,
                     const StyleColorScheme& aColorScheme) {
   return Servo_DeclarationBlock_SetColorScheme(aDecls, aProp, &aColorScheme);
 }
@@ -661,26 +667,26 @@ static nsTArray<Keyframe> BuildGroupKeyframes(
   Keyframe firstKeyframe;
   firstKeyframe.mOffset = Some(0.0);
   PropertyValuePair transform{
-      AnimatedPropertyID(eCSSProperty_transform),
+      CSSPropertyId(eCSSProperty_transform),
       Servo_DeclarationBlock_CreateEmpty().Consume(),
   };
   SetProp(transform.mServoDeclarationBlock, aDoc, eCSSProperty_transform,
           aTransform);
   PropertyValuePair width{
-      AnimatedPropertyID(eCSSProperty_width),
+      CSSPropertyId(eCSSProperty_width),
       Servo_DeclarationBlock_CreateEmpty().Consume(),
   };
   CSSSize cssSize = CSSSize::FromAppUnits(aSize);
   SetProp(width.mServoDeclarationBlock, aDoc, eCSSProperty_width, cssSize.width,
           eCSSUnit_Pixel);
   PropertyValuePair height{
-      AnimatedPropertyID(eCSSProperty_height),
+      CSSPropertyId(eCSSProperty_height),
       Servo_DeclarationBlock_CreateEmpty().Consume(),
   };
   SetProp(height.mServoDeclarationBlock, aDoc, eCSSProperty_height,
           cssSize.height, eCSSUnit_Pixel);
   PropertyValuePair backdropFilters{
-      AnimatedPropertyID(eCSSProperty_backdrop_filter),
+      CSSPropertyId(eCSSProperty_backdrop_filter),
       Servo_DeclarationBlock_CreateEmpty().Consume(),
   };
   SetProp(backdropFilters.mServoDeclarationBlock, aDoc,
@@ -693,13 +699,13 @@ static nsTArray<Keyframe> BuildGroupKeyframes(
   Keyframe lastKeyframe;
   lastKeyframe.mOffset = Some(1.0);
   lastKeyframe.mPropertyValues.AppendElement(
-      PropertyValuePair{AnimatedPropertyID(eCSSProperty_transform)});
+      PropertyValuePair{CSSPropertyId(eCSSProperty_transform)});
   lastKeyframe.mPropertyValues.AppendElement(
-      PropertyValuePair{AnimatedPropertyID(eCSSProperty_width)});
+      PropertyValuePair{CSSPropertyId(eCSSProperty_width)});
   lastKeyframe.mPropertyValues.AppendElement(
-      PropertyValuePair{AnimatedPropertyID(eCSSProperty_height)});
+      PropertyValuePair{CSSPropertyId(eCSSProperty_height)});
   lastKeyframe.mPropertyValues.AppendElement(
-      PropertyValuePair{AnimatedPropertyID(eCSSProperty_backdrop_filter)});
+      PropertyValuePair{CSSPropertyId(eCSSProperty_backdrop_filter)});
 
   nsTArray<Keyframe> result;
   result.AppendElement(std::move(firstKeyframe));
@@ -732,13 +738,25 @@ bool ViewTransition::GetGroupKeyframes(
 bool ViewTransition::MatchClassList(
     nsAtom* aTransitionName,
     const nsTArray<StyleAtom>& aPtNameAndClassSelector) const {
-  MOZ_ASSERT(aPtNameAndClassSelector.Length() > 1);
+  MOZ_ASSERT(aPtNameAndClassSelector.Length() > 1,
+             "Should have a vt-class selector");
+  MOZ_ASSERT(aTransitionName, "No transition name?");
 
   const auto* el = mNamedElements.Get(aTransitionName);
-  MOZ_ASSERT(el);
+  MOZ_ASSERT(el,
+             "Our caller should have the view transition pseudo handy, how do "
+             "we have no capture?");
+  if (MOZ_UNLIKELY(!el)) {
+    // FIXME: We see some instances of this on the wild (bug 2010608), but have
+    // no repro for it. For now not matching is pretty safe...
+    return false;
+  }
   const auto& classList = el->mClassList._0.AsSpan();
+  if (classList.IsEmpty()) {
+    return false;
+  }
   auto hasClass = [&classList](nsAtom* aClass) {
-    // LInear search. The css class list shouldn't be very large in most cases.
+    // Linear search. The css class list shouldn't be very large in most cases.
     for (const auto& ident : classList) {
       if (ident.AsAtom() == aClass) {
         return true;
@@ -793,9 +811,9 @@ void ViewTransition::SetupTransitionPseudoElements() {
   // least).
   // Note: Use mSnapshotContainingBlock to wrap the pseudo-element tree.
   mSnapshotContainingBlock = MakePseudo(
-      *mDocument, PseudoStyleType::mozSnapshotContainingBlock, nullptr);
+      *mDocument, PseudoStyleType::MozSnapshotContainingBlock, nullptr);
   RefPtr<Element> root =
-      MakePseudo(*mDocument, PseudoStyleType::viewTransition, nullptr);
+      MakePseudo(*mDocument, PseudoStyleType::ViewTransition, nullptr);
   mSnapshotContainingBlock->AppendChildTo(root, kNotify, IgnoreErrors());
 #ifdef DEBUG
   // View transition pseudos don't care about frame tree ordering, so can be
@@ -812,13 +830,13 @@ void ViewTransition::SetupTransitionPseudoElements() {
     // Let group be a new ::view-transition-group(), with its view transition
     // name set to transitionName.
     RefPtr<Element> group = MakePseudo(
-        *mDocument, PseudoStyleType::viewTransitionGroup, transitionName);
+        *mDocument, PseudoStyleType::ViewTransitionGroup, transitionName);
     // Append group to transition’s transition root pseudo-element.
     root->AppendChildTo(group, kNotify, IgnoreErrors());
     // Let imagePair be a new ::view-transition-image-pair(), with its view
     // transition name set to transitionName.
     RefPtr<Element> imagePair = MakePseudo(
-        *mDocument, PseudoStyleType::viewTransitionImagePair, transitionName);
+        *mDocument, PseudoStyleType::ViewTransitionImagePair, transitionName);
     // Append imagePair to group.
     group->AppendChildTo(imagePair, kNotify, IgnoreErrors());
     // If capturedElement's old image is not null, then:
@@ -827,7 +845,7 @@ void ViewTransition::SetupTransitionPseudoElements() {
       // name set to transitionName, displaying capturedElement's old image as
       // its replaced content.
       RefPtr<Element> old = MakePseudo(
-          *mDocument, PseudoStyleType::viewTransitionOld, transitionName);
+          *mDocument, PseudoStyleType::ViewTransitionOld, transitionName);
       // Append old to imagePair.
       imagePair->AppendChildTo(old, kNotify, IgnoreErrors());
     } else {
@@ -844,7 +862,7 @@ void ViewTransition::SetupTransitionPseudoElements() {
       // Let new be a new ::view-transition-new(), with its view transition
       // name set to transitionName.
       RefPtr<Element> new_ = MakePseudo(
-          *mDocument, PseudoStyleType::viewTransitionNew, transitionName);
+          *mDocument, PseudoStyleType::ViewTransitionNew, transitionName);
       // Append new to imagePair.
       imagePair->AppendChildTo(new_, kNotify, IgnoreErrors());
     } else {
@@ -884,9 +902,11 @@ void ViewTransition::SetupTransitionPseudoElements() {
     // If both of capturedElement's old image and new element are not null,
     // then:
     if (capturedElement.mOldState.mTriedImage && capturedElement.mNewElement) {
-      NS_ConvertUTF16toUTF8 dynamicAnimationName(
-          kGroupAnimPrefix + nsDependentAtomString(transitionName));
-
+      nsAutoCString dynamicAnimationName;
+      nsStyleUtil::AppendQuotedCSSString(
+          NS_ConvertUTF16toUTF8(kGroupAnimPrefix +
+                                nsDependentAtomString(transitionName)),
+          dynamicAnimationName);
       capturedElement.mGroupKeyframes =
           BuildGroupKeyframes(mDocument, capturedElement.mOldState.mTransform,
                               capturedElement.mOldState.mBorderBoxSize,
@@ -980,7 +1000,7 @@ bool ViewTransition::UpdatePseudoElementStyles(bool aNeedsInvalidation) {
                 frame->StyleUI()->mColorScheme);
     if (groupStyleChanged && aNeedsInvalidation) {
       auto* pseudo = FindPseudo(PseudoStyleRequest(
-          PseudoStyleType::viewTransitionGroup, transitionName));
+          PseudoStyleType::ViewTransitionGroup, transitionName));
       MOZ_ASSERT(pseudo);
       // TODO(emilio): Maybe we need something more than recascade? But I don't
       // see how off-hand.
@@ -1114,9 +1134,9 @@ Element* ViewTransition::FindPseudo(const PseudoStyleRequest& aRequest) const {
   if (!root) {
     return nullptr;
   }
-  MOZ_ASSERT(root->GetPseudoElementType() == PseudoStyleType::viewTransition);
+  MOZ_ASSERT(root->GetPseudoElementType() == PseudoStyleType::ViewTransition);
 
-  if (aRequest.mType == PseudoStyleType::viewTransition) {
+  if (aRequest.mType == PseudoStyleType::ViewTransition) {
     return root;
   }
 
@@ -1138,13 +1158,13 @@ Element* ViewTransition::FindPseudo(const PseudoStyleRequest& aRequest) const {
     return nullptr;
   }
 
-  if (aRequest.mType == PseudoStyleType::viewTransitionGroup) {
+  if (aRequest.mType == PseudoStyleType::ViewTransitionGroup) {
     return group;
   }
 
   Element* imagePair = group->GetFirstElementChild();
   MOZ_ASSERT(imagePair, "::view-transition-image-pair() should exist always");
-  if (aRequest.mType == PseudoStyleType::viewTransitionImagePair) {
+  if (aRequest.mType == PseudoStyleType::ViewTransitionImagePair) {
     return imagePair;
   }
 
@@ -1162,12 +1182,12 @@ Element* ViewTransition::FindPseudo(const PseudoStyleRequest& aRequest) const {
 
   // Since the second child is either ::view-transition-new() or nullptr, so we
   // can reject viewTransitionOld request here.
-  if (aRequest.mType == PseudoStyleType::viewTransitionOld) {
+  if (aRequest.mType == PseudoStyleType::ViewTransitionOld) {
     return nullptr;
   }
 
   child = child->GetNextElementSibling();
-  MOZ_ASSERT(aRequest.mType == PseudoStyleType::viewTransitionNew);
+  MOZ_ASSERT(aRequest.mType == PseudoStyleType::ViewTransitionNew);
   MOZ_ASSERT(!child || !child->GetNextElementSibling(),
              "No more psuedo elements in this subtree");
   return child;
@@ -1185,13 +1205,13 @@ const StyleLockedDeclarationBlock* ViewTransition::GetDynamicRuleFor(
   }
 
   switch (aElement.GetPseudoElementType()) {
-    case PseudoStyleType::viewTransitionNew:
+    case PseudoStyleType::ViewTransitionNew:
       return capture->mNewRule.get();
-    case PseudoStyleType::viewTransitionOld:
+    case PseudoStyleType::ViewTransitionOld:
       return capture->mOldRule.get();
-    case PseudoStyleType::viewTransitionImagePair:
+    case PseudoStyleType::ViewTransitionImagePair:
       return capture->mImagePairRule.get();
-    case PseudoStyleType::viewTransitionGroup:
+    case PseudoStyleType::ViewTransitionGroup:
       return capture->mGroupRule.get();
     default:
       return nullptr;
@@ -1448,6 +1468,19 @@ void ViewTransition::Setup() {
                         &ViewTransition::MaybeScheduleUpdateCallback));
 }
 
+void ViewTransition::FinishDone() {
+  if (mPhase != Phase::PendingDone) {
+    return;
+  }
+  // https://drafts.csswg.org/css-view-transitions-1/#handle-transition-frame
+  // step 4.2: Clear view transition transition.
+  ClearActiveTransition(false);
+  // 4.3: Resolve transition's finished promise.
+  if (Promise* finished = GetFinished(IgnoreErrors())) {
+    finished->MaybeResolveWithUndefined();
+  }
+}
+
 // https://drafts.csswg.org/css-view-transitions-1/#handle-transition-frame
 void ViewTransition::HandleFrame() {
   // Steps 1-3: Steps 1-3: Compute active animations.
@@ -1458,13 +1491,11 @@ void ViewTransition::HandleFrame() {
     AUTO_PROFILER_TERMINATING_FLOW_MARKER("ViewTransition::HandleFrameFinish",
                                           LAYOUT, Flow::FromPointer(this));
     // 4.1: Set transition's phase to "done".
-    mPhase = Phase::Done;
-    // 4.2: Clear view transition transition.
-    ClearActiveTransition(false);
-    // 4.3: Resolve transition's finished promise.
-    if (Promise* finished = GetFinished(IgnoreErrors())) {
-      finished->MaybeResolveWithUndefined();
-    }
+    // NOTE: pending-done + async task per
+    // https://github.com/w3c/csswg-drafts/issues/12442
+    mPhase = Phase::PendingDone;
+    mDocument->Dispatch(NewRunnableMethod("ViewTransition::FinishDone", this,
+                                          &ViewTransition::FinishDone));
     return;
   }
 
@@ -1579,17 +1610,17 @@ bool ViewTransition::CheckForActiveAnimations() const {
   };
 
   bool hasActiveAnimations =
-      checkForEachPseudo(PseudoStyleRequest(PseudoStyleType::viewTransition));
+      checkForEachPseudo(PseudoStyleRequest(PseudoStyleType::ViewTransition));
   for (nsAtom* name : mNamedElements.Keys()) {
     if (hasActiveAnimations) {
       break;
     }
 
     hasActiveAnimations =
-        checkForEachPseudo({PseudoStyleType::viewTransitionGroup, name}) ||
-        checkForEachPseudo({PseudoStyleType::viewTransitionImagePair, name}) ||
-        checkForEachPseudo({PseudoStyleType::viewTransitionOld, name}) ||
-        checkForEachPseudo({PseudoStyleType::viewTransitionNew, name});
+        checkForEachPseudo({PseudoStyleType::ViewTransitionGroup, name}) ||
+        checkForEachPseudo({PseudoStyleType::ViewTransitionImagePair, name}) ||
+        checkForEachPseudo({PseudoStyleType::ViewTransitionOld, name}) ||
+        checkForEachPseudo({PseudoStyleType::ViewTransitionNew, name});
   }
   return hasActiveAnimations;
 }
@@ -2004,6 +2035,17 @@ Maybe<nsRect> ViewTransition::GetNewActiveRect(nsAtom* aName) const {
   }
 
   return el->mNewActiveRect;
+}
+
+ViewTransitionTypeSet* ViewTransition::Types() {
+  if (!mTypes) {
+    mTypes = new ViewTransitionTypeSet(*this);
+    for (const auto& type : mTypeList) {
+      ViewTransitionTypeSet_Binding::SetlikeHelpers::Add(
+          mTypes, nsDependentAtomString(type), IgnoreErrors());
+    }
+  }
+  return mTypes;
 }
 
 };  // namespace mozilla::dom

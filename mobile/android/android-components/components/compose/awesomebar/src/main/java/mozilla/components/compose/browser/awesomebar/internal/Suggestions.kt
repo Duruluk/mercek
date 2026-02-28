@@ -25,13 +25,15 @@ import mozilla.components.compose.browser.awesomebar.AwesomeBarColors
 import mozilla.components.compose.browser.awesomebar.AwesomeBarOrientation
 import mozilla.components.concept.awesomebar.AwesomeBar
 
+@Suppress("LongParameterList")
 @Composable
 internal fun Suggestions(
-    suggestions: Map<AwesomeBar.SuggestionProviderGroup, List<AwesomeBar.Suggestion>>,
+    suggestions: Map<AwesomeBar.SuggestionProviderGroup, List<AwesomeBar.SuggestionItem>>,
     colors: AwesomeBarColors,
     orientation: AwesomeBarOrientation,
     onSuggestionClicked: (AwesomeBar.SuggestionProviderGroup, AwesomeBar.Suggestion) -> Unit,
     onAutoComplete: (AwesomeBar.SuggestionProviderGroup, AwesomeBar.Suggestion) -> Unit,
+    onRemoveClicked: (AwesomeBar.SuggestionProviderGroup, AwesomeBar.Suggestion) -> Unit,
     onVisibilityStateUpdated: (AwesomeBar.VisibilityState) -> Unit,
     onScroll: () -> Unit,
 ) {
@@ -55,13 +57,18 @@ internal fun Suggestions(
                 items = suggestions.take(group.limit),
                 key = { suggestion -> ItemKey.Suggestion(group.id, suggestion.provider.id, suggestion.id) },
             ) { suggestion ->
-                Suggestion(
-                    suggestion,
-                    colors,
-                    orientation,
-                    onSuggestionClicked = { onSuggestionClicked(group, suggestion) },
-                    onAutoComplete = { onAutoComplete(group, suggestion) },
-                )
+                when (suggestion) {
+                    is AwesomeBar.Suggestion -> {
+                        Suggestion(
+                            suggestion,
+                            colors,
+                            orientation,
+                            onSuggestionClicked = { onSuggestionClicked(group, suggestion) },
+                            onAutoComplete = { onAutoComplete(group, suggestion) },
+                            onRemoveClicked = { onRemoveClicked(group, suggestion) },
+                        )
+                    } else -> Unit
+                }
             }
         }
     }
@@ -145,7 +152,7 @@ internal sealed interface ItemKey {
  * in that list, ordered top to bottom. The intersection of the two is the current [AwesomeBar.VisibilityState].
  */
 internal data class VisibleItems(
-    val suggestions: Map<AwesomeBar.SuggestionProviderGroup, List<AwesomeBar.Suggestion>>,
+    val suggestions: Map<AwesomeBar.SuggestionProviderGroup, List<AwesomeBar.SuggestionItem>>,
     val visibleItemKeys: List<ItemKey>,
 ) {
     fun toVisibilityState(): AwesomeBar.VisibilityState =

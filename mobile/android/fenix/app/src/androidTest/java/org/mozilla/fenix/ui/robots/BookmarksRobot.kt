@@ -74,7 +74,8 @@ class BookmarksRobot(private val composeTestRule: ComposeTestRule) {
     fun verifyBookmarkTitle(title: String) {
         Log.i(TAG, "verifyBookmarkTitle: Waiting for $waitingTime for bookmark with title: $title to exist.")
         composeTestRule.waitUntilExactlyOneExists(
-            hasText(title), waitingTime,
+            hasText(title),
+            waitingTime,
         )
         Log.i(TAG, "verifyBookmarkTitle: Waited for $waitingTime for bookmark with title: $title to exist.")
         Log.i(TAG, "verifyBookmarkTitle: Waited for bookmarks header to exist.")
@@ -208,6 +209,18 @@ class BookmarksRobot(private val composeTestRule: ComposeTestRule) {
         Log.i(TAG, "clickParentFolderSelector: Clicked folder selector")
     }
 
+    fun expandSelectableFolder(title: String) {
+        Log.i(TAG, "expandSelectableFolder: Trying to click expand select folder selector")
+        composeTestRule.expandBookmarkFolderSelector(title).performClick()
+        Log.i(TAG, "expandSelectableFolder: Clicked expand select folder selector")
+    }
+
+    fun closeSelectableFolder(title: String) {
+        Log.i(TAG, "closeSelectableFolder: Trying to click close select folder selector")
+        composeTestRule.expandBookmarkFolderSelector(title).performClick()
+        Log.i(TAG, "closeSelectableFolder: Clicked close select folder selector")
+    }
+
     fun selectFolder(title: String) {
         Log.i(TAG, "selectFolder: Trying to click folder with title: $title")
         composeTestRule.onNodeWithText(title).performClick()
@@ -254,8 +267,8 @@ class BookmarksRobot(private val composeTestRule: ComposeTestRule) {
             composeTestRule.onNodeWithText(bookmarkTitle).performClick()
             Log.i(TAG, "openBookmarkWithTitle: Clicked bookmark with title: $bookmarkTitle")
 
-            BrowserRobot().interact()
-            return BrowserRobot.Transition()
+            BrowserRobot(composeTestRule).interact()
+            return BrowserRobot.Transition(composeTestRule)
         }
 
         @OptIn(ExperimentalTestApi::class)
@@ -267,8 +280,8 @@ class BookmarksRobot(private val composeTestRule: ComposeTestRule) {
             composeTestRule.onNodeWithContentDescription(getStringResource(R.string.bookmark_search_button_content_description)).performClick()
             Log.i(TAG, "clickSearchButton: Clicked search bookmarks button")
 
-            SearchRobot().interact()
-            return SearchRobot.Transition()
+            SearchRobot(composeTestRule).interact()
+            return SearchRobot.Transition(composeTestRule)
         }
 
         fun goBackToBrowserScreen(interact: BrowserRobot.() -> Unit): BrowserRobot.Transition {
@@ -276,8 +289,8 @@ class BookmarksRobot(private val composeTestRule: ComposeTestRule) {
             composeTestRule.onNodeWithContentDescription(getStringResource(R.string.bookmark_navigate_back_button_content_description)).performClick()
             Log.i(TAG, "goBackToBrowserScreen: Clicked go back button")
 
-            BrowserRobot().interact()
-            return BrowserRobot.Transition()
+            BrowserRobot(composeTestRule).interact()
+            return BrowserRobot.Transition(composeTestRule)
         }
 
         fun goBackToHomeScreen(interact: HomeScreenRobot.() -> Unit): HomeScreenRobot.Transition {
@@ -285,8 +298,8 @@ class BookmarksRobot(private val composeTestRule: ComposeTestRule) {
             composeTestRule.onNodeWithContentDescription(getStringResource(R.string.bookmark_navigate_back_button_content_description)).performClick()
             Log.i(TAG, "goBackToHomeScreen: Clicked go back button")
 
-            HomeScreenRobot().interact()
-            return HomeScreenRobot.Transition()
+            HomeScreenRobot(composeTestRule).interact()
+            return HomeScreenRobot.Transition(composeTestRule)
         }
     }
 }
@@ -300,7 +313,7 @@ private fun ComposeTestRule.addFolderButton() =
     onNodeWithContentDescription(getStringResource(R.string.bookmark_add_new_folder_button_content_description))
 
 private fun ComposeTestRule.addFolderTitleField() =
-    onNodeWithTag(ADD_BOOKMARK_FOLDER_NAME_TEXT_FIELD).onChildAt(0)
+    onNodeWithTag(ADD_BOOKMARK_FOLDER_NAME_TEXT_FIELD)
 
 private fun ComposeTestRule.navigateUpButton() =
     onNodeWithContentDescription(getStringResource(R.string.bookmark_navigate_back_button_content_description))
@@ -309,13 +322,19 @@ private fun ComposeTestRule.threeDotMenuButton(bookmarkedItem: String) =
     onNodeWithContentDescription("Item Menu for $bookmarkedItem")
 
 private fun ComposeTestRule.bookmarkNameEditBox() =
-    onNodeWithTag(EDIT_BOOKMARK_ITEM_TITLE_TEXT_FIELD).onChildAt(0)
+    onNodeWithTag(EDIT_BOOKMARK_ITEM_TITLE_TEXT_FIELD)
 
 private fun ComposeTestRule.bookmarkFolderSelector() =
     onNodeWithText("Bookmarks")
 
+private fun ComposeTestRule.expandBookmarkFolderSelector(title: String) =
+    onNodeWithContentDescription(getStringResource(R.string.bookmark_select_folder_expand_folder_content_description, title))
+
+private fun ComposeTestRule.closeBookmarkFolderSelector(title: String) =
+    onNodeWithContentDescription(getStringResource(R.string.bookmark_select_folder_close_folder_content_description, title))
+
 private fun ComposeTestRule.bookmarkURLEditBox() =
-    onNodeWithTag(EDIT_BOOKMARK_ITEM_URL_TEXT_FIELD).onChildAt(0)
+    onNodeWithTag(EDIT_BOOKMARK_ITEM_URL_TEXT_FIELD)
 
 private fun ComposeTestRule.selectFolderNewFolderButton() =
     onNodeWithText(getStringResource(R.string.bookmark_select_folder_new_folder_button_title))

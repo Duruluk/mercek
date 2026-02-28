@@ -996,6 +996,21 @@ const nsTArray<RefPtr<GfxDriverInfo>>& GfxInfo::GetGfxDriverInfo() {
         nsIGfxInfo::FEATURE_WEBRENDER, nsIGfxInfo::FEATURE_BLOCKED_DEVICE,
         DRIVER_COMPARISON_IGNORED, V(0, 0, 0, 0),
         "FEATURE_FAILURE_WEBRENDER_MESA_VM", "");
+
+    ////////////////////////////////////
+    // FEATURE_MESA_THREADING
+
+    // Bug 1852794 - Disable old nouveau drivers.
+    APPEND_TO_DRIVER_BLOCKLIST_EXT(
+        OperatingSystem::Linux, ScreenSizeStatus::All, BatteryStatus::All,
+        WindowProtocol::All, DriverVendor::MesaNouveau, DeviceFamily::All,
+        nsIGfxInfo::FEATURE_MESA_THREADING, nsIGfxInfo::FEATURE_BLOCKED_DEVICE,
+        DRIVER_LESS_THAN_OR_EQUAL, V(23, 2, 1, 0),
+        "FEATURE_FAILURE_MESA_THREADING_OLD_NOUVEAU", "Mesa 23.2.1.0");
+
+    ////////////////////////////////////
+    // FEATURE_WEBGL_USE_HARDWARE
+
     // Disable hardware mesa drivers in virtual machines due to instability.
     APPEND_TO_DRIVER_BLOCKLIST_EXT(
         OperatingSystem::Linux, ScreenSizeStatus::All, BatteryStatus::All,
@@ -1197,6 +1212,13 @@ const nsTArray<RefPtr<GfxDriverInfo>>& GfxInfo::GetGfxDriverInfo() {
         nsIGfxInfo::FEATURE_WEBGPU, nsIGfxInfo::FEATURE_BLOCKED_DRIVER_VERSION,
         DRIVER_LESS_THAN, V(25, 0, 4, 0),
         "FEATURE_FAILURE_WEBGPU_MESA_BUG_1979007", "Mesa 25.0.4");
+
+    APPEND_TO_DRIVER_BLOCKLIST_EXT(
+        OperatingSystem::Linux, ScreenSizeStatus::All, BatteryStatus::All,
+        WindowProtocol::All, DriverVendor::MesaLLVMPipe, DeviceFamily::All,
+        nsIGfxInfo::FEATURE_WEBGPU, nsIGfxInfo::FEATURE_BLOCKED_DRIVER_VERSION,
+        DRIVER_LESS_THAN, V(25, 2, 5, 0),
+        "FEATURE_FAILURE_WEBGPU_MESA_LLVMPipe_BUG_1995054", "Mesa 25.2.5");
 
     ////////////////////////////////////
 

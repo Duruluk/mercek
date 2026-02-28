@@ -182,7 +182,7 @@ class LinkPreviewCard extends MozLitElement {
    */
   get errorMessageL10nId() {
     if (this.isMissingDataErrorState) {
-      return "link-preview-generation-error-missing-data";
+      return "link-preview-generation-error-missing-data-v2";
     } else if (this.generationError) {
       return "link-preview-generation-error-unexpected";
     }
@@ -291,7 +291,6 @@ class LinkPreviewCard extends MozLitElement {
           role="button"
           aria-expanded=${!this.collapsed}
         >
-          <div class="chevron-icon"></div>
           <span data-l10n-id="link-preview-key-points-header"></span>
           <img
             class="icon"
@@ -343,12 +342,6 @@ class LinkPreviewCard extends MozLitElement {
                     class="visit-link"
                   >
                     <span data-l10n-id="link-preview-visit-link"></span>
-                    <img
-                      class="icon"
-                      xmlns="http://www.w3.org/1999/xhtml"
-                      role="presentation"
-                      src="chrome://global/skin/icons/open-in-new.svg"
-                    />
                   </a>
                 </div>
               `
@@ -504,7 +497,7 @@ class LinkPreviewCard extends MozLitElement {
           <div class="og-error-content">
             <p
               class="og-error-message"
-              data-l10n-id="link-preview-error-message"
+              data-l10n-id="link-preview-error-message-v2"
             ></p>
             <a
               class="og-card-title"

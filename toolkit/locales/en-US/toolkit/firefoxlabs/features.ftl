@@ -18,11 +18,6 @@ experimental-features-ime-search =
     .label = Address Bar: show results during IME composition
 experimental-features-ime-search-description = An IME (Input Method Editor) is a tool that allows you to enter complex symbols, such as those used in East Asian or Indic written languages, using a standard keyboard. Enabling this experiment will keep the address bar panel open, showing search results and suggestions, while using IME to input text. Note that the IME might display a panel that covers the address bar results, therefore this preference is only suggested for IME not using this type of panel.
 
-# Auto Picture-in-Picture
-experimental-features-auto-pip =
-    .label = Picture-in-Picture: auto-open on tab switch
-experimental-features-auto-pip-description = Enable Picture-in-Picture on active videos when switching tabs.
-
 experimental-features-group-developer-tools =
   .label = Developer Tools
 experimental-features-group-webpage-display =
@@ -86,3 +81,8 @@ experimental-features-newtab-widget-lists-and-timer-description = Keep your to-d
 experimental-features-semantic-history-search =
     .label = Semantic History Search
 experimental-features-semantic-history-search-description = Use a local Machine Learning model to suggest entries from history that are related to your searches based on natural language understanding in the { -brand-product-name } address bar. <a data-l10n-name="connect">Share feedback</a>
+
+# Tab Notes
+experimental-features-tab-notes =
+    .label = Tab notes
+experimental-features-tab-notes-description = Tab notes are an experimental feature that lets you add sticky notes to your browser tabs. Jot down context, reminders, or next steps so you can come back and remember why you opened it. We’d love your feedback as we keep improving this feature. <a data-l10n-name="connect">Share feedback</a>

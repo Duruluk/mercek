@@ -227,7 +227,7 @@ function BFS_upwards(start_body, start_ppoint, bodies, visitor,
 
 // Given the CFG for the constructor call of some RAII, return whether the
 // given edge is the matching destructor call.
-function isMatchingDestructor(constructor, edge)
+function isMatchingDestructor(edge, constructed)
 {
     if (edge.Kind != "Call")
         return false;
@@ -247,45 +247,36 @@ function isMatchingDestructor(constructor, edge)
     if (!("PEdgeCallInstance" in edge))
         return false;
 
-    var constructExp = constructor.PEdgeCallInstance.Exp;
-    assert(constructExp.Kind == "Var");
+    if (constructed.Kind != "Var") {
+        // The constructor has to be just the variable v we're interested in,
+        // not *v or v.field.
+        return false;
+    }
 
     var destructExp = edge.PEdgeCallInstance.Exp;
     if (destructExp.Kind != "Var")
         return false;
 
-    return sameVariable(constructExp.Variable, destructExp.Variable);
+    return sameVariable(constructed.Variable, destructExp.Variable);
 }
 
 // Return all calls within the RAII scope of any constructor matched by
-// isConstructor(). (Note that this would be insufficient if you needed to
-// treat each instance separately, such as when different regions of a function
-// body were guarded by these constructors and you needed to do something
-// different with each.)
-function allRAIIGuardedCallPoints(typeInfo, bodies, body, isConstructor)
+// matchConstructorEdge(). (Note that this would be insufficient if you needed
+// to treat each instance separately, such as when different regions of a
+// function body were guarded by these constructors and you needed to do
+// something different with each.)
+function allRAIIGuardedCallPoints(typeInfo, bodies, body)
 {
     if (!("PEdge" in body))
         return [];
 
     var points = [];
 
-    for (var edge of body.PEdge) {
-        if (edge.Kind != "Call")
-            continue;
-        var callee = edge.Exp[0];
-        if (callee.Kind != "Var")
-            continue;
-        var variable = callee.Variable;
-        assert(variable.Kind == "Func");
-        const bits = isConstructor(typeInfo, edge.Type, variable.Name);
-        if (!bits)
-            continue;
-        if (!("PEdgeCallInstance" in edge))
-            continue;
-        if (edge.PEdgeCallInstance.Exp.Kind != "Var")
-            continue;
-
-        points.push(...pointsInRAIIScope(bodies, body, edge, bits));
+    for (const edge of body.PEdge) {
+        const result = matchConstructorEdge(typeInfo, edge);
+        if (result && result.attrs != 0) {
+            points.push(...pointsInRAIIScope(bodies, body, edge, result.attrs, result.constructed));
+        }
     }
 
     return points;
@@ -343,7 +334,19 @@ function findMatchingConstructor(destructorEdge, body, warnIfNotFound=true)
     return undefined;
 }
 
-function pointsInRAIIScope(bodies, body, constructorEdge, bits) {
+// Return an array of all points within the RAII scope, each point being a tuple
+// [<body>, <point>, <attributes>].
+//
+//   bodies - the set of all (loop) bodies for this function.
+//   body - the body containing the starting point.
+//   constructorEdge - the edge representing the constructor invocation. Used
+//     only to initialize the search to the point just after the ctor call.
+//   bits - the attributes to include with each point. Currently, this is the
+//     same for every returned point tuple.
+//   constructed - the variable that was constructed. For a regular constructor
+//     call, this could be trivially inferred from `constructorEdge`, but for
+//     inlined constexpr constructors, the caller needs to figure it out.
+function pointsInRAIIScope(bodies, body, constructorEdge, bits, constructed) {
     var seen = {};
     var worklist = [constructorEdge.Index[1]];
     var points = [];
@@ -357,7 +360,7 @@ function pointsInRAIIScope(bodies, body, constructorEdge, bits) {
         if (!(point in successors))
             continue;
         for (var nedge of successors[point]) {
-            if (isMatchingDestructor(constructorEdge, nedge))
+            if (isMatchingDestructor(nedge, constructed))
                 continue;
             if (nedge.Kind == "Loop")
                 points.push(...findAllPoints(bodies, nedge.BlockId, bits));
@@ -510,8 +513,10 @@ function isReturningImmobileValue(edge, variable)
 //     obj = someFunction(obj);
 //     obj->foo = someFunction();
 //
-function edgeUsesVariable(edge, variable, body, liveToEnd=false)
+function edgeUsesVariable(typeInfo, edge, decl, body, liveToEnd=false)
 {
+    const variable = decl.Variable;
+
     if (ignoreEdgeUse(edge, variable, body))
         return 0;
 
@@ -540,8 +545,9 @@ function edgeUsesVariable(edge, variable, body, liveToEnd=false)
             return src;
         // Detect `...variable... := rhs` but not `variable := rhs`. The latter
         // overwrites the previous value of `variable` without using it.
-        if (expressionUsesVariable(lhs, variable) && !expressionIsVariable(lhs, variable))
+        if (expressionUsesVariable(lhs, variable) && !exprCoversVariable(typeInfo, lhs, decl)) {
             return src;
+        }
         return 0;
     }
 
@@ -554,7 +560,7 @@ function edgeUsesVariable(edge, variable, body, liveToEnd=false)
             return src;
         if ("PEdgeCallInstance" in edge) {
             if (expressionUsesVariable(edge.PEdgeCallInstance.Exp, variable)) {
-                if (edgeStartsValueLiveRange(edge, variable)) {
+                if (edgeStartsValueLiveRange(typeInfo, edge, decl)) {
                     // If the variable is being constructed, then the incoming
                     // value is not used here; it didn't exist before
                     // construction. (The analysis doesn't get told where
@@ -579,7 +585,7 @@ function edgeUsesVariable(edge, variable, body, liveToEnd=false)
 
         // Assigning call result to a variable.
         const lhs = edge.Exp[1];
-        if (expressionUsesVariable(lhs, variable) && !expressionIsVariable(lhs, variable))
+        if (expressionUsesVariable(lhs, variable) && !exprCoversVariable(typeInfo, lhs, decl))
             return src;
         return 0;
     }
@@ -607,9 +613,102 @@ function maybeDereference(exp, decl) {
     return exp;
 }
 
+// Test to see if `exp` is simply the given variable.
 function expressionIsVariable(exp, variable)
 {
     return exp.Kind == "Var" && sameVariable(exp.Variable, variable);
+}
+
+function referencedCSUName(type) {
+    if (type.Kind == "Pointer") {
+        return referencedCSUName(type.Type);
+    } else if (type.Kind == "CSU") {
+        return type.Name;
+    }
+}
+
+// Test to see if `exp` is simply the given variable or is a field of the given
+// variable that comprises the whole of the interesting parts of that variable's
+// type. The latter is to handle anonymous lambda closures that capture a single
+// GC pointer variable. The idea is that if you assign to the sole field within
+// a struct, then you're overwriting the whole struct and so callers will use
+// this to determine that the old value of the struct is now dead.
+//
+//    struct A {
+//      JSObject* obj;
+//      int i;
+//    } a;
+//    struct B {
+//      A a;
+//      void* vp;
+//    } b;
+//    struct C {
+//      A a1;
+//      A a2;
+//    } c;
+//    a.i = 7; // Does not cover whole variable
+//    a.obj = nullptr; // Covers whole variable
+//    b.vp = nullptr; // Does not cover whole variable
+//    b.a.obj = nullptr; // Covers whole variable
+//    b.a = get_a_struct(); // Covers whole variable
+//    c.a1.obj = nullptr; // Does not cover whole variable (c.a2 was not overwritten)
+//
+function exprCoversVariable(typeInfo, exp, decl)
+{
+    if (exp.Kind == "Var") {
+        return sameVariable(exp.Variable, decl.Variable);
+    } else if (exp.Kind == "Fld") {
+        // Treat x.f = val as "setting" the variable x and overwriting its
+        // previous value if x is a type containing exactly one GC pointer
+        // (because the assignment *does* overwrite the only part of the
+        // variable we care about), and f covers that GC pointer.
+
+        // Only CSUs (classes/structs/unions) are eligible for this partial
+        // assignment treatment.
+        if (decl.Type.Kind != "CSU") {
+            return false;
+        }
+
+        // The type of the expression being assigned to needs to be a type that
+        // contains a single GC pointer, directly or indirectly. Otherwise, we
+        // might be assigning a different field, perhaps an integer, that does
+        // not overwrite the one value we care about. In `x.f1.f2.f3`, this is
+        // the type of the "f3" field.
+        const lhsCSUName = referencedCSUName(exp.Field.Type);
+        if (!lhsCSUName || !typeInfo.SingleGCField[lhsCSUName]) {
+            return false;
+        }
+
+        // Dig all the way through the series of field accesses to find the
+        // innermost level, which is actually the topmost value.
+        //
+        // Example: for `x.f1.f2.f3`, `top` is the `x` variable and `topField`
+        // is the access of "f1" in `x`. Note that this is "inner" in terms of
+        // the data structure, but it's the toplevel CSU that we're getting
+        // fields from.
+
+        let top = exp;
+        let topField;
+        while (top.Kind === "Fld") {
+            topField = top;
+            top = top.Exp[0];
+        }
+
+        // Are we assigning into a field of the variable we're looking for?
+        if (top.Kind != "Var" || !sameVariable(top.Variable, decl.Variable)) {
+            return false;
+        }
+
+        // We really want the type of `top`, but variables don't carry their
+        // types. Fortunately, a field access *does* give the CSU it's an access
+        // in, so use that. (Alternatively, we could look up the variable's
+        // declaration to figure out its type, but this is faster and simpler.)
+        // (Forgive me for describing any of this as simple.)
+        const typeName = referencedCSUName(topField.Field.FieldCSU.Type);
+        return typeName && (typeName in typeInfo.SingleGCField);
+    }
+
+    return false;
 }
 
 // Similar to the above, except treat uses of a reference as if they were uses
@@ -638,13 +737,14 @@ function expressionIsMethodOnVariableDecl(exp, decl)
 //     obj = foo(obj);         // uses previous value but then sets to new value
 //     SomeClass obj(true, 1); // constructor
 //
-function edgeStartsValueLiveRange(edge, variable)
+function edgeStartsValueLiveRange(typeInfo, edge, decl)
 {
-    // Direct assignments start live range of lhs: var = value
+    // Direct assignments start live range of lhs: var = value (but not
+    // including <returnval> = nullptr).
     if (edge.Kind == "Assign") {
         const [lhs, rhs] = edge.Exp;
-        return (expressionIsVariable(lhs, variable) &&
-                !isReturningImmobileValue(edge, variable));
+        return (exprCoversVariable(typeInfo, lhs, decl) &&
+                !isReturningImmobileValue(edge, decl.Variable));
     }
 
     if (edge.Kind != "Call")
@@ -653,7 +753,7 @@ function edgeStartsValueLiveRange(edge, variable)
     // Assignments of call results start live range: var = foo()
     if (1 in edge.Exp) {
         var lhs = edge.Exp[1];
-        if (expressionIsVariable(lhs, variable))
+        if (exprCoversVariable(typeInfo, lhs, decl))
             return true;
     }
 
@@ -665,7 +765,7 @@ function edgeStartsValueLiveRange(edge, variable)
         if (instance.Kind == "Drf")
             instance = instance.Exp[0];
 
-        if (!expressionIsVariable(instance, variable))
+        if (!exprCoversVariable(typeInfo, instance, decl))
             return false;
 
         var callee = edge.Exp[0];
@@ -752,17 +852,14 @@ function parseTypeName(typeName) {
     return { type, namespace, classname, is_specialized }
 }
 
-// Return whether an edge "clears out" a variable's value. A simple example
-// would be
+// Return whether an edge "clears out" a variable's value for the following
+// statements. A simple example would be
 //
 //     var = nullptr;
 //
-// for analyses for which nullptr is a "safe" value (eg GC rooting hazards; you
-// can't get in trouble by holding a nullptr live across a GC.) A more complex
-// example is a Maybe<T> that gets reset:
+// A more complex example is a Maybe<T> that gets reset:
 //
-//     Maybe<AutoCheckCannotGC> nogc;
-//     nogc.emplace(cx);
+//     Maybe<AutoCheckCannotGC> nogc(std::in_place, cx);
 //     nogc.reset();
 //     gc();             // <-- not a problem; nogc is invalidated by prev line
 //     nogc.emplace(cx);
@@ -775,23 +872,40 @@ function parseTypeName(typeName) {
 //     foo(uobj);
 //     gc();
 //
-function edgeEndsValueLiveRange(edge, variable, body)
+function edgeEndsValueLiveRange(typeInfo, edge, decl, body)
 {
-    // var = nullptr;
     if (edge.Kind == "Assign") {
+        // [c++] somevar = nullptr;
         const [lhs, rhs] = edge.Exp;
-        return expressionIsVariable(lhs, variable) && isImmobileValue(rhs);
+        if (exprCoversVariable(typeInfo, lhs, decl) && isImmobileValue(rhs)) {
+            return true;
+        }
+        // Resetting a Maybe<> as part of a constexpr constructor.
+        // The expression is Assign v.<base>.<base>.mIsSome = 0.
+        if (isImmobileValue(rhs) && lhs.Kind == "Fld") {
+            if (lhs.Field.Name[0] == "mIsSome" &&
+                lhs.Field.FieldCSU.Type.Name.includes("::MaybeStorage<") &&
+                rhs.Kind === "Int" &&
+                rhs.String === "0")
+            {
+                // Dig the `v` out of the lhs. It is the innermost Exp[0] of a sequence of field accesses.
+                let inner = lhs;
+                while (inner.Kind == "Fld") {
+                    inner = inner.Exp[0];
+                }
+                return expressionIsVariable(inner, decl.Variable);
+            }
+        }
+        return false;
     }
 
     if (edge.Kind != "Call")
         return false;
 
-    if (edgeMarksVariableGCSafe(edge, variable)) {
+    if (edgeMarksVariableGCSafe(edge, decl.Variable)) {
         // explicit JS_HAZ_VARIABLE_IS_GC_SAFE annotation
         return true;
     }
-
-    const decl = lookupVariable(body, variable);
 
     if (matchEdgeCall(edge, (calleeName, argExprs, lhs) => {
         return calleeName[1] == 'move' && calleeName[0].includes('std::move(') &&
@@ -832,7 +946,7 @@ function edgeEndsValueLiveRange(edge, variable, body)
         // variable we care about.
 
         const lhs = edge.Exp[1].Variable;
-        if (basicBlockEatsVariable(lhs, body, edge.Index[1]))
+        if (basicBlockEatsVariable(typeInfo, lhs, body, edge.Index[1]))
           return true;
     }
 
@@ -889,7 +1003,7 @@ function edgeEndsValueLiveRange(edge, variable, body)
             if (!param.Type.Name.startsWith("mozilla::UniquePtr<"))
                 continue;
             const arg = edge.PEdgeCallArguments.Exp[i];
-            if (expressionIsVariable(arg, variable)) {
+            if (expressionIsVariable(arg, decl.Variable)) {
                 return true;
             }
         }
@@ -908,7 +1022,7 @@ function lookupVariable(body, variable) {
     return undefined;
 }
 
-function edgeMovesVariable(edge, variable, body)
+function edgeMovesVariable(edge, decl)
 {
     if (edge.Kind != 'Call')
         return false;
@@ -927,10 +1041,10 @@ function edgeMovesVariable(edge, variable, body)
         for (const arg of edge.PEdgeCallArguments.Exp) {
             if (arg.Kind != 'Drf') continue;
             const val = arg.Exp[0];
-            if (val.Kind == 'Var' && sameVariable(val.Variable, variable)) {
+            if (val.Kind == 'Var' && sameVariable(val.Variable, decl.Variable)) {
                 // This argument is the variable we're looking for. Return true
                 // if it is passed as an rvalue reference.
-                const type = lookupVariable(body, variable).Type;
+                const type = decl.Type;
                 if (type.Kind == "Pointer" && type.Reference == PTR_RVALUE_REF) {
                     return true;
                 }
@@ -944,8 +1058,10 @@ function edgeMovesVariable(edge, variable, body)
 // Scan forward through the basic block in 'body' starting at 'startpoint',
 // looking for a call that passes 'variable' to a move constructor that
 // "consumes" it (eg UniquePtr::UniquePtr(UniquePtr&&)).
-function basicBlockEatsVariable(variable, body, startpoint)
+function basicBlockEatsVariable(typeInfo, variable, body, startpoint)
 {
+    let decl = lookupVariable(body, variable);
+
     const successors = getSuccessors(body);
     let point = startpoint;
     while (point in successors) {
@@ -956,7 +1072,7 @@ function basicBlockEatsVariable(variable, body, startpoint)
         }
         const edge = edges[0];
 
-        if (edgeMovesVariable(edge, variable, body)) {
+        if (edgeMovesVariable(edge, decl)) {
             return true;
         }
 
@@ -964,7 +1080,7 @@ function basicBlockEatsVariable(variable, body, startpoint)
         // a new value. Never observed in practice, since this function is only
         // called with a temporary resulting from std::move(), which is used
         // immediately for a call. But just to be robust to future uses:
-        if (edgeStartsValueLiveRange(edge, variable)) {
+        if (edgeStartsValueLiveRange(typeInfo, edge, decl)) {
             return false;
         }
 
@@ -1020,7 +1136,7 @@ function synthesizeDestructorName(className) {
     return mangled_dtor + "$" + pretty_dtor;
 }
 
-function getCallEdgeProperties(body, edge, calleeName, functionBodies) {
+function getCallEdgeProperties(typeInfo, body, edge, calleeName, functionBodies) {
     let attrs = 0;
     let extraCalls = [];
 
@@ -1091,7 +1207,7 @@ function getCallEdgeProperties(body, edge, calleeName, functionBodies) {
     // the variable is used in any way that does *not* ensure that it is
     // trivially destructible.
 
-    const variable = instance.Variable;
+    const decl = lookupVariable(body, instance.Variable);
 
     const visitor = new class DominatorVisitor extends Visitor {
         // Do not revisit nodes. For new nodes, relay the decision made by
@@ -1108,12 +1224,12 @@ function getCallEdgeProperties(body, edge, calleeName, functionBodies) {
                 return "continue";
             }
 
-            if (!edgeUsesVariable(edge, variable, body)) {
+            if (!edgeUsesVariable(typeInfo, edge, decl, body)) {
                 // Nothing of interest on this edge, keep searching.
                 return "continue";
             }
 
-            if (edgeEndsValueLiveRange(edge, variable, body)) {
+            if (edgeEndsValueLiveRange(typeInfo, edge, decl, body)) {
                 // This path is safe!
                 return "prune";
             }

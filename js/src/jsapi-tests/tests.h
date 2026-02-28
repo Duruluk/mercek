@@ -10,7 +10,6 @@
 #include "mozilla/Sprintf.h"
 
 #include <errno.h>
-#include <iterator>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -562,7 +561,8 @@ class TestJSPrincipals : public JSPrincipals {
     return false;
   }
 
-  bool isSystemOrAddonPrincipal() override { return true; }
+  bool isSystemPrincipal() override { return true; }
+  bool isAddonPrincipal() override { return true; }
 };
 
 // A class that simulates externally memory-managed data, for testing with

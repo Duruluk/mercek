@@ -122,15 +122,14 @@ EGLNativeWindowType GtkCompositorWidget::GetEGLNativeWindow() {
   return window;
 }
 
-bool GtkCompositorWidget::SetEGLNativeWindowSize(
+void GtkCompositorWidget::SetEGLNativeWindowSize(
     const LayoutDeviceIntSize& aEGLWindowSize) {
 #if defined(MOZ_WAYLAND)
   // We explicitly need to set EGL window size on Wayland only.
-  if (GdkIsWaylandDisplay() && mWidget) {
-    return mWidget->SetEGLNativeWindowSize(aEGLWindowSize);
+  if (mWidget && mWidget->GetWaylandSurface()) {
+    mWidget->GetWaylandSurface()->ApplyEGLWindowSize(aEGLWindowSize);
   }
 #endif
-  return true;
 }
 
 LayoutDeviceIntRegion GtkCompositorWidget::GetTransparentRegion() {
@@ -181,23 +180,6 @@ void GtkCompositorWidget::ConfigureX11Backend(Window aXWindow) {
   mProvider.Initialize(aXWindow);
 }
 #endif
-
-void GtkCompositorWidget::SetRenderingSurface(const uintptr_t aXWindow) {
-  LOG("GtkCompositorWidget::SetRenderingSurface() [%p]\n", mWidget.get());
-
-#if defined(MOZ_WAYLAND)
-  if (GdkIsWaylandDisplay()) {
-    LOG("  configure widget %p\n", mWidget.get());
-    ConfigureWaylandBackend();
-  }
-#endif
-#if defined(MOZ_X11)
-  if (GdkIsX11Display()) {
-    LOG("  configure XWindow %p\n", (void*)aXWindow);
-    ConfigureX11Backend((Window)aXWindow);
-  }
-#endif
-}
 
 #ifdef MOZ_LOGGING
 bool GtkCompositorWidget::IsPopup() {

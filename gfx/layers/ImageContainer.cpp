@@ -508,7 +508,7 @@ void ImageContainer::GetCurrentImages(nsTArray<OwningImage>* aImages,
                                       uint32_t* aGenerationCounter) {
   RecursiveMutexAutoLock lock(mRecursiveMutex);
 
-  *aImages = mCurrentImages.Clone();
+  aImages->Assign(mCurrentImages);
   if (aGenerationCounter) {
     *aGenerationCounter = mGenerationCounter;
   }
@@ -707,7 +707,9 @@ Maybe<PlanarYCbCrData> PlanarYCbCrData::From(
       yuvDesc.ySize().width < 0 || yuvDesc.ySize().height < 0 ||
       yuvDesc.cbCrSize().width < 0 || yuvDesc.cbCrSize().height < 0 ||
       yuvData.mYStride < 0 || yuvData.mCbCrStride < 0 || !yuvData.mYChannel ||
-      !yuvData.mCbChannel || !yuvData.mCrChannel) {
+      !yuvData.mCbChannel || !yuvData.mCrChannel ||
+      yuvDesc.ySize() < yuvData.YDataSize() ||
+      yuvDesc.cbCrSize() < yuvData.CbCrDataSize()) {
     gfxCriticalError() << "Unusual PlanarYCbCrData: " << yuvData.mYSkip << ","
                        << yuvData.mCbSkip << "," << yuvData.mCrSkip << ", "
                        << yuvDesc.ySize().width << "," << yuvDesc.ySize().height
@@ -715,7 +717,8 @@ Maybe<PlanarYCbCrData> PlanarYCbCrData::From(
                        << yuvDesc.cbCrSize().height << ", " << yuvData.mYStride
                        << "," << yuvData.mCbCrStride << ", "
                        << yuvData.mYChannel << "," << yuvData.mCbChannel << ","
-                       << yuvData.mCrChannel;
+                       << yuvData.mCrChannel << "," << yuvData.YDataSize().width
+                       << "," << yuvData.YDataSize().height;
     return {};
   }
 
@@ -813,7 +816,7 @@ nsresult PlanarYCbCrImage::BuildSurfaceDescriptorBuffer(
 
   uint32_t bufferSize = ImageDataSerializer::ComputeYCbCrBufferSize(
       ySize, pdata->mYStride, cbcrSize, pdata->mCbCrStride, yOffset, cbOffset,
-      crOffset);
+      crOffset, pdata->mColorDepth);
 
   aSdBuffer.data() = aAllocate(bufferSize);
 
@@ -1071,7 +1074,6 @@ already_AddRefed<SourceSurface> NVImage::GetAsSourceSurface() {
 
   if (NS_WARN_IF(NS_FAILED(gfx::ConvertYCbCrToRGB(
           aData, format, size, mapping.GetData(), mapping.GetStride())))) {
-    MOZ_ASSERT_UNREACHABLE("Failed to convert YUV into RGB data");
     return nullptr;
   }
 

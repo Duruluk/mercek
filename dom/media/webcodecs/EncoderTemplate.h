@@ -7,7 +7,6 @@
 #ifndef mozilla_dom_EncoderTemplate_h
 #define mozilla_dom_EncoderTemplate_h
 
-#include <limits>
 #include <queue>
 
 #include "EncoderAgent.h"
@@ -240,6 +239,7 @@ class EncoderTemplate : public DOMEventTargetHelper {
 
   void Configure(RefPtr<ConfigureMessage> aMessage);
   void Reconfigure(RefPtr<ConfigureMessage> aMessage);
+  void DrainAndReconfigure(RefPtr<ConfigureMessage> aMessage);
 
   // Returns true when mAgent can be created.
   bool CreateEncoderAgent(WebCodecsId aId, RefPtr<ConfigTypeInternal> aConfig);
@@ -286,6 +286,10 @@ class EncoderTemplate : public DOMEventTargetHelper {
   // configuration change. See CanReconfigure on the
   // {Audio,Video}EncoderConfigInternal
   RefPtr<EncoderAgent> mAgent;
+  MozPromiseRequestHolder<EncoderAgent::ReconfigurationPromise>
+      mReconfigureRequest;
+  MozPromiseRequestHolder<EncoderAgent::EncodePromise>
+      mDrainAfterReconfigureRequest;
   RefPtr<ConfigTypeInternal> mActiveConfig;
   // This is true when a configure call has just been processed, and it's
   // necessary to pass the new decoding configuration when the callback is

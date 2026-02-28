@@ -10,8 +10,6 @@
 #ifndef jit_riscv64_MacroAssembler_riscv64_h
 #define jit_riscv64_MacroAssembler_riscv64_h
 
-#include <iterator>
-
 #include "jit/MoveResolver.h"
 #include "jit/riscv64/Assembler-riscv64.h"
 #include "wasm/WasmTypeDecls.h"
@@ -119,8 +117,7 @@ class MacroAssemblerRiscv64 : public Assembler {
     nopAlign(alignment);
   }
 
-  // TODO(RISCV) Reorder parameters so out parameters come last.
-  bool CalculateOffset(Label* L, int32_t* offset, OffsetSize bits);
+  bool CalculateOffset(Label* L, OffsetSize bits, int32_t* offset);
   int32_t GetOffset(int32_t offset, Label* L, OffsetSize bits);
 
   inline void GenPCRelativeJump(Register rd, int32_t imm32) {
@@ -170,11 +167,11 @@ class MacroAssemblerRiscv64 : public Assembler {
             JumpKind jumpKind = LongJump);
   void ma_b(Register lhs, Imm32 imm, Label* l, Condition c,
             JumpKind jumpKind = LongJump);
-  void BranchAndLinkShort(Label* L);
-  void BranchAndLink(Label* label);
-  void BranchAndLinkShort(int32_t offset);
-  void BranchAndLinkShortHelper(int32_t offset, Label* L);
-  void BranchAndLinkLong(Label* L);
+  CodeOffset BranchAndLinkShort(Label* L);
+  CodeOffset BranchAndLink(Label* label);
+  CodeOffset BranchAndLinkShort(int32_t offset);
+  CodeOffset BranchAndLinkShortHelper(int32_t offset, Label* L);
+  CodeOffset BranchAndLinkLong(Label* L);
   void GenPCRelativeJumpAndLink(Register rd, int32_t imm32);
 
 #define DEFINE_INSTRUCTION(instr)                                           \
@@ -841,10 +838,10 @@ class MacroAssemblerRiscv64Compat : public MacroAssemblerRiscv64 {
 
   void unboxGCThingForGCBarrier(const Address& src, Register dest) {
     loadPtr(src, dest);
-    ExtractBits(dest, dest, 0, JSVAL_TAG_SHIFT - 1);
+    ExtractBits(dest, dest, 0, JSVAL_TAG_SHIFT);
   }
   void unboxGCThingForGCBarrier(const ValueOperand& src, Register dest) {
-    ExtractBits(dest, src.valueReg(), 0, JSVAL_TAG_SHIFT - 1);
+    ExtractBits(dest, src.valueReg(), 0, JSVAL_TAG_SHIFT);
   }
 
   void unboxWasmAnyRefGCThingForGCBarrier(const Address& src, Register dest) {
@@ -1072,22 +1069,6 @@ class MacroAssemblerRiscv64Compat : public MacroAssemblerRiscv64 {
 
   FaultingCodeOffset load16ZeroExtend(const Address& address, Register dest);
   FaultingCodeOffset load16ZeroExtend(const BaseIndex& src, Register dest);
-
-  void SignExtendByte(Register rd, Register rs) {
-    slli(rd, rs, xlen - 8);
-    srai(rd, rd, xlen - 8);
-  }
-
-  void SignExtendShort(Register rd, Register rs) {
-    slli(rd, rs, xlen - 16);
-    srai(rd, rd, xlen - 16);
-  }
-
-  void SignExtendWord(Register rd, Register rs) { sext_w(rd, rs); }
-  void ZeroExtendWord(Register rd, Register rs) {
-    slli(rd, rs, 32);
-    srli(rd, rd, 32);
-  }
 
   template <typename S>
   void load16UnalignedZeroExtend(const S& src, Register dest) {

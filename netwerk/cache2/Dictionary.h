@@ -23,6 +23,7 @@
 #include "mozilla/TimeStamp.h"
 #include "nsTHashMap.h"
 #include "nsHashKeys.h"
+#include "mozilla/net/urlpattern_glue.h"
 
 class nsICacheStorage;
 class nsIIOService;
@@ -78,20 +79,11 @@ class DictionaryCacheEntry final : public nsICacheEntryOpenCallback,
   // Start reading the cache entry into memory and call completion
   // function when done
   nsresult Prefetch(nsILoadContextInfo* aLoadContextInfo, bool& aShouldSuspend,
-                    const std::function<void()>& aFunc);
+                    const std::function<void(nsresult)>& aFunc);
 
-  const nsCString& GetHash() const { return mHash; }
-
-  bool HasHash() {
-    // Hard to statically check since we're called from lambdas in
-    // GetDictionaryFor
-    return !mHash.IsEmpty();
-  }
-
-  void SetHash(const nsACString& aHash) {
-    MOZ_ASSERT(NS_IsMainThread());
-    mHash = aHash;
-  }
+  nsCString GetHash() const;
+  bool HasHash();
+  void SetHash(const nsACString& aHash);
 
   void WriteOnHash();
 
@@ -102,7 +94,7 @@ class DictionaryCacheEntry final : public nsICacheEntryOpenCallback,
   // keep track of requests that may need the data
   void InUse();
   void UseCompleted();
-  bool IsReading() const { return mUsers > 0 && !mWaitingPrefetch.IsEmpty(); }
+  bool IsReading() const;
 
   void SetReplacement(DictionaryCacheEntry* aEntry, DictionaryOrigin* aOrigin) {
     mReplacement = aEntry;
@@ -117,26 +109,24 @@ class DictionaryCacheEntry final : public nsICacheEntryOpenCallback,
 
   // aFunc is called when we have finished reading a dictionary from the
   // cache, or we have no users waiting for cache data (cancelled, etc)
-  void CallbackOnCacheRead(const std::function<void()>& aFunc) {
-    // the reasons to call back are identical to Prefetch()
-    mWaitingPrefetch.AppendElement(aFunc);
-  }
+  void CallbackOnCacheRead(const std::function<void(nsresult)>& aFunc);
 
   const nsACString& GetURI() const { return mURI; }
 
-  const Vector<uint8_t>& GetDictionary() const { return mDictionaryData; }
+  const Vector<uint8_t>& GetDictionary() const;
+
+  // Clear dictionary data for testing (forces reload from cache on next
+  // prefetch)
+  void ClearDataForTesting();
 
   // Accumulate a hash while saving a file being received to the cache
   void AccumulateHash(const char* aBuf, int32_t aCount);
   void FinishHash();
 
   // return a pointer to the data and length
-  uint8_t* DictionaryData(size_t* aLength) const {
-    *aLength = mDictionaryData.length();
-    return (uint8_t*)mDictionaryData.begin();
-  }
+  uint8_t* DictionaryData(size_t* aLength) const;
 
-  bool DictionaryReady() const { return mDictionaryDataComplete; }
+  bool DictionaryReady() const;
 
   size_t SizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf) const {
     // XXX
@@ -146,6 +136,8 @@ class DictionaryCacheEntry final : public nsICacheEntryOpenCallback,
   static nsresult ReadCacheData(nsIInputStream* aInStream, void* aClosure,
                                 const char* aFromSegment, uint32_t aToOffset,
                                 uint32_t aCount, uint32_t* aWriteCount);
+
+  void CleanupOnCacheData(nsresult result);
 
   void MakeMetadataEntry(nsCString& aNewValue);
 
@@ -182,24 +174,41 @@ class DictionaryCacheEntry final : public nsICacheEntryOpenCallback,
   // understand, so we can fail to record a dictionary with type != 'raw'
   //  nsCString mType;
 
-  // SHA-256 hash value ready to put into a header
+  // Cached parsed URLPattern for performance
+  Maybe<UrlPatternGlue> mCachedPattern;
+
+  // SHA-256 hash value - only written/read on MainThread (after
+  // pending->active) Written by FinishHash() on MainThread, immutable after
+  // that
   nsCString mHash;
+
   uint32_t mUsers{0};  // active requests using this entry
-  // in-memory copy of the entry to use to decompress incoming data
+
+  // In-memory copy - only accessed on MainThread after validation
+  // Populated on MainThread after hash validation succeeds
   Vector<uint8_t> mDictionaryData;
-  bool mDictionaryDataComplete{false};
+
+  // Atomic flag indicating dictionary data is complete and validated
+  Atomic<bool, Relaxed> mDictionaryDataComplete{false};
+
+  // Temporary buffer for accumulating dictionary data during cache reads
+  // Only accessed by cache I/O thread during stream callbacks (serialized)
+  Vector<uint8_t> mPendingDictionaryData;
 
   // for accumulating SHA-256 hash values for dictionaries
+  // Only used on main thread (MOZ_ASSERT in AccumulateHash/FinishHash)
   nsCOMPtr<nsICryptoHash> mCrypto;
 
-  // call these when prefetch is complete
-  nsTArray<std::function<void()>> mWaitingPrefetch;
+  // Callbacks when prefetch is complete - only accessed on MainThread
+  nsTArray<std::function<void(nsresult)>> mWaitingPrefetch;
 
   // If we need to Write() an entry before we know the hash, remember the origin
   // here (creates a temporary cycle). Clear on StopRequest
   RefPtr<DictionaryOrigin> mOrigin;
-  // Don't store origin for write if we've already received OnStopRequest
-  bool mStopReceived{false};
+
+  // Simple state flags accessed from multiple threads
+  Atomic<bool, Relaxed> mStopReceived{false};
+  Atomic<bool, Relaxed> mNotCached{false};
 
   // If set, a new entry wants to replace us, and we have active decoding users.
   // When we finish reading data into this entry for decoding, do 2 things:
@@ -209,9 +218,6 @@ class DictionaryCacheEntry final : public nsICacheEntryOpenCallback,
 
   // We should suspend until the ond entry has been read
   bool mShouldSuspend{false};
-
-  // The cache entry has been removed
-  bool mNotCached{false};
 
   // We're blocked from taking over for the old entry for now
   bool mBlocked{false};
@@ -237,7 +243,7 @@ class DictionaryOriginReader final : public nsICacheEntryOpenCallback,
   DictionaryOriginReader() {}
 
   void Start(
-      DictionaryOrigin* aOrigin, nsACString& aKey, nsIURI* aURI,
+      bool aCreate, DictionaryOrigin* aOrigin, nsACString& aKey, nsIURI* aURI,
       ExtContentPolicyType aType, DictionaryCache* aCache,
       const std::function<nsresult(bool, DictionaryCacheEntry*)>& aCallback);
   void FinishMatch();
@@ -279,6 +285,10 @@ class DictionaryOrigin : public nsICacheEntryMetaDataVisitor {
   void FinishAddEntry(DictionaryCacheEntry* aEntry);
   void DumpEntries();
   void Clear();
+  bool IsEmpty() const {
+    return mEntries.IsEmpty() && mPendingEntries.IsEmpty() &&
+           mPendingRemove.IsEmpty() && mWaitingCacheRead.IsEmpty();
+  }
 
  private:
   virtual ~DictionaryOrigin() {}
@@ -329,10 +339,14 @@ class DictionaryCache final {
   already_AddRefed<DictionaryCacheEntry> AddEntry(
       nsIURI* aURI, bool aNewEntry, DictionaryCacheEntry* aDictEntry);
 
-  static void RemoveDictionaryFor(const nsACString& aKey);
+  static void RemoveDictionaryOMT(const nsACString& aKey);
+  // remove the entire origin (should be empty!)
+  static void RemoveOriginFor(const nsACString& aKey);
 
   // Remove a dictionary if it exists for the key given
-  void RemoveDictionary(const nsACString& aKey);
+  static void RemoveDictionary(const nsACString& aKey);
+  // Remove an origin for the origin given
+  void RemoveOrigin(const nsACString& aOrigin);
 
   nsresult RemoveEntry(nsIURI* aURI, const nsACString& aKey);
 
@@ -342,10 +356,16 @@ class DictionaryCache final {
   // Clears all ports at host
   void Clear();
 
+  // Corrupt the hash of a dictionary entry for testing
+  void CorruptHashForTesting(const nsACString& aURI);
+
+  // Clear the dictionary data while keeping the entry (for testing)
+  void ClearDictionaryDataForTesting(const nsACString& aURI);
+
   // return an entry
   void GetDictionaryFor(
-      nsIURI* aURI, ExtContentPolicyType aType, bool& aAsync,
-      nsHttpChannel* aChan, void (*aSuspend)(nsHttpChannel*),
+      nsIURI* aURI, ExtContentPolicyType aType, nsHttpChannel* aChan,
+      void (*aSuspend)(nsHttpChannel*),
       const std::function<nsresult(bool, DictionaryCacheEntry*)>& aCallback);
 
   size_t SizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf) const {
@@ -354,7 +374,10 @@ class DictionaryCache final {
   }
 
  private:
+  void RemoveOriginForInternal(const nsACString& aKey);
+
   static StaticRefPtr<nsICacheStorage> sCacheStorage;
+  static Atomic<bool, Relaxed> sShutdown;
 
   // In-memory cache of dictionary entries.  HashMap, keyed by origin, of
   // Linked list (LRU order) of valid dictionaries for the origin.

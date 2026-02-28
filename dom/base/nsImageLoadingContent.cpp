@@ -128,17 +128,7 @@ class ImageLoadTask : public MicroTaskRunnable {
   const bool mUseUrgentStartForChannel;
 };
 
-nsImageLoadingContent::nsImageLoadingContent()
-    : mObserverList(nullptr),
-      mOutstandingDecodePromises(0),
-      mRequestGeneration(0),
-      mLoadingEnabled(true),
-      mUseUrgentStartForChannel(false),
-      mLazyLoading(false),
-      mSyncDecodingHint(false),
-      mInDocResponsiveContent(false),
-      mCurrentRequestRegistered(false),
-      mPendingRequestRegistered(false) {
+nsImageLoadingContent::nsImageLoadingContent() : mObserverList(nullptr) {
   if (!nsContentUtils::GetImgLoaderForChannel(nullptr, nullptr)) {
     mLoadingEnabled = false;
   }
@@ -1363,7 +1353,7 @@ already_AddRefed<Promise> nsImageLoadingContent::RecognizeCurrentImageText(
             // positioned so that the user can select the text.
             if (Preferences::GetBool("dom.text-recognition.shadow-dom-enabled",
                                      false)) {
-              el->AttachAndSetUAShadowRoot(Element::NotifyUAWidgetSetup::Yes);
+              el->AttachAndSetUAShadowRoot(Element::NotifyUAWidget::Yes);
               TextRecognition::FillShadow(*el->GetShadowRoot(),
                                           textRecognitionResult);
               el->NotifyUAWidgetSetupOrChange();

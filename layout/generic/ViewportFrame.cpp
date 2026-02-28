@@ -259,15 +259,8 @@ nsDisplayWrapList* ViewportFrame::BuildDisplayListForContentTopLayer(
                  "layer");
       continue;
     }
-    if (nsIFrame* backdropPh =
-            frame->GetChildList(FrameChildListID::Backdrop).FirstChild()) {
-      MOZ_ASSERT(!backdropPh->GetNextSibling(), "more than one ::backdrop?");
-      MOZ_ASSERT(backdropPh->HasAnyStateBits(NS_FRAME_FIRST_REFLOW),
-                 "did you intend to reflow ::backdrop placeholders?");
-      nsIFrame* backdropFrame =
-          nsPlaceholderFrame::GetRealFrameForPlaceholder(backdropPh);
+    if (auto* backdropFrame = nsLayoutUtils::GetBackdropFrame(elem)) {
       BuildDisplayListForTopLayerFrame(aBuilder, backdropFrame, &topLayerList);
-
       if (aIsOpaque) {
         *aIsOpaque = BackdropListIsOpaque(this, aBuilder, &topLayerList);
       }
@@ -336,6 +329,13 @@ void ViewportFrame::RemoveFrame(DestroyContext& aContext, ChildListID aListID,
   nsContainerFrame::RemoveFrame(aContext, aListID, aOldFrame);
 }
 #endif
+
+void ViewportFrame::Destroy(DestroyContext& aContext) {
+  if (PresShell()->IsDestroying()) {
+    PresShell::ClearMouseCapture(this);
+  }
+  nsContainerFrame::Destroy(aContext);
+}
 
 nscoord ViewportFrame::IntrinsicISize(const IntrinsicSizeInput& aInput,
                                       IntrinsicISizeType aType) {
@@ -514,23 +514,9 @@ nsSize ViewportFrame::AdjustViewportSizeForFixedPosition(
   nsSize result = aViewportRect.Size();
 
   mozilla::PresShell* presShell = PresShell();
-  // Layout fixed position elements to the visual viewport size if and only if
-  // it has been set and it is larger than the computed size, otherwise use the
-  // computed size.
-  if (presShell->IsVisualViewportSizeSet()) {
-    if (presShell->GetDynamicToolbarState() == DynamicToolbarState::Collapsed &&
-        result < presShell->GetVisualViewportSizeUpdatedByDynamicToolbar()) {
-      // We need to use the viewport size updated by the dynamic toolbar in the
-      // case where the dynamic toolbar is completely hidden.
-      result = presShell->GetVisualViewportSizeUpdatedByDynamicToolbar();
-    } else if (result < presShell->GetVisualViewportSize()) {
-      result = presShell->GetVisualViewportSize();
-    }
-  }
-  // Expand the size to the layout viewport size if necessary.
-  const nsSize layoutViewportSize = presShell->GetLayoutViewportSize();
-  if (result < layoutViewportSize) {
-    result = layoutViewportSize;
+  const nsSize fixedViewportSize = presShell->GetFixedViewportSize();
+  if (result < fixedViewportSize) {
+    result = fixedViewportSize;
   }
 
   return result;

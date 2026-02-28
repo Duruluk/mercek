@@ -58,6 +58,8 @@ WindowGlobalChild::WindowGlobalChild(dom::WindowContext* aWindowContext,
       mDocumentURI(aDocumentURI) {
   MOZ_DIAGNOSTIC_ASSERT(mWindowContext);
   MOZ_DIAGNOSTIC_ASSERT(mDocumentPrincipal);
+  MOZ_DIAGNOSTIC_ASSERT(mDocumentPrincipal->GetIsLocalIpAddress() ==
+                        mWindowContext->IsLocalIP());
 
   if (!mDocumentURI) {
     NS_NewURI(getter_AddRefs(mDocumentURI), "about:blank");
@@ -75,6 +77,20 @@ WindowGlobalChild::WindowGlobalChild(dom::WindowContext* aWindowContext,
       BrowsingContext()->BrowserId(), InnerWindowId(),
       nsContentUtils::TruncatedURLForDisplay(aDocumentURI, 1024),
       embedderInnerWindowID, BrowsingContext()->UsePrivateBrowsing());
+}
+
+void VerifyStoragePrincipalMatchesDocumentPrincipal(WindowGlobalInit aInit) {
+  // WindowGlobalParent::CreateDisconnected performs similar checks in
+  // SetDocumentStoragePrincipal. If they fail, the parent process crashes.
+  // Let's ensure we crash in content instead, and assert each condition
+  // separately to find out what fails. See bug 2003449.
+  nsCString noSuffix, storageNoSuffix;
+  aInit.principal()->GetOriginNoSuffix(noSuffix);
+  aInit.storagePrincipal()->GetOriginNoSuffix(storageNoSuffix);
+  MOZ_RELEASE_ASSERT(noSuffix == storageNoSuffix);
+  MOZ_RELEASE_ASSERT(
+      aInit.principal()->OriginAttributesRef().EqualsIgnoringPartitionKey(
+          aInit.storagePrincipal()->OriginAttributesRef()));
 }
 
 already_AddRefed<WindowGlobalChild> WindowGlobalChild::Create(
@@ -122,6 +138,8 @@ already_AddRefed<WindowGlobalChild> WindowGlobalChild::Create(
 
     MOZ_DIAGNOSTIC_ASSERT(bc->AncestorsAreCurrent());
     MOZ_DIAGNOSTIC_ASSERT(bc->IsInProcess());
+
+    VerifyStoragePrincipalMatchesDocumentPrincipal(init);
 
     ManagedEndpoint<PWindowGlobalParent> endpoint =
         browserChild->OpenPWindowGlobalEndpoint(wgc);
@@ -568,20 +586,10 @@ mozilla::ipc::IPCResult WindowGlobalChild::RecvRestoreTabContent(
   return IPC_OK();
 }
 
-IPCResult WindowGlobalChild::RecvRawMessage(
-    const JSActorMessageMeta& aMeta, const UniquePtr<ClonedMessageData>& aData,
-    const UniquePtr<ClonedMessageData>& aStack) {
-  UniquePtr<StructuredCloneData> data;
-  if (aData) {
-    data = MakeUnique<StructuredCloneData>();
-    data->BorrowFromClonedMessageData(*aData);
-  }
-  UniquePtr<StructuredCloneData> stack;
-  if (aStack) {
-    stack = MakeUnique<StructuredCloneData>();
-    stack->BorrowFromClonedMessageData(*aStack);
-  }
-  ReceiveRawMessage(aMeta, std::move(data), std::move(stack));
+IPCResult WindowGlobalChild::RecvRawMessage(const JSActorMessageMeta& aMeta,
+                                            JSIPCValue&& aData,
+                                            StructuredCloneData* aStack) {
+  ReceiveRawMessage(aMeta, std::move(aData), aStack);
   return IPC_OK();
 }
 
@@ -609,7 +617,9 @@ IPCResult WindowGlobalChild::RecvProcessCloseRequest(
   RefPtr<nsFocusManager> focusManager = nsFocusManager::GetFocusManager();
   RefPtr<dom::BrowsingContext> focusedContext =
       focusManager ? focusManager->GetFocusedBrowsingContext() : nullptr;
-  MOZ_ASSERT(focusedContext, "Cannot find focused context");
+  if (!focusedContext) {
+    return IPC_OK();
+  }
   // Only the currently focused context's CloseWatcher should be processed.
   if (RefPtr<Document> doc = focusedContext->GetExtantDocument()) {
     RefPtr<nsPIDOMWindowInner> win = doc->GetInnerWindow();

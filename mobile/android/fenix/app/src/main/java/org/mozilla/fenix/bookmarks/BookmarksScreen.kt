@@ -8,6 +8,7 @@
 package org.mozilla.fenix.bookmarks
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.compose.foundation.Image
@@ -27,20 +28,24 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.paddingFromBaseline
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -48,10 +53,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -64,6 +72,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
@@ -78,6 +88,8 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.semantics.testTagsAsResourceId
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -87,6 +99,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import mozilla.appservices.places.BookmarkRoot
 import mozilla.components.browser.state.action.AwesomeBarAction
@@ -98,11 +111,10 @@ import mozilla.components.compose.base.button.FloatingActionButton
 import mozilla.components.compose.base.button.TextButton
 import mozilla.components.compose.base.menu.DropdownMenu
 import mozilla.components.compose.base.menu.MenuItem
+import mozilla.components.compose.base.snackbar.Snackbar
 import mozilla.components.compose.base.snackbar.displaySnackbar
 import mozilla.components.compose.base.text.Text
 import mozilla.components.compose.base.textfield.TextField
-import mozilla.components.compose.base.textfield.TextFieldColors
-import mozilla.components.compose.base.theme.AcornTheme
 import mozilla.components.compose.base.utils.BackInvokedHandler
 import mozilla.components.compose.browser.awesomebar.AwesomeBar
 import mozilla.components.compose.browser.awesomebar.AwesomeBarDefaults
@@ -113,9 +125,9 @@ import mozilla.components.compose.browser.toolbar.store.BrowserToolbarStore
 import mozilla.components.compose.browser.toolbar.ui.BrowserToolbarQuery
 import mozilla.components.concept.base.profiler.Profiler
 import mozilla.components.lib.state.ext.observeAsComposableState
-import mozilla.components.lib.state.ext.observeAsState
 import mozilla.components.support.ktx.android.view.hideKeyboard
 import mozilla.telemetry.glean.private.NoExtras
+import org.mozilla.fenix.Config
 import org.mozilla.fenix.GleanMetrics.BookmarksManagement
 import org.mozilla.fenix.R
 import org.mozilla.fenix.bookmarks.BookmarksTestTag.BOOKMARK_TOOLBAR
@@ -128,14 +140,16 @@ import org.mozilla.fenix.compose.Favicon
 import org.mozilla.fenix.compose.list.IconListItem
 import org.mozilla.fenix.compose.list.SelectableFaviconListItem
 import org.mozilla.fenix.compose.list.SelectableIconListItem
+import org.mozilla.fenix.ext.components
+import org.mozilla.fenix.ext.getRootView
 import org.mozilla.fenix.search.SearchFragmentAction.SuggestionClicked
 import org.mozilla.fenix.search.SearchFragmentAction.SuggestionSelected
 import org.mozilla.fenix.search.SearchFragmentState
 import org.mozilla.fenix.search.SearchFragmentStore
+import org.mozilla.fenix.search.awesomebar.DeleteHistoryEntryDelegate
 import org.mozilla.fenix.theme.FirefoxTheme
 import mozilla.components.ui.icons.R as iconsR
 
-private val IconButtonHeight = 48.dp
 private const val MATERIAL_DESIGN_SCRIM = "#52000000"
 
 /**
@@ -167,11 +181,10 @@ internal fun BookmarksScreen(
     val navController = rememberNavController()
     val store = buildStore(navController)
 
-    val isPrivateModeLocked by appStore.observeAsState(
-        initialValue = appStore.state.isPrivateScreenLocked,
-    ) { appState ->
-        appState.isPrivateScreenLocked
-    }
+    val isPrivateModeLocked by remember {
+        appStore.stateFlow.map { appState -> appState.isPrivateScreenLocked }
+    }.collectAsState(initial = appStore.state.isPrivateScreenLocked)
+
     LaunchedEffect(isPrivateModeLocked) {
         if (!isPrivateModeLocked) {
             store.dispatch(PrivateBrowsingAuthorized)
@@ -231,7 +244,7 @@ internal object BookmarksDestinations {
  * The Bookmarks list screen.
  */
 @OptIn(ExperimentalLayoutApi::class) // for WindowInsets.isImeVisible
-@Suppress("LongMethod", "ComplexMethod")
+@Suppress("LongMethod", "CognitiveComplexMethod", "CyclomaticComplexMethod")
 @Composable
 private fun BookmarksList(
     store: BookmarksStore,
@@ -243,9 +256,9 @@ private fun BookmarksList(
     profiler: Profiler?,
     useNewSearchUX: Boolean = false,
 ) {
-    val state by store.observeAsState(store.state) { it }
+    val state by store.stateFlow.collectAsState()
     val searchState = searchStore.observeAsComposableState { it }.value
-    val awesomebarBackground = AcornTheme.colors.layer1
+    val awesomebarBackground = AwesomeBarDefaults.colors().background
     val awesomebarScrim by remember(searchState.query) {
         derivedStateOf {
             when (searchState.query.isNotEmpty()) {
@@ -268,6 +281,18 @@ private fun BookmarksList(
             val (id, titleOrCount) = state.undoSnackbarText()
             stringResource(id, titleOrCount)
         }
+        BookmarksSnackbarState.SelectFolderFailed -> {
+            stringResource(R.string.bookmark_error_select_folder)
+        }
+        is BookmarksSnackbarState.BookmarkMoved -> {
+            stringResource(
+                R.string.bookmark_moved_single_item,
+                formatArgs = arrayOf(
+                    (state.bookmarksSnackbarState as BookmarksSnackbarState.BookmarkMoved).from,
+                    (state.bookmarksSnackbarState as BookmarksSnackbarState.BookmarkMoved).to,
+                ),
+            )
+        }
         else -> ""
     }
 
@@ -275,6 +300,8 @@ private fun BookmarksList(
         is BookmarksSnackbarState.UndoDeletion -> stringResource(R.string.bookmark_undo_deletion)
         else -> null
     }
+
+    val fabHeight = remember { mutableIntStateOf(0) }
 
     LaunchedEffect(state.bookmarksSnackbarState) {
         when (state.bookmarksSnackbarState) {
@@ -292,6 +319,18 @@ private fun BookmarksList(
                 )
             }
             BookmarksSnackbarState.CantEditDesktopFolders -> scope.launch {
+                snackbarHostState.displaySnackbar(
+                    message = snackbarMessage,
+                    onDismissPerformed = { store.dispatch(SnackbarAction.Dismissed) },
+                )
+            }
+            BookmarksSnackbarState.SelectFolderFailed -> scope.launch {
+                snackbarHostState.displaySnackbar(
+                    message = snackbarMessage,
+                    onDismissPerformed = { store.dispatch(SnackbarAction.Dismissed) },
+                )
+            }
+            is BookmarksSnackbarState.BookmarkMoved -> scope.launch {
                 snackbarHostState.displaySnackbar(
                     message = snackbarMessage,
                     onDismissPerformed = { store.dispatch(SnackbarAction.Dismissed) },
@@ -344,12 +383,15 @@ private fun BookmarksList(
                 SnackbarHost(
                     hostState = snackbarHostState,
                     modifier = Modifier.align(Alignment.BottomCenter),
-                )
+                ) {
+                    Snackbar(snackbarData = it)
+                }
             }
         },
         floatingActionButton = {
             if (!state.isLoading && state.emptyListState() == null) {
                 FloatingActionButton(
+                    modifier = Modifier.onPlaced { fabHeight.intValue = it.size.height },
                     icon = painterResource(iconsR.drawable.mozac_ic_search_24),
                     contentDescription = stringResource(R.string.bookmark_search_button_content_description),
                     onClick = { store.dispatch(SearchClicked) },
@@ -363,7 +405,6 @@ private fun BookmarksList(
                 BookmarksListTopBar(store = store)
             }
         },
-        containerColor = FirefoxTheme.colors.layer1,
     ) { paddingValues ->
         if (state.isLoading) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -371,11 +412,13 @@ private fun BookmarksList(
             }
             return@Scaffold
         }
+
         val emptyListState = state.emptyListState()
         if (emptyListState != null) {
             EmptyList(state = emptyListState, dispatcher = store::dispatch)
             return@Scaffold
         }
+
         saveableStateHolder.SaveableStateProvider(state.currentFolder.guid) {
             LazyColumn(
                 modifier = Modifier
@@ -455,7 +498,6 @@ private fun BookmarksList(
                                             R.string.bookmark_item_menu_button_content_description,
                                             item.title,
                                         ),
-                                        tint = FirefoxTheme.colors.iconPrimary,
                                     )
                                 }
 
@@ -513,7 +555,6 @@ private fun BookmarksList(
                                         R.string.bookmark_item_menu_button_content_description,
                                         item.title,
                                     ),
-                                    tint = FirefoxTheme.colors.iconPrimary,
                                 )
                             }
 
@@ -526,10 +567,19 @@ private fun BookmarksList(
                         }
                     }
                 }
+
+                fabOffsetSpace(fabHeight.intValue)
             }
         }
 
         if (useNewSearchUX && state.isSearching && searchState.searchSuggestionsProviders.isNotEmpty()) {
+            val activity = LocalActivity.current
+            val deleteHistoryDelegate = remember(activity?.getRootView(), searchStore) {
+                activity?.getRootView()?.let {
+                    DeleteHistoryEntryDelegate(it, it.context.components, searchStore)
+                }
+            }
+
             Box(
                 modifier = Modifier
                     .background(awesomebarScrim)
@@ -550,19 +600,16 @@ private fun BookmarksList(
                     AwesomeBar(
                         text = searchState.query,
                         providers = searchState.searchSuggestionsProviders,
+                        hiddenSuggestions = searchState.hiddenSuggestions,
                         orientation = AwesomeBarOrientation.TOP,
-                        colors = AwesomeBarDefaults.colors(
-                            background = Color.Transparent,
-                            title = FirefoxTheme.colors.textPrimary,
-                            description = FirefoxTheme.colors.textSecondary,
-                            autocompleteIcon = FirefoxTheme.colors.textSecondary,
-                            groupTitle = FirefoxTheme.colors.textSecondary,
-                        ),
                         onSuggestionClicked = { suggestion ->
                             searchStore.dispatch(SuggestionClicked(suggestion))
                         },
                         onAutoComplete = { suggestion ->
                             searchStore.dispatch(SuggestionSelected(suggestion))
+                        },
+                        onRemoveClicked = { suggestion ->
+                            deleteHistoryDelegate?.handleDeletingHistoryEntry(suggestion)
                         },
                         onVisibilityStateUpdated = {
                             browserStore.dispatch(AwesomeBarAction.VisibilityStateUpdated(it))
@@ -576,15 +623,28 @@ private fun BookmarksList(
     }
 }
 
+private fun LazyListScope.fabOffsetSpace(fabHeight: Int) {
+    item {
+        val fabHeightDp = with(LocalDensity.current) {
+            fabHeight.toDp()
+        }
+        Spacer(modifier = Modifier.size(fabHeightDp))
+    }
+}
+
 @Composable
 private fun BookmarksListTopBar(
     store: BookmarksStore,
 ) {
-    val selectedItems by store.observeAsState(store.state.selectedItems) { it.selectedItems }
-    val recursiveCount by store.observeAsState(store.state.recursiveSelectedCount) { it.recursiveSelectedCount }
-    val folderTitle by store.observeAsState(store.state.currentFolder.title) { store.state.currentFolder.title }
+    val selectedItems by remember { store.stateFlow.map { it.selectedItems } }
+        .collectAsState(initial = store.state.selectedItems)
+    val recursiveCount by remember { store.stateFlow.map { it.recursiveSelectedCount } }
+        .collectAsState(initial = store.state.recursiveSelectedCount)
+    val folderTitle by remember { store.stateFlow.map { store.state.currentFolder.title } }
+        .collectAsState(store.state.currentFolder.title)
     var showMenu by remember { mutableStateOf(false) }
-    val showSortMenu by store.observeAsState(store.state.sortMenuShown) { it.sortMenuShown }
+    val showSortMenu by remember { store.stateFlow.map { it.sortMenuShown } }
+        .collectAsState(store.state.sortMenuShown)
 
     val backgroundColor = if (selectedItems.isEmpty()) {
         MaterialTheme.colorScheme.surface
@@ -595,13 +655,13 @@ private fun BookmarksListTopBar(
     val textColor = if (selectedItems.isEmpty()) {
         MaterialTheme.colorScheme.onSurface
     } else {
-        MaterialTheme.colorScheme.inverseOnSurface
+        MaterialTheme.colorScheme.onPrimary
     }
 
     val iconColor = if (selectedItems.isEmpty()) {
         MaterialTheme.colorScheme.onSurface
     } else {
-        MaterialTheme.colorScheme.inverseOnSurface
+        MaterialTheme.colorScheme.onPrimary
     }
 
     Box {
@@ -614,7 +674,7 @@ private fun BookmarksListTopBar(
             title = {
                 Text(
                     color = textColor,
-                    style = FirefoxTheme.typography.headline6,
+                    style = FirefoxTheme.typography.headline5,
                     text = if (selectedItems.isNotEmpty()) {
                         val total = selectedItems.size + (recursiveCount ?: 0)
                         stringResource(R.string.bookmarks_multi_select_title, total)
@@ -661,12 +721,13 @@ private fun BookmarksListTopBarActions(
     showMenu: Boolean,
     onShowMenuChanged: (Boolean) -> Unit,
 ) {
-    val isCurrentFolderDesktopRoot by store.observeAsState(store.state.currentFolder.isDesktopRoot) {
-        store.state.currentFolder.isDesktopRoot
-    }
-    val isCurrentFolderMobileRoot by store.observeAsState(store.state.currentFolder.isMobileRoot) {
-        store.state.currentFolder.isMobileRoot
-    }
+    val isCurrentFolderDesktopRoot by remember {
+        store.stateFlow.map { store.state.currentFolder.isDesktopRoot }
+    }.collectAsState(store.state.currentFolder.isDesktopRoot)
+    val isCurrentFolderMobileRoot by remember {
+        store.stateFlow.map { store.state.currentFolder.isMobileRoot }
+    }.collectAsState(store.state.currentFolder.isMobileRoot)
+
     when {
         selectedItems.isEmpty() -> BookmarksListTopBarActionsNoSelection(
             store = store,
@@ -797,7 +858,7 @@ private fun BookmarksListTopBarActionsNoSelection(
             },
         ) {
             Icon(
-                painter = painterResource(iconsR.drawable.mozac_ic_filter),
+                painter = painterResource(iconsR.drawable.mozac_ic_sort_24),
                 contentDescription = stringResource(
                     R.string.bookmark_sort_menu_content_desc,
                 ),
@@ -835,7 +896,7 @@ private fun BookmarksListTopBarActionsNoSelection(
                 contentDescription = stringResource(
                     R.string.bookmark_close_button_content_description,
                 ),
-                tint = FirefoxTheme.colors.iconPrimary,
+                tint = MaterialTheme.colorScheme.onSurface,
             )
         }
     }
@@ -845,9 +906,8 @@ private fun BookmarksListTopBarActionsNoSelection(
 private fun WarnDialog(
     store: BookmarksStore,
 ) {
-    val state by store.observeAsState(store.state.openTabsConfirmationDialog) {
-        it.openTabsConfirmationDialog
-    }
+    val state by remember { store.stateFlow.map { it.openTabsConfirmationDialog } }
+        .collectAsState(initial = store.state.openTabsConfirmationDialog)
 
     val dialog = state
     if (dialog is OpenTabsConfirmationDialog.Presenting) {
@@ -885,9 +945,10 @@ private fun AlertDialogDeletionWarning(
     onDeleteTapped: () -> Unit,
 ) {
     AlertDialog(
-        title = {
+        text = {
             Text(
                 text = stringResource(R.string.bookmark_delete_folders_confirmation_dialog),
+                style = FirefoxTheme.typography.body2,
             )
         },
         onDismissRequest = onCancelTapped,
@@ -910,19 +971,47 @@ private fun AlertDialogDeletionWarning(
 private fun SelectFolderScreen(
     store: BookmarksStore,
 ) {
-    val showNewFolderButton by store.observeAsState(store.state.showNewFolderButton) { store.state.showNewFolderButton }
-    val state by store.observeAsState(store.state.bookmarksSelectFolderState) { it.bookmarksSelectFolderState }
+    val showNewFolderButton by remember { store.stateFlow.map { store.state.showNewFolderButton } }
+        .collectAsState(initial = store.state.showNewFolderButton)
+    val state by remember { store.stateFlow.map { it.bookmarksSelectFolderState } }
+        .collectAsState(initial = store.state.bookmarksSelectFolderState)
 
     LaunchedEffect(Unit) {
         store.dispatch(SelectFolderAction.ViewAppeared)
     }
 
+    BackInvokedHandler(state?.isSearching ?: false) {
+        store.dispatch(SelectFolderAction.SearchDismissed)
+    }
+
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+
     Scaffold(
+        modifier = Modifier
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onTap = {
+                                focusManager.clearFocus()
+                                keyboardController?.hide()
+                                store.dispatch(SelectFolderAction.SearchDismissed)
+                            },
+                        )
+                    },
         topBar = {
-            SelectFolderTopBar(store = store)
+            if (state?.isSearching ?: false) {
+                SelectFolderSearchTopBar(store = store)
+            } else {
+                SelectFolderTopBar(store = store)
+            }
         },
-        containerColor = FirefoxTheme.colors.layer1,
     ) { paddingValues ->
+        if (state?.isLoading ?: false) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+            return@Scaffold
+        }
         LazyColumn(
             modifier = Modifier
                 .padding(paddingValues)
@@ -930,11 +1019,16 @@ private fun SelectFolderScreen(
                 .fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            items(state?.folders.orEmpty()) { folder ->
+            items(
+                key = { item -> item.folder.guid },
+                items = state?.visibleFolders.orEmpty().flattenToList(),
+            ) { folder ->
                 FolderListItem(
                     folder = folder,
                     isSelected = folder.guid == state?.selectedGuid,
+                    showPadding = state?.isSearching ?: true,
                     onClick = { store.dispatch(SelectFolderAction.ItemClicked(folder)) },
+                    onChevronClick = { store.dispatch(SelectFolderAction.ChevronClicked(folder)) },
                 )
             }
 
@@ -948,13 +1042,76 @@ private fun SelectFolderScreen(
 }
 
 @Composable
+private fun SelectFolderSearchTopBar(store: BookmarksStore) {
+    val focusRequester = remember { FocusRequester() }
+    var text by remember {
+        mutableStateOf(
+            TextFieldValue(
+                store.state.bookmarksSelectFolderState?.searchQuery.orEmpty(),
+                selection = TextRange(
+                    store.state.bookmarksSelectFolderState?.searchQuery?.length ?: 0,
+                ),
+            ),
+        )
+    }
+
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+        val value = text.text
+        text = text.copy(selection = TextRange(value.length))
+    }
+
+    TopAppBar(
+        title = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { newValue ->
+                    text = newValue
+                    store.dispatch(
+                        SelectFolderAction.SearchQueryUpdated(newValue.text),
+                    )
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focusRequester),
+                placeholder = {
+                    stringResource(R.string.select_bookmark_search_button_content_description)
+                },
+                leadingIcon = {
+                    Icon(
+                        painter = painterResource(iconsR.drawable.mozac_ic_search_24),
+                        contentDescription = stringResource(
+                            R.string.select_bookmark_search_button_content_description,
+                            ),
+                        )
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+            )
+        },
+        navigationIcon = {},
+        actions = {},
+        windowInsets = WindowInsets(
+            top = 0.dp,
+            bottom = 0.dp,
+        ),
+    )
+}
+
+@Composable
 private fun FolderListItem(
     folder: SelectFolderItem,
     isSelected: Boolean,
+    showPadding: Boolean = true,
     onClick: () -> Unit,
+    onChevronClick: () -> Unit,
 ) {
     if (folder.isDesktopRoot) {
-        Box(modifier = Modifier.padding(start = folder.startPadding)) {
+        Box(
+            modifier = Modifier.padding(
+            start = folder.startPadding,
+            ),
+        ) {
             Row(modifier = Modifier.width(FirefoxTheme.layout.size.containerMaxWidth)) {
                 Spacer(modifier = Modifier.width(56.dp))
                 Text(
@@ -965,19 +1122,49 @@ private fun FolderListItem(
             }
         }
     } else {
-        Box(modifier = Modifier.padding(start = folder.startPadding)) {
-            SelectableIconListItem(
-                label = folder.title,
-                isSelected = isSelected,
-                beforeIconPainter = painterResource(iconsR.drawable.mozac_ic_folder_24),
-                modifier = Modifier
-                    .width(FirefoxTheme.layout.size.containerMaxWidth)
-                    .toggleable(
-                        value = isSelected,
-                        role = Role.RadioButton,
-                        onValueChange = { onClick() },
-                    ),
-            )
+        Box(
+            modifier = Modifier
+            .padding(start = if (!showPadding) folder.startPadding else 0.dp)
+            .width(FirefoxTheme.layout.size.containerMaxWidth),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                when (folder.expansionState) {
+                    is SelectFolderExpansionState.None -> Spacer(modifier = Modifier.size(width = 48.dp, height = 0.dp))
+                    is SelectFolderExpansionState.Open -> {
+                        IconButton(onClick = onChevronClick) {
+                            Icon(
+                                painter = painterResource(iconsR.drawable.mozac_ic_chevron_down_24),
+                                contentDescription = stringResource(
+                                    R.string.bookmark_select_folder_close_folder_content_description,
+                                    folder.title,
+                                ),
+                            )
+                        }
+                    }
+                    is SelectFolderExpansionState.Closed -> {
+                        IconButton(onClick = onChevronClick) {
+                            Icon(
+                                painter = painterResource(iconsR.drawable.mozac_ic_chevron_right_24),
+                                contentDescription = stringResource(
+                                    R.string.bookmark_select_folder_expand_folder_content_description,
+                                    folder.title,
+                                ),
+                            )
+                        }
+                    }
+                }
+                SelectableIconListItem(
+                    label = folder.title,
+                    isSelected = isSelected,
+                    beforeIconPainter = painterResource(iconsR.drawable.mozac_ic_folder_24),
+                    modifier = Modifier
+                        .toggleable(
+                            value = isSelected,
+                            role = Role.RadioButton,
+                            onValueChange = { onClick() },
+                        ),
+                )
+            }
         }
     }
 }
@@ -987,7 +1174,9 @@ private fun NewFolderListItem(onClick: () -> Unit) {
     IconListItem(
         label = stringResource(R.string.bookmark_select_folder_new_folder_button_title),
         modifier = Modifier.width(FirefoxTheme.layout.size.containerMaxWidth),
-        labelTextColor = MaterialTheme.colorScheme.tertiary,
+        colors = ListItemDefaults.colors(
+            headlineColor = MaterialTheme.colorScheme.tertiary,
+            ),
         beforeIconPainter = painterResource(iconsR.drawable.mozac_ic_folder_add_24),
         beforeIconTint = MaterialTheme.colorScheme.tertiary,
         onClick = onClick,
@@ -1000,12 +1189,10 @@ private fun SelectFolderTopBar(store: BookmarksStore) {
         { store.dispatch(AddFolderClicked) }
     }
     TopAppBar(
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = FirefoxTheme.colors.layer1),
         title = {
             Text(
                 text = stringResource(R.string.bookmark_select_folder_fragment_label),
-                color = FirefoxTheme.colors.textPrimary,
-                style = FirefoxTheme.typography.headline6,
+                style = FirefoxTheme.typography.headline5,
             )
         },
         navigationIcon = {
@@ -1013,7 +1200,6 @@ private fun SelectFolderTopBar(store: BookmarksStore) {
                 Icon(
                     painter = painterResource(iconsR.drawable.mozac_ic_back_24),
                     contentDescription = stringResource(R.string.bookmark_navigate_back_button_content_description),
-                    tint = FirefoxTheme.colors.iconPrimary,
                 )
             }
         },
@@ -1023,15 +1209,33 @@ private fun SelectFolderTopBar(store: BookmarksStore) {
                     store.dispatch(BookmarksListMenuAction.SortMenu.SortMenuButtonClicked)
                 }) {
                     Icon(
-                        painter = painterResource(iconsR.drawable.mozac_ic_filter),
+                        painter = painterResource(iconsR.drawable.mozac_ic_sort_24),
                         contentDescription = stringResource(
                             R.string.bookmark_sort_menu_content_desc,
                         ),
+                        tint = MaterialTheme.colorScheme.onSurface,
                     )
                 }
 
                 SelectFolderSortOverflowMenu(store = store)
             }
+
+            // TODO https://bugzilla.mozilla.org/show_bug.cgi?id=2006505
+            if (Config.channel.isDebug) {
+                IconButton(
+                    onClick = {
+                        store.dispatch(SelectFolderAction.SearchClicked)
+                    },
+                ) {
+                    Icon(
+                        painter = painterResource(iconsR.drawable.mozac_ic_search_24),
+                        contentDescription = stringResource(
+                            R.string.select_bookmark_search_button_content_description,
+                        ),
+                    )
+                }
+            }
+
             if (onNewFolderClick != null) {
                 IconButton(onClick = { onNewFolderClick() }) {
                     Icon(
@@ -1039,7 +1243,7 @@ private fun SelectFolderTopBar(store: BookmarksStore) {
                         contentDescription = stringResource(
                             R.string.bookmark_add_new_folder_button_content_description,
                         ),
-                        tint = FirefoxTheme.colors.iconPrimary,
+                        tint = MaterialTheme.colorScheme.onSurface,
                     )
                 }
             }
@@ -1053,10 +1257,10 @@ private fun SelectFolderTopBar(store: BookmarksStore) {
 
 @Composable
 private fun SelectFolderSortOverflowMenu(store: BookmarksStore) {
-    val showMenu by store.observeAsState(store.state.sortMenuShown) {
-        store.state.sortMenuShown
-    }
-    val sortOrder by store.observeAsState(store.state.sortOrder) { store.state.sortOrder }
+    val showMenu by remember { store.stateFlow.map { store.state.sortMenuShown } }
+        .collectAsState(initial = store.state.sortMenuShown)
+    val sortOrder by remember { store.stateFlow.map { store.state.sortOrder } }
+        .collectAsState(initial = store.state.sortOrder)
 
     val menuItems = listOf(
         MenuItem.CheckableItem(
@@ -1138,24 +1342,32 @@ private fun EmptyList(
         Column(
             modifier = Modifier.width(FirefoxTheme.layout.size.containerMaxWidth),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Image(
                 painter = painterResource(state.drawableId()),
                 contentDescription = null,
             )
+
+            Spacer(modifier = Modifier.height(FirefoxTheme.layout.space.static200))
+
             Text(
                 text = stringResource(R.string.bookmark_empty_list_title),
-                style = FirefoxTheme.typography.headline7,
-                color = FirefoxTheme.colors.textPrimary,
+                color = MaterialTheme.colorScheme.onSurface,
+                style = FirefoxTheme.typography.headline6,
             )
+
+            Spacer(modifier = Modifier.height(FirefoxTheme.layout.space.static100))
+
             Text(
                 text = stringResource(state.descriptionId()),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = FirefoxTheme.typography.body2,
-                color = FirefoxTheme.colors.textPrimary,
                 textAlign = TextAlign.Center,
             )
+
             if (state is EmptyListState.NotAuthenticated) {
+                Spacer(modifier = Modifier.height(FirefoxTheme.layout.space.static300))
+
                 FilledButton(
                     text = stringResource(R.string.bookmark_empty_list_guest_cta),
                     onClick = { dispatcher(SignIntoSyncClicked) },
@@ -1175,7 +1387,8 @@ private fun BookmarkSortOverflowMenu(
     onDismissRequest: () -> Unit,
     store: BookmarksStore,
 ) {
-    val sortOrder by store.observeAsState(store.state.sortOrder) { store.state.sortOrder }
+    val sortOrder by remember { store.stateFlow.map { store.state.sortOrder } }
+        .collectAsState(store.state.sortOrder)
 
     val menuItems = listOf(
         MenuItem.CheckableItem(
@@ -1289,6 +1502,10 @@ private fun BookmarkListItemMenu(
 ) {
     val menuItems = listOf(
         MenuItem.TextItem(
+            text = Text.Resource(R.string.bookmark_menu_select_button),
+            onClick = { store.dispatch(BookmarksListMenuAction.Bookmark.SelectClicked(bookmark)) },
+        ),
+        MenuItem.TextItem(
             text = Text.Resource(R.string.bookmark_menu_edit_button),
             onClick = { store.dispatch(BookmarksListMenuAction.Bookmark.EditClicked(bookmark)) },
         ),
@@ -1330,6 +1547,10 @@ private fun BookmarkListFolderMenu(
 ) {
     val menuItems = listOf(
         MenuItem.TextItem(
+            text = Text.Resource(R.string.bookmark_menu_select_button),
+            onClick = { store.dispatch(BookmarksListMenuAction.Folder.SelectClicked(folder)) },
+        ),
+        MenuItem.TextItem(
             text = Text.Resource(R.string.bookmark_menu_edit_button),
             onClick = { store.dispatch(BookmarksListMenuAction.Folder.EditClicked(folder)) },
         ),
@@ -1358,7 +1579,7 @@ private fun BookmarkListFolderMenu(
 private fun EditFolderScreen(
     store: BookmarksStore,
 ) {
-    val state by store.observeAsState(store.state) { it }
+    val state by store.stateFlow.collectAsState()
     val editState = state.bookmarksEditFolderState ?: return
     val dialogState = state.bookmarksDeletionDialogState
 
@@ -1376,7 +1597,6 @@ private fun EditFolderScreen(
                 onDeleteClick = { store.dispatch(EditFolderAction.DeleteClicked) },
             )
         },
-        containerColor = FirefoxTheme.colors.layer1,
     ) { paddingValues ->
         Box(
             modifier = Modifier
@@ -1406,7 +1626,7 @@ private fun EditFolderScreen(
 
                 Text(
                     stringResource(R.string.bookmark_save_in_label),
-                    color = FirefoxTheme.colors.textPrimary,
+                    color = MaterialTheme.colorScheme.onSurface,
                     style = FirefoxTheme.typography.body2,
                     modifier = Modifier.padding(start = 16.dp),
                 )
@@ -1427,12 +1647,10 @@ private fun EditFolderTopBar(
     onDeleteClick: () -> Unit,
 ) {
     TopAppBar(
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = FirefoxTheme.colors.layer1),
         title = {
             Text(
                 text = stringResource(R.string.edit_bookmark_folder_fragment_title),
-                color = FirefoxTheme.colors.textPrimary,
-                style = FirefoxTheme.typography.headline6,
+                style = FirefoxTheme.typography.headline5,
             )
         },
         navigationIcon = {
@@ -1440,7 +1658,6 @@ private fun EditFolderTopBar(
                 Icon(
                     painter = painterResource(iconsR.drawable.mozac_ic_back_24),
                     contentDescription = stringResource(R.string.bookmark_navigate_back_button_content_description),
-                    tint = FirefoxTheme.colors.iconPrimary,
                 )
             }
         },
@@ -1449,7 +1666,7 @@ private fun EditFolderTopBar(
                 Icon(
                     painter = painterResource(iconsR.drawable.mozac_ic_delete_24),
                     contentDescription = stringResource(R.string.bookmark_delete_folder_content_description),
-                    tint = FirefoxTheme.colors.iconPrimary,
+                    tint = MaterialTheme.colorScheme.onSurface,
                 )
             }
         },
@@ -1464,10 +1681,10 @@ private fun EditFolderTopBar(
 private fun AddFolderScreen(
     store: BookmarksStore,
 ) {
-    val state by store.observeAsState(store.state.bookmarksAddFolderState) { it.bookmarksAddFolderState }
+    val state by remember { store.stateFlow.map { it.bookmarksAddFolderState } }
+        .collectAsState(initial = store.state.bookmarksAddFolderState)
     Scaffold(
         topBar = { AddFolderTopBar(onBackClick = { store.dispatch(BackClicked) }) },
-        containerColor = FirefoxTheme.colors.layer1,
     ) { paddingValues ->
         Box(
             modifier = Modifier
@@ -1499,8 +1716,8 @@ private fun AddFolderScreen(
                 Spacer(modifier = Modifier.height(24.dp))
 
                 Text(
-                    stringResource(R.string.bookmark_save_in_label),
-                    color = FirefoxTheme.colors.textPrimary,
+                    text = stringResource(R.string.bookmark_save_in_label),
+                    color = MaterialTheme.colorScheme.onSurface,
                     style = FirefoxTheme.typography.body2,
                     modifier = Modifier.padding(start = 16.dp),
                 )
@@ -1518,12 +1735,10 @@ private fun AddFolderScreen(
 @Composable
 private fun AddFolderTopBar(onBackClick: () -> Unit) {
     TopAppBar(
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = FirefoxTheme.colors.layer1),
         title = {
             Text(
                 text = stringResource(R.string.bookmark_add_folder),
-                color = FirefoxTheme.colors.textPrimary,
-                style = FirefoxTheme.typography.headline6,
+                style = FirefoxTheme.typography.headline5,
             )
         },
         navigationIcon = {
@@ -1531,7 +1746,6 @@ private fun AddFolderTopBar(onBackClick: () -> Unit) {
                 Icon(
                     painter = painterResource(iconsR.drawable.mozac_ic_back_24),
                     contentDescription = stringResource(R.string.bookmark_navigate_back_button_content_description),
-                    tint = FirefoxTheme.colors.iconPrimary,
                 )
             }
         },
@@ -1546,7 +1760,8 @@ private fun AddFolderTopBar(onBackClick: () -> Unit) {
 private fun EditBookmarkScreen(
     store: BookmarksStore,
 ) {
-    val state by store.observeAsState(store.state.bookmarksEditBookmarkState) { it.bookmarksEditBookmarkState }
+    val state by remember { store.stateFlow.map { it.bookmarksEditBookmarkState } }
+        .collectAsState(initial = store.state.bookmarksEditBookmarkState)
 
     val bookmark = state?.bookmark ?: return
     val folder = state?.folder ?: return
@@ -1558,7 +1773,6 @@ private fun EditBookmarkScreen(
                 onDeleteClicked = { store.dispatch(EditBookmarkAction.DeleteClicked) },
             )
         },
-        containerColor = FirefoxTheme.colors.layer1,
     ) { paddingValues ->
         Box(
             modifier = Modifier
@@ -1641,30 +1855,30 @@ private fun FolderInfo(
     onFolderClicked: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text(
-            text = stringResource(R.string.bookmark_save_in_label),
-            color = FirefoxTheme.colors.textPrimary,
-            style = FirefoxTheme.typography.body2,
-        )
-
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .height(40.dp)
-                .fillMaxWidth()
-                .clickable { onFolderClicked() },
-        ) {
-            Icon(
-                painter = painterResource(id = iconsR.drawable.mozac_ic_folder_24),
-                contentDescription = "",
-                tint = FirefoxTheme.colors.textPrimary,
-            )
+        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
             Text(
-                text = folderTitle,
-                color = FirefoxTheme.colors.textPrimary,
+                text = stringResource(R.string.bookmark_save_in_label),
                 style = FirefoxTheme.typography.body2,
             )
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .height(40.dp)
+                    .fillMaxWidth()
+                    .clickable { onFolderClicked() },
+            ) {
+                Icon(
+                    painter = painterResource(id = iconsR.drawable.mozac_ic_folder_24),
+                    contentDescription = "",
+                )
+
+                Text(
+                    text = folderTitle,
+                    style = FirefoxTheme.typography.body2,
+                )
+            }
         }
     }
 }
@@ -1683,19 +1897,12 @@ private fun ClearableTextField(
         onValueChange = onValueChange,
         placeholder = placeholder,
         errorText = "",
-        modifier = modifier
-            .onFocusChanged { isFocused = it.isFocused }
-            .padding(0.dp)
-            .paddingFromBaseline(0.dp),
-        minHeight = IconButtonHeight,
-        trailingIcons = {
+        modifier = modifier.onFocusChanged { isFocused = it.isFocused },
+        trailingIcon = {
             if (isFocused && value.isNotEmpty()) {
                 CrossTextFieldButton { onValueChange("") }
             }
         },
-        colors = TextFieldColors.default(
-            placeholderColor = FirefoxTheme.colors.textPrimary,
-        ),
     )
 }
 
@@ -1705,12 +1912,10 @@ private fun EditBookmarkTopBar(
     onDeleteClicked: () -> Unit,
 ) {
     TopAppBar(
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = FirefoxTheme.colors.layer1),
         title = {
             Text(
                 text = stringResource(R.string.edit_bookmark_fragment_title),
-                color = FirefoxTheme.colors.textPrimary,
-                style = FirefoxTheme.typography.headline6,
+                style = FirefoxTheme.typography.headline5,
             )
         },
         navigationIcon = {
@@ -1718,7 +1923,6 @@ private fun EditBookmarkTopBar(
                 Icon(
                     painter = painterResource(iconsR.drawable.mozac_ic_back_24),
                     contentDescription = stringResource(R.string.bookmark_navigate_back_button_content_description),
-                    tint = FirefoxTheme.colors.iconPrimary,
                 )
             }
         },
@@ -1727,7 +1931,7 @@ private fun EditBookmarkTopBar(
                 Icon(
                     painter = painterResource(iconsR.drawable.mozac_ic_delete_24),
                     contentDescription = stringResource(R.string.bookmark_delete_bookmark_content_description),
-                    tint = FirefoxTheme.colors.iconPrimary,
+                    tint = MaterialTheme.colorScheme.onSurface,
                 )
             }
         },
@@ -1778,9 +1982,7 @@ private fun EditBookmarkScreenPreview() {
     )
 
     FirefoxTheme {
-        Box(modifier = Modifier.background(color = FirefoxTheme.colors.layer1)) {
-            EditBookmarkScreen(store = store)
-        }
+        EditBookmarkScreen(store = store)
     }
 }
 
@@ -1886,17 +2088,15 @@ private fun BookmarksScreenPreview() {
     }
 
     FirefoxTheme {
-        Box(modifier = Modifier.background(color = FirefoxTheme.colors.layer1)) {
-            BookmarksScreen(
-                buildStore = store,
-                appStore = AppStore(),
-                browserStore = BrowserStore(),
-                toolbarStore = BrowserToolbarStore(),
-                searchStore = SearchFragmentStore(SearchFragmentState.EMPTY),
-                bookmarksSearchEngine = null,
-                profiler = null,
-            )
-        }
+        BookmarksScreen(
+            buildStore = store,
+            appStore = AppStore(),
+            browserStore = BrowserStore(),
+            toolbarStore = BrowserToolbarStore(),
+            searchStore = SearchFragmentStore(SearchFragmentState.EMPTY),
+            bookmarksSearchEngine = null,
+            profiler = null,
+        )
     }
 }
 
@@ -1933,17 +2133,15 @@ private fun EmptyBookmarksScreenPreview() {
     }
 
     FirefoxTheme {
-        Box(modifier = Modifier.background(color = FirefoxTheme.colors.layer1)) {
-            BookmarksScreen(
-                buildStore = store,
-                appStore = AppStore(),
-                browserStore = BrowserStore(),
-                toolbarStore = BrowserToolbarStore(),
-                searchStore = SearchFragmentStore(SearchFragmentState.EMPTY),
-                bookmarksSearchEngine = null,
-                profiler = null,
-            )
-        }
+        BookmarksScreen(
+            buildStore = store,
+            appStore = AppStore(),
+            browserStore = BrowserStore(),
+            toolbarStore = BrowserToolbarStore(),
+            searchStore = SearchFragmentStore(SearchFragmentState.EMPTY),
+            bookmarksSearchEngine = null,
+            profiler = null,
+        )
     }
 }
 
@@ -1986,9 +2184,7 @@ private fun AddFolderPreview() {
         ),
     )
     FirefoxTheme {
-        Box(modifier = Modifier.background(color = FirefoxTheme.colors.layer1)) {
-            AddFolderScreen(store)
-        }
+        AddFolderScreen(store)
     }
 }
 
@@ -2034,50 +2230,73 @@ private fun SelectFolderPreview() {
                     SelectFolderItem(
                         indentation = PREVIEW_INDENTATION_0,
                         folder = BookmarkItem.Folder("Bookmarks", "guid0", null),
+                        expansionState = SelectFolderExpansionState.Closed,
                     ),
                     SelectFolderItem(
-                        indentation = PREVIEW_INDENTATION_2,
+                        indentation = PREVIEW_INDENTATION_0,
                         folder = BookmarkItem.Folder("Bookmarks Menu", BookmarkRoot.Menu.id, null),
+                        expansionState = SelectFolderExpansionState.None,
                     ),
                     SelectFolderItem(
-                        indentation = PREVIEW_INDENTATION_2,
+                        indentation = PREVIEW_INDENTATION_0,
                         folder = BookmarkItem.Folder("Bookmarks Toolbar", BookmarkRoot.Toolbar.id, position = null),
+                        expansionState = SelectFolderExpansionState.None,
                     ),
                     SelectFolderItem(
                         indentation = PREVIEW_INDENTATION_1,
                         folder = BookmarkItem.Folder("Desktop Bookmarks", BookmarkRoot.Root.id, position = null),
-                    ),
-                    SelectFolderItem(
-                        indentation = PREVIEW_INDENTATION_2,
-                        folder = BookmarkItem.Folder("Bookmarks Unfiled", BookmarkRoot.Unfiled.id, position = null),
-                    ),
-                    SelectFolderItem(
-                        indentation = PREVIEW_INDENTATION_1,
-                        folder = BookmarkItem.Folder("Nested One", "guid0", position = null),
-                    ),
-                    SelectFolderItem(
-                        indentation = PREVIEW_INDENTATION_2,
-                        folder = BookmarkItem.Folder("Nested Two", "guid0", position = null),
-                    ),
-                    SelectFolderItem(
-                        indentation = PREVIEW_INDENTATION_2,
-                        folder = BookmarkItem.Folder("Nested Two", "guid0", position = null),
-                    ),
-                    SelectFolderItem(
-                        indentation = PREVIEW_INDENTATION_1,
-                        folder = BookmarkItem.Folder("Nested One", "guid0", position = null),
-                    ),
-                    SelectFolderItem(
-                        indentation = PREVIEW_INDENTATION_2,
-                        folder = BookmarkItem.Folder("Nested Two", "guid1", position = null),
-                    ),
-                    SelectFolderItem(
-                        indentation = PREVIEW_INDENTATION_3,
-                        folder = BookmarkItem.Folder("Nested Three", "guid0", position = null),
+                        expansionState = SelectFolderExpansionState.None,
                     ),
                     SelectFolderItem(
                         indentation = PREVIEW_INDENTATION_0,
-                        folder = BookmarkItem.Folder("Nested 0", "guid0", position = null),
+                        folder = BookmarkItem.Folder("Bookmarks Unfiled", BookmarkRoot.Unfiled.id, position = null),
+                        expansionState = SelectFolderExpansionState.Open(
+                            listOf(
+                                SelectFolderItem(
+                                    indentation = PREVIEW_INDENTATION_1,
+                                    folder = BookmarkItem.Folder("Nested One", "guid0", position = null),
+                                    expansionState = SelectFolderExpansionState.Open(
+                                        listOf(
+                                            SelectFolderItem(
+                                                indentation = PREVIEW_INDENTATION_2,
+                                                folder = BookmarkItem.Folder("Nested Two", "guid0", position = null),
+                                                expansionState = SelectFolderExpansionState.None,
+                                            ),
+                                            SelectFolderItem(
+                                                indentation = PREVIEW_INDENTATION_2,
+                                                folder = BookmarkItem.Folder("Nested Two", "guid0", position = null),
+                                                expansionState = SelectFolderExpansionState.None,
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                                SelectFolderItem(
+                                    indentation = PREVIEW_INDENTATION_1,
+                                    folder = BookmarkItem.Folder("Nested One", "guid0", position = null),
+                                    expansionState = SelectFolderExpansionState.Open(
+                                        listOf(
+                                            SelectFolderItem(
+                                                indentation = PREVIEW_INDENTATION_2,
+                                                folder = BookmarkItem.Folder("Nested Two", "guid1", position = null),
+                                                expansionState = SelectFolderExpansionState.Open(
+                                                    listOf(
+                                                        SelectFolderItem(
+                                                            indentation = PREVIEW_INDENTATION_3,
+                                                            folder = BookmarkItem.Folder(
+                                                                title = "Nested Three",
+                                                                guid = "guid0",
+                                                                position = null,
+                                                            ),
+                                                            expansionState = SelectFolderExpansionState.None,
+                                                        ),
+                                                    ),
+                                                ),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
                     ),
                 ),
             ),
@@ -2088,8 +2307,6 @@ private fun SelectFolderPreview() {
         ),
     )
     FirefoxTheme {
-        Box(modifier = Modifier.background(color = FirefoxTheme.colors.layer1)) {
-            SelectFolderScreen(store)
-        }
+        SelectFolderScreen(store)
     }
 }

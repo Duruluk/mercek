@@ -6,19 +6,24 @@ pub mod crash_annotations {
     include!(concat!(env!("OUT_DIR"), "/crash_annotations.rs"));
 }
 
+use super::{
+    breakpad_crash_generator::{BreakpadCrashGenerator, BreakpadProcessId},
+    phc::{self, StackTrace},
+};
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+mod linux;
+#[cfg(any(target_os = "android", target_os = "linux"))]
+pub(crate) use linux::get_auxv_info;
+
 #[cfg(target_os = "windows")]
 mod windows;
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use crash_annotations::{
     should_include_annotation, type_of_annotation, CrashAnnotation, CrashAnnotationType,
 };
-use crash_helper_common::{
-    messages::{self, Message},
-    AncillaryData, BreakpadChar, BreakpadData, BreakpadString, IPCConnector, Pid,
-};
-#[cfg(any(target_os = "android", target_os = "linux"))]
-use minidump_writer::minidump_writer::DirectAuxvDumpInfo;
+use crash_helper_common::{BreakpadChar, BreakpadData, BreakpadString, GeckoChildId, Pid};
 use mozannotation_server::{AnnotationData, CAnnotation};
 use num_traits::FromPrimitive;
 use once_cell::sync::Lazy;
@@ -30,20 +35,12 @@ use std::{
     io::{Seek, SeekFrom, Write},
     mem::size_of,
     path::{Path, PathBuf},
-    process,
     sync::Mutex,
 };
-#[cfg(target_os = "windows")]
-use windows_sys::Win32::Foundation::HANDLE;
 
-use crate::{
-    breakpad_crash_generator::BreakpadCrashGenerator,
-    phc::{self, StackTrace},
-};
-
-struct CrashReport {
-    path: OsString,
-    error: Option<CString>,
+pub(crate) struct CrashReport {
+    pub(crate) path: OsString,
+    pub(crate) error: Option<CString>,
 }
 
 impl CrashReport {
@@ -60,11 +57,8 @@ impl CrashReport {
 // arrival. When crashes are retrieved they're similarly pulled out in the
 // order they've arrived.
 static CRASH_REPORTS: Lazy<Mutex<HashMap<Pid, Vec<CrashReport>>>> = Lazy::new(Default::default);
-
-// Table holding the information about the auxiliary vector of potentially
-// every process registered with the crash helper.
-#[cfg(any(target_os = "android", target_os = "linux"))]
-static AUXV_INFO_MAP: Lazy<Mutex<HashMap<Pid, DirectAuxvDumpInfo>>> = Lazy::new(Default::default);
+static CRASH_REPORTS_BY_ID: Lazy<Mutex<HashMap<GeckoChildId, CrashReport>>> =
+    Lazy::new(Default::default);
 
 /******************************************************************************
  * Crash generator                                                            *
@@ -74,11 +68,6 @@ static AUXV_INFO_MAP: Lazy<Mutex<HashMap<Pid, DirectAuxvDumpInfo>>> = Lazy::new(
 enum MinidumpOrigin {
     Breakpad,
     WindowsErrorReporting,
-}
-
-pub(crate) enum MessageResult {
-    None,
-    Connection(IPCConnector),
 }
 
 pub(crate) struct CrashGenerator {
@@ -96,8 +85,6 @@ impl CrashGenerator {
             breakpad_data,
             minidump_path.clone(),
             finalize_breakpad_minidump,
-            #[cfg(any(target_os = "android", target_os = "linux"))]
-            get_auxv_info,
         )?;
 
         Ok(CrashGenerator {
@@ -106,99 +93,14 @@ impl CrashGenerator {
         })
     }
 
-    // Process a message received from the parent process. Return an optional
-    // reply that will be sent back to the parent.
-    pub(crate) fn parent_message(
-        &mut self,
-        client: &IPCConnector,
-        kind: messages::Kind,
-        data: &[u8],
-        ancillary_data: Option<AncillaryData>,
-    ) -> Result<MessageResult> {
-        match kind {
-            messages::Kind::SetCrashReportPath => {
-                let message = messages::SetCrashReportPath::decode(data, ancillary_data)?;
-                self.set_path(message.path);
-                Ok(MessageResult::None)
-            }
-            messages::Kind::TransferMinidump => {
-                let message = messages::TransferMinidump::decode(data, ancillary_data)?;
-                client.send_message(self.transfer_minidump(message.pid))?;
-                Ok(MessageResult::None)
-            }
-            messages::Kind::GenerateMinidump => {
-                todo!("Implement all messages");
-            }
-            #[cfg(any(target_os = "android", target_os = "linux"))]
-            messages::Kind::RegisterAuxvInfo => {
-                let message = messages::RegisterAuxvInfo::decode(data, ancillary_data)?;
-                let map = &mut AUXV_INFO_MAP.lock().unwrap();
-                map.insert(message.pid, message.auxv_info);
-
-                Ok(MessageResult::None)
-            }
-            #[cfg(any(target_os = "android", target_os = "linux"))]
-            messages::Kind::UnregisterAuxvInfo => {
-                let message = messages::UnregisterAuxvInfo::decode(data, ancillary_data)?;
-                let map = &mut AUXV_INFO_MAP.lock().unwrap();
-                map.remove(&message.pid);
-
-                Ok(MessageResult::None)
-            }
-            messages::Kind::RegisterChildProcess => {
-                let message = messages::RegisterChildProcess::decode(data, ancillary_data)?;
-                let connector = IPCConnector::from_ancillary(message.ipc_endpoint)?;
-                connector
-                    .send_message(messages::ChildProcessRegistered::new(process::id() as Pid))?;
-                Ok(MessageResult::Connection(connector))
-            }
-            kind => {
-                bail!("Unexpected message {kind:?} from parent process");
-            }
-        }
-    }
-
-    // Process a message received from a child process. Return an optional
-    // reply that will be sent back to the child.
-    pub(crate) fn child_message(
-        &mut self,
-        kind: messages::Kind,
-        _data: &[u8],
-        _ancillary_data: Option<AncillaryData>,
-    ) -> Result<MessageResult> {
-        bail!("Unexpected message {kind:?} from child process");
-    }
-
-    // Process a message received from an external process. Return an optional
-    // reply that will be sent back.
-    pub(crate) fn external_message(
-        &mut self,
-        #[allow(unused_variables)] runtime: &IPCConnector,
-        kind: messages::Kind,
-        #[allow(unused_variables)] data: &[u8],
-        #[allow(unused_variables)] ancillary_data: Option<AncillaryData>,
-    ) -> Result<MessageResult> {
-        match kind {
-            #[cfg(target_os = "windows")]
-            messages::Kind::WindowsErrorReporting => {
-                let message =
-                    messages::WindowsErrorReportingMinidump::decode(data, ancillary_data)?;
-                let _ = self.generate_wer_minidump(message);
-                runtime.send_message(messages::WindowsErrorReportingMinidumpReply::new())?;
-                Ok(MessageResult::None)
-            }
-            kind => {
-                bail!("Unexpected message {kind:?} from external process");
-            }
-        }
-    }
-
-    fn set_path(&mut self, path: OsString) {
+    pub(crate) fn set_path(&mut self, path: OsString) {
         self.breakpad_server.set_path(path);
     }
 
-    fn transfer_minidump(&self, pid: Pid) -> messages::TransferMinidumpReply {
+    pub(crate) fn move_report_to_id(&self, pid: Pid, id: GeckoChildId) {
         let mut map = CRASH_REPORTS.lock().unwrap();
+        let mut id_map = CRASH_REPORTS_BY_ID.lock().unwrap();
+
         if let Some(mut entry) = map.remove(&pid) {
             let crash_report = entry.remove(0);
 
@@ -206,11 +108,29 @@ impl CrashGenerator {
                 map.insert(pid, entry);
             }
 
-            messages::TransferMinidumpReply::new(crash_report.path, crash_report.error)
-        } else {
-            // Report not found, reply with a zero length path
-            messages::TransferMinidumpReply::new(OsString::new(), None)
+            id_map.insert(id, crash_report);
         }
+    }
+
+    pub(crate) fn retrieve_minidump_by_pid(&self, pid: Pid) -> Option<CrashReport> {
+        let mut map = CRASH_REPORTS.lock().unwrap();
+
+        if let Some(mut entry) = map.remove(&pid) {
+            let crash_report = entry.remove(0);
+
+            if !entry.is_empty() {
+                map.insert(pid, entry);
+            }
+
+            return Some(crash_report);
+        }
+
+        None
+    }
+
+    pub(crate) fn retrieve_minidump_by_id(&self, id: GeckoChildId) -> Option<CrashReport> {
+        let mut map = CRASH_REPORTS_BY_ID.lock().unwrap();
+        map.remove(&id)
     }
 }
 
@@ -282,15 +202,6 @@ fn serialize_phc_stack(stack_trace: &StackTrace) -> String {
     string
 }
 
-#[repr(C)]
-pub struct BreakpadProcessId {
-    pub pid: Pid,
-    #[cfg(target_os = "macos")]
-    pub task: u32,
-    #[cfg(target_os = "windows")]
-    pub handle: HANDLE,
-}
-
 /// This reads the crash annotations, writes them to the .extra file and
 /// finally stores the resulting minidump in the global hash table.
 extern "C" fn finalize_breakpad_minidump(
@@ -338,34 +249,12 @@ fn finalize_crash_report(
         .or_insert_with(|| vec![CrashReport::new(path, &error)]);
 }
 
-#[cfg(any(target_os = "android", target_os = "linux"))]
-extern "C" fn get_auxv_info(pid: Pid, auxv_info_ptr: *mut DirectAuxvDumpInfo) -> bool {
-    let map = &mut AUXV_INFO_MAP.lock().unwrap();
-
-    if let Some(auxv_info) = map.get(&pid) {
-        // SAFETY: The auxv_info_ptr is guaranteed to be valid by the caller.
-        unsafe { auxv_info_ptr.write(auxv_info.to_owned()) };
-        true
-    } else {
-        false
-    }
-}
-
 fn retrieve_annotations(
     process_id: &BreakpadProcessId,
     origin: MinidumpOrigin,
 ) -> Result<Vec<CAnnotation>> {
-    #[cfg(target_os = "windows")]
     let res = mozannotation_server::retrieve_annotations(
-        process_id.handle,
-        CrashAnnotation::Count as usize,
-    );
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    let res =
-        mozannotation_server::retrieve_annotations(process_id.pid, CrashAnnotation::Count as usize);
-    #[cfg(target_os = "macos")]
-    let res = mozannotation_server::retrieve_annotations(
-        process_id.task,
+        process_id.get_native(),
         CrashAnnotation::Count as usize,
     );
 

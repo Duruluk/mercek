@@ -234,6 +234,11 @@ RemoteAccessible* DocAccessibleParent::CreateAcc(
     return nullptr;
   }
 
+  if (aAccData.GenericTypes() & eDocument) {
+    MOZ_ASSERT_UNREACHABLE("Invalid acc type");
+    return nullptr;
+  }
+
   newProxy = new RemoteAccessible(aAccData.ID(), this, aAccData.Role(),
                                   aAccData.Type(), aAccData.GenericTypes(),
                                   aAccData.RoleMapEntryIndex());
@@ -269,6 +274,9 @@ void DocAccessibleParent::AttachChild(RemoteAccessible* aParent,
       }
       MOZ_ASSERT(bridge->GetEmbedderAccessibleDoc() == this);
       if (DocAccessibleParent* childDoc = bridge->GetDocAccessibleParent()) {
+        MOZ_DIAGNOSTIC_ASSERT(!childDoc->RemoteParent(),
+                              "Pending OOP child doc shouldn't have parent "
+                              "once new OuterDoc is attached");
         AddChildDoc(childDoc, aChild->ID(), false);
       }
       return true;
@@ -476,7 +484,7 @@ mozilla::ipc::IPCResult DocAccessibleParent::RecvCaretMoveEvent(
     const uint64_t& aID, const LayoutDeviceIntRect& aCaretRect,
     const int32_t& aOffset, const bool& aIsSelectionCollapsed,
     const bool& aIsAtEndOfLine, const int32_t& aGranularity,
-    const bool& aFromUser) {
+    const bool& aFromUser, const bool& aSuppressEvent) {
   ACQUIRE_ANDROID_LOCK
   if (mShutdown) {
     return IPC_OK();
@@ -498,6 +506,11 @@ mozilla::ipc::IPCResult DocAccessibleParent::RecvCaretMoveEvent(
     // forward and then unselecting backward.
     mTextSelections.ClearAndRetainStorage();
     mTextSelections.AppendElement(TextRangeData(aID, aID, aOffset, aOffset));
+  }
+
+  if (aSuppressEvent) {
+    // We're just updating the cached caret, not notifying clients.
+    return IPC_OK();
   }
 
   PlatformCaretMoveEvent(proxy, aOffset, aIsSelectionCollapsed, aGranularity,
@@ -756,7 +769,6 @@ mozilla::ipc::IPCResult DocAccessibleParent::RecvAccessiblesWillMove(
   return IPC_OK();
 }
 
-#if !defined(XP_WIN)
 mozilla::ipc::IPCResult DocAccessibleParent::RecvAnnouncementEvent(
     const uint64_t& aID, const nsAString& aAnnouncement,
     const uint16_t& aPriority) {
@@ -771,9 +783,7 @@ mozilla::ipc::IPCResult DocAccessibleParent::RecvAnnouncementEvent(
     return IPC_OK();
   }
 
-#  if defined(ANDROID)
   PlatformAnnouncementEvent(target, aAnnouncement, aPriority);
-#  endif
 
   if (!nsCoreUtils::AccEventObserversExist()) {
     return IPC_OK();
@@ -788,7 +798,6 @@ mozilla::ipc::IPCResult DocAccessibleParent::RecvAnnouncementEvent(
 
   return IPC_OK();
 }
-#endif  // !defined(XP_WIN)
 
 mozilla::ipc::IPCResult DocAccessibleParent::RecvTextSelectionChangeEvent(
     const uint64_t& aID, nsTArray<TextRangeData>&& aSelection) {
@@ -883,6 +892,11 @@ mozilla::ipc::IPCResult DocAccessibleParent::RecvBindChildDoc(
 ipc::IPCResult DocAccessibleParent::AddChildDoc(DocAccessibleParent* aChildDoc,
                                                 uint64_t aParentID,
                                                 bool aCreating) {
+  if (aChildDoc->RemoteParent()) {
+    return IPC_FAIL(this,
+                    "Attempt to add child doc which already has a parent");
+  }
+
   // We do not use GetAccessible here because we want to be sure to not get the
   // document it self.
   ProxyEntry* e = mAccessibles.GetEntry(aParentID);
@@ -931,13 +945,21 @@ ipc::IPCResult DocAccessibleParent::AddChildDoc(DocAccessibleParent* aChildDoc,
       aChildDoc->SetEmulatedWindowHandle(mEmulatedWindowHandle);
     }
 #endif  // defined(XP_WIN)
-    // We need to fire a reorder event on the outer doc accessible.
-    // For same-process documents, this is fired by the content process, but
-    // this isn't possible when the document is in a different process to its
-    // embedder.
-    // FireEvent fires both OS and XPCOM events.
-    FireEvent(outerDoc, nsIAccessibleEvent::EVENT_REORDER);
   }
+  // We need to fire a reorder event on the outer doc accessible. There are two
+  // cases this addresses:
+  // 1. An out-of-process embedded iframe document is loaded. For same-process
+  // documents, this is fired by the content process, but this isn't possible
+  // when the document is in a different process to its embedder.
+  // 2. The embedded document is already loaded, but it is being embedded under
+  // a new OuterDocAccessible due to re-creation of the OuterDocAccessible. In
+  // that case, the content process won't fire a reorder event even for
+  // same-process documents. It's important that we do this for remote
+  // same-process iframes because there is a short period after the re-created
+  // OuterDocAccessible fires a show event where the embedded document hasn't
+  // been bound yet.
+  // FireEvent fires both OS and XPCOM events.
+  FireEvent(outerDoc, nsIAccessibleEvent::EVENT_REORDER);
 
   return IPC_OK();
 }

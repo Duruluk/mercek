@@ -2,8 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include <stdlib.h>
-
 #include "jit/shared/IonAssemblerBufferWithConstantPools.h"
 #include "jsapi-tests/tests.h"
 
@@ -42,7 +40,7 @@ END_TEST(testAssemblerBuffer_BufferOffset)
 
 BEGIN_TEST(testAssemblerBuffer_AssemblerBuffer) {
   using js::jit::BufferOffset;
-  using AsmBuf = js::jit::AssemblerBuffer<5 * sizeof(uint32_t), uint32_t>;
+  using AsmBuf = js::jit::AssemblerBuffer<uint32_t>;
 
   AsmBuf ab;
   CHECK(ab.isAligned(16));
@@ -93,7 +91,7 @@ BEGIN_TEST(testAssemblerBuffer_AssemblerBuffer) {
 
   // Split payload across multiple slices.
   CHECK_EQUAL(ab.nextOffset().getOffset(), 24);
-  BufferOffset good1 = ab.putBytesLarge(sizeof(fixdata), fixdata);
+  BufferOffset good1 = ab.putBytes(sizeof(fixdata), fixdata);
   CHECK_EQUAL(good1.getOffset(), 24);
   CHECK_EQUAL(ab.nextOffset().getOffset(), 48);
   CHECK_EQUAL(*ab.getInst(good1), 2000036u);
@@ -114,7 +112,6 @@ BEGIN_TEST(testAssemblerBuffer_BranchDeadlineSet) {
   DLSet dls(alloc);
 
   CHECK(dls.empty());
-  CHECK(alloc.isEmpty());  // Constructor must be infallible.
   CHECK_EQUAL(dls.size(), 0u);
   CHECK_EQUAL(dls.maxRangeSize(), 0u);
 
@@ -218,7 +215,6 @@ namespace {
 struct TestAssembler;
 
 using AsmBufWithPool = js::jit::AssemblerBufferWithConstantPools<
-    /* SliceSize */ 5 * sizeof(uint32_t),
     /* InstSize */ 4,
     /* Inst */ uint32_t,
     /* Asm */ TestAssembler,

@@ -66,11 +66,14 @@ class SyncDeviceName extends MozLitElement {
     this.value = inputVal === "" ? this.defaultValue : inputVal;
     this._isInEditMode = false;
     this.setFocus();
+
+    this.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
   /**
    * Handles key presses in the device name input.
    * Pressing Enter saves the name, pressing Escape cancels editing.
+   *
    * @param {KeyboardEvent} event
    */
   onDeviceNameKeyDown(event) {

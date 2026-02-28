@@ -12,13 +12,13 @@ import io.mockk.just
 import io.mockk.mockk
 import io.mockk.runs
 import io.mockk.verify
+import mozilla.components.browser.state.engine.EngineMiddleware
 import mozilla.components.browser.state.state.BrowserState
 import mozilla.components.browser.state.state.ContentState
 import mozilla.components.browser.state.state.TabSessionState
 import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.concept.sync.DeviceType
 import mozilla.components.feature.tabs.TabsUseCases
-import mozilla.components.support.test.libstate.ext.waitUntilIdle
 import mozilla.components.support.test.robolectric.testContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -34,8 +34,8 @@ import org.mozilla.fenix.components.usecases.FenixBrowserUseCases
 import org.mozilla.fenix.helpers.FenixGleanTestRule
 import org.mozilla.fenix.home.HomeFragmentDirections
 import org.mozilla.fenix.home.recentsyncedtabs.RecentSyncedTab
-import org.mozilla.fenix.tabstray.Page
-import org.mozilla.fenix.tabstray.TabsTrayAccessPoint
+import org.mozilla.fenix.tabstray.redux.state.Page
+import org.mozilla.fenix.tabstray.ui.AccessPoint
 import org.mozilla.fenix.utils.Settings
 
 @RunWith(AndroidJUnit4::class)
@@ -49,7 +49,7 @@ class DefaultRecentSyncedTabControllerTest {
     private val navController: NavController = mockk()
     private val appStore: AppStore = mockk(relaxed = true)
     private val settings: Settings = mockk(relaxed = true)
-    private val accessPoint = TabsTrayAccessPoint.HomeRecentSyncedTab
+    private val accessPoint = AccessPoint.HomeRecentSyncedTab
 
     private lateinit var controller: RecentSyncedTabController
 
@@ -86,6 +86,7 @@ class DefaultRecentSyncedTabControllerTest {
                 ),
                 selectedTabId = nonSyncId,
             ),
+            middleware = EngineMiddleware.create(engine = mockk(relaxed = true)),
         )
         val selectOrAddTabUseCase = TabsUseCases.SelectOrAddUseCase(store)
 
@@ -94,7 +95,6 @@ class DefaultRecentSyncedTabControllerTest {
 
         controller.handleRecentSyncedTabClick(tab)
 
-        store.waitUntilIdle()
         assertNotEquals(nonSyncId, store.state.selectedTabId)
         assertEquals(2, store.state.tabs.size)
         verify { navController.navigate(R.id.browserFragment) }
@@ -160,7 +160,6 @@ class DefaultRecentSyncedTabControllerTest {
 
         controller.handleRecentSyncedTabClick(tab)
 
-        store.waitUntilIdle()
         assertEquals(syncId, store.state.selectedTabId)
         assertEquals(2, store.state.tabs.size)
         verify { navController.navigate(R.id.browserFragment) }
@@ -174,7 +173,7 @@ class DefaultRecentSyncedTabControllerTest {
 
         verify {
             navController.navigate(
-                HomeFragmentDirections.actionGlobalTabsTrayFragment(
+                HomeFragmentDirections.actionGlobalTabManagementFragment(
                     page = Page.SyncedTabs,
                     accessPoint = accessPoint,
                 ),

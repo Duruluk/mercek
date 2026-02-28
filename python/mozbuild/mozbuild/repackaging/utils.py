@@ -6,7 +6,6 @@ import json
 import os
 import pathlib
 import shutil
-import subprocess
 import tarfile
 import zipfile
 from datetime import datetime
@@ -167,32 +166,14 @@ def inject_desktop_entry_file(
 def inject_distribution_folder(source_dir, source_type, app_name):
     distribution_ini_path = mozpath.join(source_dir, source_type, "distribution.ini")
 
-    # Check to see if a distribution.ini file is already supplied in the templates directory
-    # If not, continue to download default Firefox distribution.ini from GitHub
-    if os.path.exists(distribution_ini_path):
-        os.makedirs(
-            mozpath.join(source_dir, app_name.lower(), "distribution"), exist_ok=True
-        )
-        shutil.move(
-            distribution_ini_path,
-            mozpath.join(source_dir, app_name.lower(), "distribution"),
-        )
+    distribution_dir = mozpath.join(source_dir, app_name.lower(), "distribution")
+    os.makedirs(distribution_dir, exist_ok=True)
 
-        return
+    destination_path = mozpath.join(distribution_dir, "distribution.ini")
+    if os.path.exists(destination_path):
+        os.remove(destination_path)
 
-    with TemporaryDirectory() as git_clone_dir:
-        subprocess.check_call(
-            [
-                "git",
-                "clone",
-                "https://github.com/mozilla-partners/deb.git",
-                git_clone_dir,
-            ],
-        )
-        shutil.copytree(
-            mozpath.join(git_clone_dir, "desktop/deb/distribution"),
-            mozpath.join(source_dir, app_name.lower(), "distribution"),
-        )
+    shutil.move(distribution_ini_path, destination_path)
 
 
 def inject_prefs_file(source_dir, app_name, template_dir):
@@ -218,8 +199,12 @@ def prepare_langpack_files(output_dir, xpi_directory):
         manifest = get_manifest_from_langpack(xpi_file, output_dir)
         if manifest is not None:
             language = manifest["langpack_id"]
-            metadata[language] = manifest["description"]
-            output_file = mozpath.join(output_dir, f"{language}.langpack.xpi")
+            extension_id = manifest["browser_specific_settings"]["gecko"]["id"]
+            metadata[language] = {
+                "description": manifest["description"],
+                "extension_id": extension_id,
+            }
+            output_file = mozpath.join(output_dir, f"{extension_id}.xpi")
             shutil.copy(xpi_file, output_file)
 
     return metadata

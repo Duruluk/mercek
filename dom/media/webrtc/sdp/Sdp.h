@@ -60,12 +60,11 @@
                                                                 '__'
 */
 
-#ifndef _SDP_H_
-#define _SDP_H_
+#ifndef SDP_H_
+#define SDP_H_
 
 #include <ostream>
 #include <sstream>
-#include <vector>
 
 #include "sdp/SdpAttributeList.h"
 #include "sdp/SdpEnum.h"

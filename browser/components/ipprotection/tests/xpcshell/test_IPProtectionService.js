@@ -9,14 +9,8 @@ const { AddonTestUtils } = ChromeUtils.importESModule(
 const { ExtensionTestUtils } = ChromeUtils.importESModule(
   "resource://testing-common/ExtensionXPCShellUtils.sys.mjs"
 );
-const { IPProtectionService, IPProtectionStates } = ChromeUtils.importESModule(
-  "resource:///modules/ipprotection/IPProtectionService.sys.mjs"
-);
-const { IPPSignInWatcher } = ChromeUtils.importESModule(
-  "resource:///modules/ipprotection/IPPSignInWatcher.sys.mjs"
-);
 const { IPPEnrollAndEntitleManager } = ChromeUtils.importESModule(
-  "resource:///modules/ipprotection/IPPEnrollAndEntitleManager.sys.mjs"
+  "moz-src:///browser/components/ipprotection/IPPEnrollAndEntitleManager.sys.mjs"
 );
 
 do_get_profile();
@@ -31,38 +25,6 @@ AddonTestUtils.createAppInfo(
 
 ExtensionTestUtils.init(this);
 
-function setupStubs(
-  sandbox,
-  options = {
-    signedIn: true,
-    isLinkedToGuardian: true,
-    validProxyPass: true,
-    entitlement: {
-      subscribed: false,
-      uid: 42,
-      created_at: "2023-01-01T12:00:00.000Z",
-    },
-  }
-) {
-  sandbox.stub(IPPSignInWatcher, "isSignedIn").get(() => options.signedIn);
-  sandbox
-    .stub(IPProtectionService.guardian, "isLinkedToGuardian")
-    .resolves(options.isLinkedToGuardian);
-  sandbox.stub(IPProtectionService.guardian, "fetchUserInfo").resolves({
-    status: 200,
-    error: null,
-    entitlement: options.entitlement,
-  });
-  sandbox.stub(IPProtectionService.guardian, "fetchProxyPass").resolves({
-    status: 200,
-    error: undefined,
-    pass: {
-      isValid: () => options.validProxyPass,
-      asBearerToken: () => "Bearer helloworld",
-    },
-  });
-}
-
 add_setup(async function () {
   await putServerInRemoteSettings();
   IPProtectionService.uninit();
@@ -70,98 +32,6 @@ add_setup(async function () {
   registerCleanupFunction(async () => {
     await IPProtectionService.init();
   });
-});
-
-/**
- * Tests that starting the service gets a state changed event.
- */
-add_task(async function test_IPProtectionService_start() {
-  let sandbox = sinon.createSandbox();
-  setupStubs(sandbox);
-
-  IPProtectionService.init();
-
-  await waitForEvent(
-    IPProtectionService,
-    "IPProtectionService:StateChanged",
-    () => IPProtectionService.state === IPProtectionStates.READY
-  );
-
-  Assert.ok(
-    !IPProtectionService.activatedAt,
-    "IP Protection service should not be active initially"
-  );
-
-  let startedEventPromise = waitForEvent(
-    IPProtectionService,
-    "IPProtectionService:StateChanged",
-    () => IPProtectionService.state === IPProtectionStates.ACTIVE
-  );
-
-  IPProtectionService.start();
-
-  await startedEventPromise;
-
-  Assert.equal(
-    IPProtectionService.state,
-    IPProtectionStates.ACTIVE,
-    "IP Protection service should be active after starting"
-  );
-  Assert.ok(
-    IPProtectionService.activatedAt,
-    "IP Protection service should have an activation timestamp"
-  );
-  Assert.ok(
-    IPProtectionService.proxyManager.active,
-    "IP Protection service should have an active connection"
-  );
-
-  IPProtectionService.uninit();
-  sandbox.restore();
-});
-
-/**
- * Tests that stopping the service gets stop events.
- */
-add_task(async function test_IPProtectionService_stop() {
-  let sandbox = sinon.createSandbox();
-  setupStubs(sandbox);
-
-  const waitForReady = waitForEvent(
-    IPProtectionService,
-    "IPProtectionService:StateChanged",
-    () => IPProtectionService.state === IPProtectionStates.READY
-  );
-
-  IPProtectionService.init();
-  await waitForReady;
-
-  await IPProtectionService.start();
-
-  let stoppedEventPromise = waitForEvent(
-    IPProtectionService,
-    "IPProtectionService:StateChanged",
-    () => IPProtectionService.state !== IPProtectionStates.ACTIVE
-  );
-  IPProtectionService.stop();
-
-  await stoppedEventPromise;
-  Assert.notEqual(
-    IPProtectionService.state,
-    IPProtectionStates.ACTIVE,
-    "IP Protection service should not be active after stopping"
-  );
-  Assert.ok(
-    !IPProtectionService.activatedAt,
-    "IP Protection service should not have an activation timestamp after stopping"
-  );
-  Assert.ok(
-    !IPProtectionService.connection,
-    "IP Protection service should not have an active connection"
-  );
-
-  IPProtectionService.uninit();
-  sandbox.restore();
 });
 
 /**
@@ -199,6 +69,9 @@ add_task(async function test_IPProtectionService_updateState_signedIn() {
 add_task(async function test_IPProtectionService_updateState_signedOut() {
   let sandbox = sinon.createSandbox();
   setupStubs(sandbox);
+  sandbox
+    .stub(IPPEnrollAndEntitleManager, "isEnrolledAndEntitled")
+    .get(() => true);
 
   await IPProtectionService.init();
 
@@ -207,7 +80,7 @@ add_task(async function test_IPProtectionService_updateState_signedOut() {
   let signedOutEventPromise = waitForEvent(
     IPProtectionService,
     "IPProtectionService:StateChanged",
-    () => IPProtectionService.state === IPProtectionStates.UNAVAILABLE
+    () => IPProtectionService.state === IPProtectionStates.UNAUTHENTICATED
   );
 
   IPProtectionService.updateState();
@@ -238,16 +111,15 @@ add_task(
     );
 
     IPProtectionService.init();
+    await IPPEnrollAndEntitleManager.maybeEnrollAndEntitle();
+    IPProtectionService.updateState();
+
     await waitForReady;
 
     IPProtectionService.guardian.fetchUserInfo.resolves({
       status: 200,
       error: null,
-      entitlement: {
-        subscribed: true,
-        uid: 42,
-        created_at: "2023-01-01T12:00:00.000Z",
-      },
+      entitlement: createTestEntitlement({ subscribed: true }),
     });
 
     let hasUpgradedEventPromise = waitForEvent(
@@ -271,7 +143,7 @@ add_task(
 );
 
 /**
- * Tests that refetchEntlement returns errors if no linked VPN is found and
+ * Tests that refetchEntitlement returns errors if no linked VPN is found and
  * sends an event.
  */
 add_task(
@@ -280,6 +152,8 @@ add_task(
     setupStubs(sandbox);
 
     await IPProtectionService.init();
+    await IPPEnrollAndEntitleManager.maybeEnrollAndEntitle();
+    IPProtectionService.updateState();
 
     IPProtectionService.guardian.fetchUserInfo.resolves({
       status: 404,
@@ -315,6 +189,8 @@ add_task(async function test_IPProtectionService_hasUpgraded_signed_out() {
   setupStubs(sandbox);
 
   await IPProtectionService.init();
+  await IPPEnrollAndEntitleManager.maybeEnrollAndEntitle();
+  IPProtectionService.updateState();
 
   sandbox.stub(IPPSignInWatcher, "isSignedIn").get(() => false);
 
@@ -333,4 +209,43 @@ add_task(async function test_IPProtectionService_hasUpgraded_signed_out() {
 
   IPProtectionService.uninit();
   sandbox.restore();
+});
+
+/**
+ * Tests that changing the guardian endpoint preference and reinitializing
+ * the service correctly updates the guardian's endpoint configuration.
+ */
+add_task(async function test_guardian_endpoint_updates_on_reinit() {
+  await IPProtectionService.init();
+
+  let guardian1 = IPProtectionService.guardian;
+  Assert.equal(
+    guardian1.guardianEndpoint,
+    "https://vpn.mozilla.org/",
+    "Initial guardian should have default endpoint"
+  );
+
+  Services.prefs.setCharPref(
+    "browser.ipProtection.guardian.endpoint",
+    "https://test.example.com/"
+  );
+
+  IPProtectionService.uninit();
+  await IPProtectionService.init();
+
+  let guardian2 = IPProtectionService.guardian;
+  Assert.equal(
+    guardian2.guardianEndpoint,
+    "https://test.example.com/",
+    "Guardian should have updated endpoint after reinit"
+  );
+
+  Assert.notStrictEqual(
+    guardian1,
+    guardian2,
+    "Guardian instances should be different after reinit"
+  );
+
+  IPProtectionService.uninit();
+  Services.prefs.clearUserPref("browser.ipProtection.guardian.endpoint");
 });

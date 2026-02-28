@@ -26,7 +26,7 @@ class WeakMapBase;
 
 namespace gc {
 
-struct Cell;
+class Cell;
 
 /*** Liveness ***/
 
@@ -112,17 +112,17 @@ namespace gc {
 
 template <typename T>
 inline bool IsForwarded(const T* t);
+inline bool IsForwarded(const JS::Value& value);
 
 template <typename T>
 inline T* Forwarded(const T* t);
-
 inline Value Forwarded(const JS::Value& value);
 
 template <typename T>
-inline T MaybeForwarded(T t);
+inline T MaybeForwarded(const T& t);
 
-// Helper functions for use in situations where the object's group might be
-// forwarded, for example while marking.
+// Helper functions for use in situations where the object's Shape or BaseShape
+// might be forwarded, for example while marking.
 
 inline const JSClass* MaybeForwardedObjectClass(const JSObject* obj);
 

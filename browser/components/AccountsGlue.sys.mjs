@@ -37,6 +37,12 @@ ChromeUtils.defineLazyGetter(
   () => new Localization(["browser/accounts.ftl", "branding/brand.ftl"], true)
 );
 
+const AlertNotification = Components.Constructor(
+  "@mozilla.org/alert-notification;1",
+  "nsIAlertNotification",
+  "initWithObject"
+);
+
 /**
  * Manages Mozilla Account and Sync related functionality
  * needed at startup. It mainly handles various account-related events and notifications.
@@ -127,27 +133,29 @@ export const AccountsGlue = {
       }
       this._openPreferences("sync");
     };
-    lazy.AlertsService.showAlertNotification(
-      null,
+    let alert = new AlertNotification({
       title,
-      body,
-      true,
-      null,
-      clickCallback
-    );
+      text: body,
+      textClickable: true,
+    });
+    lazy.AlertsService.showAlert(alert, clickCallback);
   },
 
-  _openURLInNewWindow(url) {
+  _openURLInNewWindow(url, privateTab = false) {
     let urlString = Cc["@mozilla.org/supports-string;1"].createInstance(
       Ci.nsISupportsString
     );
     urlString.data = url;
+    let features = "chrome,all,dialog=no";
+    if (privateTab) {
+      features += ",private";
+    }
     return new Promise(resolve => {
       let win = Services.ww.openWindow(
         null,
         AppConstants.BROWSER_CHROME_URL,
         "_blank",
-        "chrome,all,dialog=no",
+        features,
         urlString
       );
       win.addEventListener(
@@ -173,13 +181,25 @@ export const AccountsGlue = {
       // The payload is wrapped weirdly because of how Sync does notifications.
       const URIs = data.wrappedJSObject.object;
 
-      // win can be null, but it's ok, we'll assign it later in openTab()
-      let win = lazy.BrowserWindowTracker.getTopWindow({ private: false });
+      // privateWin and nonPrivateWin can be null, but it's ok, we'll assign it later in openTab() if needed.
+      let privateWin = lazy.BrowserWindowTracker.getTopWindow({
+        private: true,
+      });
+      let nonPrivateWin = lazy.BrowserWindowTracker.getTopWindow({
+        private: false,
+      });
 
       const openTab = async URI => {
         let tab;
+        let win = URI.private ? privateWin : nonPrivateWin;
+
         if (!win) {
-          win = await this._openURLInNewWindow(URI.uri);
+          win = await this._openURLInNewWindow(URI.uri, URI.private);
+          if (URI.private) {
+            privateWin = win;
+          } else {
+            nonPrivateWin = win;
+          }
           let tabs = win.gBrowser.tabs;
           tab = tabs[tabs.length - 1];
         } else {
@@ -238,27 +258,26 @@ export const AccountsGlue = {
           tabCount: URIs.length,
         });
       }
-      const title = await lazy.accountsL10n.formatValue(titleL10nId);
+      const title = await lazy.accountsL10n.formatValue(
+        titleL10nId.id,
+        titleL10nId.args
+      );
 
       const clickCallback = (obsSubject, obsTopic) => {
         if (obsTopic == "alertclickcallback") {
-          win.gBrowser.selectedTab = firstTab;
+          // We might have opened a tab in a private window, which isn't the focused
+          // window - we should focus it before selecting the tab.
+          firstTab.ownerGlobal.window.focus();
+          firstTab.ownerGlobal.gBrowser.selectedTab = firstTab;
         }
       };
 
-      // Specify an icon because on Windows no icon is shown at the moment
-      let imageURL;
-      if (AppConstants.platform == "win") {
-        imageURL = "chrome://branding/content/icon64.png";
-      }
-      lazy.AlertsService.showAlertNotification(
-        imageURL,
+      let alert = new AlertNotification({
         title,
-        body,
-        true,
-        null,
-        clickCallback
-      );
+        text: body,
+        textClickable: true,
+      });
+      lazy.AlertsService.showAlert(alert, clickCallback);
     } catch (ex) {
       console.error("Error displaying tab(s) received by Sync: ", ex);
     }
@@ -324,11 +343,6 @@ export const AccountsGlue = {
       }
     };
 
-    let imageURL;
-    if (AppConstants.platform == "win") {
-      imageURL = "chrome://branding/content/icon64.png";
-    }
-
     // Reset the count only if there are no pending notifications
     if (!lazy.CloseRemoteTab.hasPendingCloseTabNotification) {
       lazy.CloseRemoteTab.closeTabNotificationCount = 0;
@@ -343,15 +357,13 @@ export const AccountsGlue = {
     ]);
 
     try {
-      lazy.AlertsService.showAlertNotification(
-        imageURL,
+      let alert = new AlertNotification({
         title,
-        body,
-        true,
-        null,
-        clickCallback,
-        "closed-tab-notification"
-      );
+        text: body,
+        textClickable: true,
+        name: "closed-tab-notification",
+      });
+      lazy.AlertsService.showAlert(alert, clickCallback);
     } catch (ex) {
       console.error("Error notifying user of closed tab(s) ", ex);
     }
@@ -359,13 +371,9 @@ export const AccountsGlue = {
 
   async _onVerifyLoginNotification({ body, title, url }) {
     let tab;
-    let imageURL;
-    if (AppConstants.platform == "win") {
-      imageURL = "chrome://branding/content/icon64.png";
-    }
     let win = lazy.BrowserWindowTracker.getTopWindow({ private: false });
     if (!win) {
-      win = await this._openURLInNewWindow(url);
+      win = await this._openURLInNewWindow(url, false);
       let tabs = win.gBrowser.tabs;
       tab = tabs[tabs.length - 1];
     } else {
@@ -380,14 +388,12 @@ export const AccountsGlue = {
     };
 
     try {
-      lazy.AlertsService.showAlertNotification(
-        imageURL,
+      let alert = new AlertNotification({
         title,
         body,
-        true,
-        null,
-        clickCallback
-      );
+        textClickable: true,
+      });
+      lazy.AlertsService.showAlert(alert, clickCallback);
     } catch (ex) {
       console.error("Error notifying of a verify login event: ", ex);
     }
@@ -410,21 +416,19 @@ export const AccountsGlue = {
       );
       let win = lazy.BrowserWindowTracker.getTopWindow({ private: false });
       if (!win) {
-        this._openURLInNewWindow(url);
+        this._openURLInNewWindow(url, false);
       } else {
         win.gBrowser.addWebTab(url);
       }
     };
 
     try {
-      lazy.AlertsService.showAlertNotification(
-        null,
+      let alert = new AlertNotification({
         title,
-        body,
-        true,
-        null,
-        clickCallback
-      );
+        text: body,
+        textClickable: true,
+      });
+      lazy.AlertsService.showAlert(alert, clickCallback);
     } catch (ex) {
       console.error("Error notifying of a new Sync device: ", ex);
     }
@@ -442,14 +446,13 @@ export const AccountsGlue = {
       }
       this._openPreferences("sync");
     };
-    lazy.AlertsService.showAlertNotification(
-      null,
+
+    let alert = new AlertNotification({
       title,
-      body,
-      true,
-      null,
-      clickCallback
-    );
+      text: body,
+      textClickable: true,
+    });
+    lazy.AlertsService.showAlert(alert, clickCallback);
   },
 
   _updateFxaBadges(win) {

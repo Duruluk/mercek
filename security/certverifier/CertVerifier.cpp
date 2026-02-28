@@ -705,6 +705,12 @@ Result CertVerifier::VerifyCert(
             *isBuiltChainRootBuiltInRoot =
                 trustDomain.GetIsBuiltChainRootBuiltInRoot();
           }
+          // Enforce the minimum (non-weak) RSA key size for certificates
+          // issued from built-in roots.
+          if (keySizeOptions[i] < MIN_RSA_BITS &&
+              trustDomain.GetIsBuiltChainRootBuiltInRoot()) {
+            return Result::ERROR_INADEQUATE_KEY_SIZE;
+          }
           break;
         }
       }

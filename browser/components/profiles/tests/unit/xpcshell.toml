@@ -1,5 +1,7 @@
 [DEFAULT]
-run-if = ["os != 'android'"]
+run-if = [
+  "os != 'android'",
+]
 head = "../../../../../toolkit/profile/test/xpcshell/head.js head.js"
 firefox-appdir = "browser"
 
@@ -14,6 +16,9 @@ prefs = [
 run-sequentially = ["os == 'mac'"] # frequent fail in parallel on Mac
 
 ["test_copy_profile.js"]
+skip-if = [
+  "os == 'mac' && os_version == '10.15' && arch == 'x86_64'", # Bug 2002468
+]
 
 ["test_create_profile.js"]
 
@@ -27,16 +32,18 @@ run-sequentially = ["os == 'mac'"] # frequent fail in parallel on Mac
 
 ["test_recover_storeID.js"]
 
+["test_relative_profile_path.js"]
+
 ["test_selectable_profile_launch.js"]
 
 ["test_selectable_profile_service_exists.js"]
 
 ["test_selectable_profiles_lifecycle.js"]
 skip-if = [
-  "os == 'mac' && os_version == '10.15' && processor == 'x86_64'", # Bug 1952514
-  "os == 'mac' && os_version == '14.70' && processor == 'x86_64'", # Bug 1952514
+  "os == 'mac' && os_version == '10.15' && arch == 'x86_64'", # Bug 1952514
+  "os == 'mac' && os_version == '14.70' && arch == 'x86_64'", # Bug 1952514
 ]
 
 ["test_shared_prefs_lifecycles_methods.js"]
 
-["test_usageProgileGroupID.js"]
+["test_usageProfileGroupID.js"]

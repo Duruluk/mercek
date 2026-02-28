@@ -34,20 +34,22 @@ class CacheIRStubInfo;
 class CompileInfo;
 class WarpScriptSnapshot;
 
-#define WARP_OP_SNAPSHOT_LIST(_) \
-  _(WarpArguments)               \
-  _(WarpRegExp)                  \
-  _(WarpBuiltinObject)           \
-  _(WarpGetIntrinsic)            \
-  _(WarpGetImport)               \
-  _(WarpRest)                    \
-  _(WarpBindUnqualifiedGName)    \
-  _(WarpVarEnvironment)          \
-  _(WarpLexicalEnvironment)      \
-  _(WarpClassBodyEnvironment)    \
-  _(WarpBailout)                 \
-  _(WarpCacheIR)                 \
-  _(WarpInlinedCall)             \
+#define WARP_OP_SNAPSHOT_LIST(_)        \
+  _(WarpArguments)                      \
+  _(WarpRegExp)                         \
+  _(WarpBuiltinObject)                  \
+  _(WarpGetIntrinsic)                   \
+  _(WarpGetImport)                      \
+  _(WarpRest)                           \
+  _(WarpBindUnqualifiedGName)           \
+  _(WarpVarEnvironment)                 \
+  _(WarpLexicalEnvironment)             \
+  _(WarpClassBodyEnvironment)           \
+  _(WarpBailout)                        \
+  _(WarpCacheIR)                        \
+  _(WarpCacheIRWithShapeList)           \
+  _(WarpCacheIRWithShapeListAndOffsets) \
+  _(WarpInlinedCall)                    \
   _(WarpPolymorphicTypes)
 
 // WarpOpSnapshot is the base class for data attached to a single bytecode op by
@@ -76,14 +78,19 @@ class WarpOpSnapshot : public TempObject,
   Kind kind() const { return kind_; }
 
   template <typename T>
+  bool is() const {
+    return kind_ == T::ThisKind;
+  }
+
+  template <typename T>
   const T* as() const {
-    MOZ_ASSERT(kind_ == T::ThisKind);
+    MOZ_ASSERT(is<T>());
     return static_cast<const T*>(this);
   }
 
   template <typename T>
   T* as() {
-    MOZ_ASSERT(kind_ == T::ThisKind);
+    MOZ_ASSERT(is<T>());
     return static_cast<T*>(this);
   }
 
@@ -214,8 +221,7 @@ class WarpBailout : public WarpOpSnapshot {
 #endif
 };
 
-// Information from a Baseline IC stub.
-class WarpCacheIR : public WarpOpSnapshot {
+class WarpCacheIRBase : public WarpOpSnapshot {
   // Baseline stub code. Stored here to keep the CacheIRStubInfo alive.
   OffthreadGCPtr<JitCode*> stubCode_;
   const CacheIRStubInfo* stubInfo_;
@@ -223,24 +229,127 @@ class WarpCacheIR : public WarpOpSnapshot {
   // Copied Baseline stub data. Allocated in the same LifoAlloc.
   const uint8_t* stubData_;
 
- public:
-  static constexpr Kind ThisKind = Kind::WarpCacheIR;
-
-  WarpCacheIR(uint32_t offset, JitCode* stubCode,
-              const CacheIRStubInfo* stubInfo, const uint8_t* stubData)
-      : WarpOpSnapshot(ThisKind, offset),
+ protected:
+  WarpCacheIRBase(Kind kind, uint32_t offset, JitCode* stubCode,
+                  const CacheIRStubInfo* stubInfo, const uint8_t* stubData)
+      : WarpOpSnapshot(kind, offset),
         stubCode_(stubCode),
         stubInfo_(stubInfo),
         stubData_(stubData) {}
-
-  const CacheIRStubInfo* stubInfo() const { return stubInfo_; }
-  const uint8_t* stubData() const { return stubData_; }
 
   void traceData(JSTracer* trc);
 
 #ifdef JS_JITSPEW
   void dumpData(GenericPrinter& out) const;
 #endif
+
+ public:
+  const CacheIRStubInfo* stubInfo() const { return stubInfo_; }
+  const uint8_t* stubData() const { return stubData_; }
+};
+
+// Information from a Baseline IC stub.
+class WarpCacheIR : public WarpCacheIRBase {
+ public:
+  static constexpr Kind ThisKind = Kind::WarpCacheIR;
+
+  WarpCacheIR(uint32_t offset, JitCode* stubCode,
+              const CacheIRStubInfo* stubInfo, const uint8_t* stubData)
+      : WarpCacheIRBase(ThisKind, offset, stubCode, stubInfo, stubData) {}
+
+  void traceData(JSTracer* trc);
+
+#ifdef JS_JITSPEW
+  void dumpData(GenericPrinter& out) const;
+#endif
+};
+
+class ShapeListSnapshot {
+ public:
+  ShapeListSnapshot() = default;
+
+  void init(size_t index, Shape* shape) {
+    MOZ_ASSERT(shape);
+    shapes_[index].init(shape);
+  }
+  const auto& shapes() const { return shapes_; }
+
+  static bool shouldSnapshot(size_t length) {
+    // ShapeListObject has weak pointers so a GC can remove shapes from the
+    // list. Don't snapshot empty shape lists to avoid bailouts and because
+    // handling this edge case would complicate the compiler code.
+    return length > 0 && length <= NumShapes;
+  }
+
+  void trace(JSTracer* trc) const;
+
+ protected:
+  static constexpr size_t NumShapes = 4;
+  mozilla::Array<OffthreadGCPtr<Shape*>, NumShapes> shapes_{};
+};
+
+class ShapeListWithOffsetsSnapshot : public ShapeListSnapshot {
+ public:
+  ShapeListWithOffsetsSnapshot() = default;
+
+  void init(size_t index, Shape* shape, uint32_t offset) {
+    MOZ_ASSERT(shape);
+    shapes_[index].init(shape);
+    offsets_[index] = offset;
+  }
+
+  const auto& offsets() const { return offsets_; }
+
+ private:
+  mozilla::Array<uint32_t, NumShapes> offsets_{};
+};
+
+// Like WarpCacheIR, but also includes a ShapeListSnapshot for the
+// GuardMultipleShapes CacheIR op.
+class WarpCacheIRWithShapeList : public WarpCacheIRBase {
+  const ShapeListSnapshot shapes_;
+
+ public:
+  static constexpr Kind ThisKind = Kind::WarpCacheIRWithShapeList;
+
+  WarpCacheIRWithShapeList(uint32_t offset, JitCode* stubCode,
+                           const CacheIRStubInfo* stubInfo,
+                           const uint8_t* stubData,
+                           const ShapeListSnapshot& shapes)
+      : WarpCacheIRBase(ThisKind, offset, stubCode, stubInfo, stubData),
+        shapes_(shapes) {}
+
+  void traceData(JSTracer* trc);
+
+#ifdef JS_JITSPEW
+  void dumpData(GenericPrinter& out) const;
+#endif
+
+  const ShapeListSnapshot* shapes() const { return &shapes_; }
+};
+
+// Like WarpCacheIR, but also includes a ShapeListWithOffsetsSnapshot for the
+// GuardMultipleShapesToOffset CacheIR op.
+class WarpCacheIRWithShapeListAndOffsets : public WarpCacheIRBase {
+  const ShapeListWithOffsetsSnapshot shapes_;
+
+ public:
+  static constexpr Kind ThisKind = Kind::WarpCacheIRWithShapeListAndOffsets;
+
+  WarpCacheIRWithShapeListAndOffsets(uint32_t offset, JitCode* stubCode,
+                                     const CacheIRStubInfo* stubInfo,
+                                     const uint8_t* stubData,
+                                     const ShapeListWithOffsetsSnapshot& shapes)
+      : WarpCacheIRBase(ThisKind, offset, stubCode, stubInfo, stubData),
+        shapes_(shapes) {}
+
+  void traceData(JSTracer* trc);
+
+#ifdef JS_JITSPEW
+  void dumpData(GenericPrinter& out) const;
+#endif
+
+  const ShapeListWithOffsetsSnapshot* shapes() const { return &shapes_; }
 };
 
 // [SMDOC] Warp Nursery Object/Value support

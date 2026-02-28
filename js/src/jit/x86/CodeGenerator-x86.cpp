@@ -8,10 +8,7 @@
 
 #include "mozilla/DebugOnly.h"
 
-#include <iterator>
-
-#include "jsnum.h"
-
+#include "builtin/Number.h"
 #include "jit/CodeGenerator.h"
 #include "jit/MIR-wasm.h"
 #include "jit/MIR.h"
@@ -676,7 +673,7 @@ void CodeGeneratorX86::visitOutOfLineTruncate(OutOfLineTruncate* ool) {
     saveVolatile(output);
 
     if (gen->compilingWasm()) {
-      masm.setupWasmABICall();
+      masm.setupWasmABICall(wasm::SymbolicAddress::ToInt32);
       masm.passABIArg(input, ABIType::Float64);
 
       int32_t instanceOffset = masm.framePushed() - framePushedAfterInstance;
@@ -781,7 +778,7 @@ void CodeGeneratorX86::visitOutOfLineTruncateFloat32(
     masm.Push(input.asDouble());
 
     if (gen->compilingWasm()) {
-      masm.setupWasmABICall();
+      masm.setupWasmABICall(wasm::SymbolicAddress::ToInt32);
     } else {
       masm.setupUnalignedABICall(output);
     }
@@ -886,29 +883,25 @@ void CodeGenerator::visitDivOrModI64(LDivOrModI64* lir) {
     masm.branch64(Assembler::NotEqual, rhs, Imm64(-1), &notOverflow);
     if (mir->isWasmBuiltinModI64()) {
       masm.xor64(output, output);
+      masm.jump(&done);
     } else {
       masm.wasmTrap(wasm::Trap::IntegerOverflow, lir->trapSiteDesc());
     }
-    masm.jump(&done);
     masm.bind(&notOverflow);
   }
 
-  masm.setupWasmABICall();
+  wasm::SymbolicAddress callee = mir->isWasmBuiltinModI64()
+                                     ? wasm::SymbolicAddress::ModI64
+                                     : wasm::SymbolicAddress::DivI64;
+  masm.setupWasmABICall(callee);
   masm.passABIArg(lhs.high);
   masm.passABIArg(lhs.low);
   masm.passABIArg(rhs.high);
   masm.passABIArg(rhs.low);
 
   int32_t instanceOffset = masm.framePushed() - framePushedAfterInstance;
-  if (mir->isWasmBuiltinModI64()) {
-    masm.callWithABI(lir->trapSiteDesc().bytecodeOffset,
-                     wasm::SymbolicAddress::ModI64,
-                     mozilla::Some(instanceOffset));
-  } else {
-    masm.callWithABI(lir->trapSiteDesc().bytecodeOffset,
-                     wasm::SymbolicAddress::DivI64,
-                     mozilla::Some(instanceOffset));
-  }
+  masm.callWithABI(lir->trapSiteDesc().bytecodeOffset, callee,
+                   mozilla::Some(instanceOffset));
 
   // output in edx:eax, move to output register.
   masm.movl(edx, output.high);
@@ -941,23 +934,19 @@ void CodeGenerator::visitUDivOrModI64(LUDivOrModI64* lir) {
     masm.bind(&nonZero);
   }
 
-  masm.setupWasmABICall();
+  MDefinition* mir = lir->mir();
+  wasm::SymbolicAddress callee = mir->isWasmBuiltinModI64()
+                                     ? wasm::SymbolicAddress::UModI64
+                                     : wasm::SymbolicAddress::UDivI64;
+  masm.setupWasmABICall(callee);
   masm.passABIArg(lhs.high);
   masm.passABIArg(lhs.low);
   masm.passABIArg(rhs.high);
   masm.passABIArg(rhs.low);
 
-  MDefinition* mir = lir->mir();
   int32_t instanceOffset = masm.framePushed() - framePushedAfterInstance;
-  if (mir->isWasmBuiltinModI64()) {
-    masm.callWithABI(lir->trapSiteDesc().bytecodeOffset,
-                     wasm::SymbolicAddress::UModI64,
-                     mozilla::Some(instanceOffset));
-  } else {
-    masm.callWithABI(lir->trapSiteDesc().bytecodeOffset,
-                     wasm::SymbolicAddress::UDivI64,
-                     mozilla::Some(instanceOffset));
-  }
+  masm.callWithABI(lir->trapSiteDesc().bytecodeOffset, callee,
+                   mozilla::Some(instanceOffset));
 
   // output in edx:eax, move to output register.
   masm.movl(edx, output.high);

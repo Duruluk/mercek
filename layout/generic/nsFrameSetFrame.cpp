@@ -25,7 +25,6 @@
 #include "mozilla/gfx/2D.h"
 #include "mozilla/gfx/Helpers.h"
 #include "nsAttrValueInlines.h"
-#include "nsCSSAnonBoxes.h"
 #include "nsContainerFrame.h"
 #include "nsDisplayList.h"
 #include "nsGenericHTMLElement.h"
@@ -313,7 +312,7 @@ void nsHTMLFramesetFrame::Init(nsIContent* aContent, nsContainerFrame* aParent,
   for (int blankX = mChildCount; blankX < numCells; blankX++) {
     RefPtr<ComputedStyle> pseudoComputedStyle =
         presShell->StyleSet()->ResolveNonInheritingAnonymousBoxStyle(
-            PseudoStyleType::framesetBlank);
+            PseudoStyleType::MozFramesetBlank);
 
     // XXX the blank frame is using the content of its parent - at some point it
     // should just have null content, if we support that
@@ -333,11 +332,19 @@ void nsHTMLFramesetFrame::Init(nsIContent* aContent, nsContainerFrame* aParent,
 
 void nsHTMLFramesetFrame::SetInitialChildList(ChildListID aListID,
                                               nsFrameList&& aChildList) {
-  // We do this weirdness where we create our child frames in Init().  On the
-  // other hand, we're going to get a SetInitialChildList() with an empty list
-  // and null list name after the frame constructor is done creating us.  So
-  // just ignore that call.
-  if (aListID == FrameChildListID::Principal && aChildList.IsEmpty()) {
+  if (aListID == FrameChildListID::Principal) {
+    // We do this weirdness where we create our child frames in Init().
+    // We're going to get a SetInitialChildList() after the frame constructor is
+    // done creating us. So deal with that like an append, it should only have
+    // placeholders anyways.
+    if (!aChildList.IsEmpty()) [[unlikely]] {
+#ifdef DEBUG
+      for (auto* frame : aChildList) {
+        MOZ_ASSERT(frame->IsPlaceholderFrame());
+      }
+#endif
+      mFrames.AppendFrames(nullptr, std::move(aChildList));
+    }
     return;
   }
 
@@ -869,7 +876,7 @@ void nsHTMLFramesetFrame::Reflow(nsPresContext* aPresContext,
 
         RefPtr<ComputedStyle> pseudoComputedStyle;
         pseudoComputedStyle = styleSet->ResolveNonInheritingAnonymousBoxStyle(
-            PseudoStyleType::horizontalFramesetBorder);
+            PseudoStyleType::MozHframesetBorder);
 
         borderFrame = new (presShell) nsHTMLFramesetBorderFrame(
             pseudoComputedStyle, PresContext(), borderWidth, false, false);
@@ -898,7 +905,7 @@ void nsHTMLFramesetFrame::Reflow(nsPresContext* aPresContext,
             RefPtr<ComputedStyle> pseudoComputedStyle;
             pseudoComputedStyle =
                 styleSet->ResolveNonInheritingAnonymousBoxStyle(
-                    PseudoStyleType::verticalFramesetBorder);
+                    PseudoStyleType::MozVframesetBorder);
 
             borderFrame = new (presShell) nsHTMLFramesetBorderFrame(
                 pseudoComputedStyle, PresContext(), borderWidth, true, false);
@@ -1259,12 +1266,6 @@ void nsHTMLFramesetFrame::EndMouseDrag(nsPresContext* aPresContext) {
 
 nsIFrame* NS_NewHTMLFramesetFrame(PresShell* aPresShell,
                                   ComputedStyle* aStyle) {
-#ifdef DEBUG
-  const nsStyleDisplay* disp = aStyle->StyleDisplay();
-  NS_ASSERTION(!disp->IsAbsolutelyPositionedStyle() && !disp->IsFloatingStyle(),
-               "Framesets should not be positioned and should not float");
-#endif
-
   return new (aPresShell)
       nsHTMLFramesetFrame(aStyle, aPresShell->GetPresContext());
 }

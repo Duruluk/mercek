@@ -26,11 +26,7 @@ class DisplayListClipState {
       : mClipChainContentDescendants(nullptr),
         mClipChainContainingBlockDescendants(nullptr),
         mCurrentCombinedClipChain(nullptr),
-        mCurrentCombinedClipChainIsValid(false),
-        mClippedToDisplayPort(false) {}
-
-  void SetClippedToDisplayPort() { mClippedToDisplayPort = true; }
-  bool IsClippedToDisplayPort() const { return mClippedToDisplayPort; }
+        mCurrentCombinedClipChainIsValid(false) {}
 
   /**
    * Returns intersection of mClipChainContainingBlockDescendants and
@@ -66,7 +62,6 @@ class DisplayListClipState {
     mClipChainContainingBlockDescendants = nullptr;
     mCurrentCombinedClipChain = nullptr;
     mCurrentCombinedClipChainIsValid = false;
-    mClippedToDisplayPort = false;
   }
 
   void SetClipChainForContainingBlockDescendants(
@@ -84,6 +79,9 @@ class DisplayListClipState {
                                       const nsRect& aRect,
                                       const nsRectCornerRadii* aRadii,
                                       DisplayItemClipChain& aClipChainOnStack);
+
+  void ClipToDisplayPort(nsDisplayListBuilder* aBuilder, const nsRect& aRect,
+                         DisplayItemClipChain& aClipChainOnStack);
 
   void ClipContentDescendants(nsDisplayListBuilder* aBuilder,
                               const nsRect& aRect,
@@ -131,11 +129,6 @@ class DisplayListClipState {
    */
   const DisplayItemClipChain* mCurrentCombinedClipChain;
   bool mCurrentCombinedClipChainIsValid;
-  /**
-   * A flag that is used by sticky positioned items to know if the clip applied
-   * to them is just the displayport clip or if there is additional clipping.
-   */
-  bool mClippedToDisplayPort;
 };
 
 /**
@@ -184,6 +177,15 @@ class DisplayListClipState::AutoSaveRestore {
     mState.ClipContainingBlockDescendants(mBuilder, aRect, aRadii, mClipChain);
   }
 
+  void ClipToDisplayPort(const nsRect& aRect) {
+    NS_ASSERTION(!mRestored, "Already restored!");
+    NS_ASSERTION(!mClipUsed, "mClip already used");
+#ifdef DEBUG
+    mClipUsed = true;
+#endif
+    mState.ClipToDisplayPort(mBuilder, aRect, mClipChain);
+  }
+
   void ClipContentDescendants(const nsRect& aRect,
                               const nsRectCornerRadii* aRadii = nullptr) {
     NS_ASSERTION(!mRestored, "Already restored!");
@@ -224,9 +226,19 @@ class DisplayListClipState::AutoSaveRestore {
                                                       mClipChain, aFlags);
   }
 
-  void SetClippedToDisplayPort() { mState.SetClippedToDisplayPort(); }
-  bool IsClippedToDisplayPort() const {
-    return mState.IsClippedToDisplayPort();
+  void MaybeRemoveDisplayportClip() {
+    if (!mState.mClipChainContainingBlockDescendants) return;
+
+    // Only remove the displayport clip in the case where it's the first
+    // element of the clip chain. This covers the vast majority of cases,
+    // and handling displayport clips later in the clip chain would introduce
+    // significant added complexity.
+    if (mState.mClipChainContainingBlockDescendants->IsDisplayportClip()) {
+      auto* displayportClipItem = mState.mClipChainContainingBlockDescendants;
+      mState.mClipChainContainingBlockDescendants =
+          mState.mClipChainContainingBlockDescendants->mParent;
+      mState.InvalidateCurrentCombinedClipChain(displayportClipItem->mASR);
+    }
   }
 
  protected:

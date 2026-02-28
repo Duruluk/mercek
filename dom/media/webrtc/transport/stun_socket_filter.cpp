@@ -3,7 +3,6 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 #include <iomanip>
 #include <set>
-#include <string>
 
 extern "C" {
 #include "nr_api.h"
@@ -334,6 +333,10 @@ bool STUNTCPSocketFilter::filter_incoming_packet(const uint8_t* data,
   UCHAR* stun = const_cast<uint8_t*>(data);
   uint32_t length = len;
   if (!nr_is_stun_message(stun, length)) {
+    if (length < 2) {
+      // Definitely not stun
+      return true;
+    }
     stun += 2;
     length -= 2;
     if (!nr_is_stun_message(stun, length)) {
@@ -378,6 +381,10 @@ bool STUNTCPSocketFilter::filter_outgoing_packet(const uint8_t* data,
   UCHAR* stun = const_cast<uint8_t*>(data);
   uint32_t length = len;
   if (!nr_is_stun_message(stun, length)) {
+    if (length < 2) {
+      // Definitely not stun
+      return true;
+    }
     stun += 2;
     length -= 2;
     if (!nr_is_stun_message(stun, length)) {

@@ -21,14 +21,15 @@ class BackupTest(MarionetteTestCase):
         # We need to force the service to be enabled because it's disabled
         # by default for Marionette. Also "browser.backup.log" has to be set
         # to true before Firefox starts in order for it to be displayed.
-        self.marionette.enforce_gecko_prefs(
-            {
-                "browser.backup.enabled": True,
-                "browser.backup.log": True,
-                "browser.backup.archive.enabled": True,
-                "browser.backup.restore.enabled": True,
-            }
-        )
+        self.marionette.enforce_gecko_prefs({
+            "browser.backup.enabled": True,
+            "browser.backup.log": True,
+            "browser.backup.archive.enabled": True,
+            "browser.backup.restore.enabled": True,
+            # Necessary to test Session Restore from backup, which relies on
+            # the crash restore mechanism.
+            "browser.sessionstore.resume_from_crash": True,
+        })
 
         self.marionette.set_context("chrome")
 
@@ -93,6 +94,11 @@ class BackupTest(MarionetteTestCase):
         # Restart the browser to force all of the test data we just added
         # to be flushed to disk and to be made ready for backup
         self.marionette.restart()
+
+        # We want to validate that TabState is flushed before serializing the
+        # backup, so run this test in the same browser instance we invoke the
+        # backup in.
+        self.add_test_sessionstore()
 
         # Put the OSKeyStore label back, since it would have been cleared
         # from memory during the restart.
@@ -195,7 +201,7 @@ class BackupTest(MarionetteTestCase):
             const ORIGINAL_STORE_LABEL = OSKeyStore.STORE_LABEL;
             OSKeyStore.STORE_LABEL = "test-" + Math.random().toString(36).substr(2);
 
-            let newProfile = await bs.recoverFromBackupArchive(archivePath, recoveryCode, false, recoveryPath, newProfileRootPath);
+            let newProfile = await bs.recoverFromBackupArchive(archivePath, recoveryCode, false, recoveryPath, newProfileRootPath, true);
 
             if (!newProfile) {
               throw new Error("Could not create recovery profile.");
@@ -254,6 +260,7 @@ class BackupTest(MarionetteTestCase):
         self.verify_recovered_preferences()
         self.verify_recovered_permissions()
         self.verify_recovered_payment_methods(osKeyStoreLabel)
+        self.verify_recovered_sessionstore()
 
         # Clean up the temporary OSKeyStore label
         self.marionette.execute_async_script(
@@ -306,10 +313,80 @@ class BackupTest(MarionetteTestCase):
         mozfile.remove(archivePath)
         mozfile.remove(recoveryPath)
 
+    def test_backup_disablement_in_new_session(self):
+        archiveDestPath = os.path.join(
+            tempfile.gettempdir(), "backup-dest-disable-test"
+        )
+
+        [archivePath, lastBackupFileName] = self.marionette.execute_async_script(
+            """
+          const { BackupService } = ChromeUtils.importESModule("resource:///modules/backup/BackupService.sys.mjs");
+          let bs = BackupService.init();
+          if (!bs) {
+            throw new Error("Could not get initialized BackupService.");
+          }
+
+          let [archiveDestPath, outerResolve] = arguments;
+          bs.setParentDirPath(archiveDestPath);
+
+          (async () => {
+            bs.setScheduledBackups(true);
+            let { archivePath } = await bs.createBackup();
+            if (!archivePath) {
+              throw new Error("Could not create backup.");
+            }
+
+            let lastBackupFileName = Services.prefs.getStringPref("browser.backup.scheduled.last-backup-file", "");
+            return [archivePath, lastBackupFileName];
+          })().then(outerResolve);
+        """,
+            script_args=[archiveDestPath],
+        )
+
+        print(f"Created backup at: {archivePath}")
+        print(f"Last backup filename: {lastBackupFileName}")
+
+        self.marionette.quit()
+        self.marionette.start_session()
+        self.marionette.set_context("chrome")
+
+        if os.path.exists(archivePath):
+            print(f"File size: {os.path.getsize(archivePath)} bytes")
+
+        self.marionette.execute_async_script(
+            """
+
+          ChromeUtils.defineESModuleGetters(this, {
+            BackupService: "resource:///modules/backup/BackupService.sys.mjs",
+            ASRouterTargeting: "resource:///modules/asrouter/ASRouterTargeting.sys.mjs",
+          });
+
+          let bs = BackupService.init();
+          if (!bs) {
+            throw new Error("Could not get initialized BackupService.");
+          }
+
+          let [outerResolve] = arguments;
+          (async () => {
+            await ASRouterTargeting.Environment.backupsInfo;
+            await bs.cleanupBackupFiles();
+            bs.setScheduledBackups(false);
+          })().then(outerResolve);
+        """,
+            script_args=[],
+        )
+
+        archiveDeletedAfterDisable = not os.path.exists(archivePath)
+        self.assertTrue(
+            archiveDeletedAfterDisable,
+            f"Backup file should be deleted after disabling backups. Path: {archivePath}, exists: {os.path.exists(archivePath)}",
+        )
+
     def add_test_cookie(self):
         self.marionette.execute_async_script(
             """
           let [outerResolve] = arguments;
+
           (async () => {
             // We'll just add a single cookie, and then make sure that it shows
             // up on the other side.
@@ -859,3 +936,26 @@ class BackupTest(MarionetteTestCase):
             script_args=[osKeyStoreLabel],
         )
         self.assertTrue(cardExists)
+
+    def add_test_sessionstore(self):
+        with self.marionette.using_context("content"):
+            self.marionette.navigate("about:mozilla")
+
+    def verify_recovered_sessionstore(self):
+        [tabCount, url] = self.marionette.execute_script(
+            """
+          const { SessionStore } = ChromeUtils.importESModule(
+            "resource:///modules/sessionstore/SessionStore.sys.mjs"
+          );
+          const session = SessionStore.getCurrentState(true);
+          const win = session.windows[0];
+          const tabLen = win.tabs.length;
+          const tab = win.tabs[0];
+          const entry = tab.entries[0];
+          const url = entry.url;
+          return [tabLen, url];
+        """
+        )
+
+        self.assertEqual(tabCount, 1)
+        self.assertEqual(url, "about:mozilla")

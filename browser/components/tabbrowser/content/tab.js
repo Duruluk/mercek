@@ -27,6 +27,7 @@
             <html:img class="tab-icon-image" role="presentation" decoding="sync" />
             <image class="tab-sharing-icon-overlay" role="presentation"/>
             <image class="tab-icon-overlay" role="presentation"/>
+            <image class="tab-note-icon-overlay" role="presentation"/>
           </stack>
           <html:moz-button type="icon ghost" size="small" class="tab-audio-button" tabindex="-1"></html:moz-button>
           <vbox class="tab-label-container"
@@ -38,6 +39,7 @@
               <label class="tab-icon-sound-label tab-icon-sound-pip-label" data-l10n-id="browser-tab-audio-pip" role="presentation"/>
             </hbox>
           </vbox>
+          <image class="tab-note-icon" role="presentation"/>
           <image class="tab-close-button close-icon" role="button" data-l10n-id="tabbrowser-close-tabs-button" data-l10n-args='{"tabCount": 1}' keyNav="false"/>
         </hbox>
       </stack>
@@ -151,7 +153,7 @@
         throw new Error("Tab is not visible, so does not have an elementIndex");
       }
       // Make sure the index is up to date.
-      this.container.ariaFocusableItems;
+      this.container.dragAndDropElements;
       return this.#elementIndex;
     }
 
@@ -390,6 +392,20 @@
         return this.parentElement;
       }
       return null;
+    }
+
+    /**
+     * @returns {boolean}
+     */
+    get hasTabNote() {
+      return this.hasAttribute("tab-note");
+    }
+
+    /**
+     * @param {boolean} val
+     */
+    set hasTabNote(val) {
+      this.toggleAttribute("tab-note", val);
     }
 
     updateLastAccessed(aDate) {
@@ -775,20 +791,11 @@
     #updateOnTabSplit() {
       if (this.splitview) {
         this.setAttribute("aria-level", 2);
-
-        // Add "Split view" to label if tab is within a split view
-        let splitViewLabel = gBrowser.tabLocalization.formatValueSync(
-          "tabbrowser-tab-label-tab-split-view"
-        );
-        this.setAttribute(
-          "aria-label",
-          `${this.getAttribute("label")}, ${splitViewLabel}`
-        );
       }
     }
 
     #updateOnTabUnsplit() {
-      if (this.splitview) {
+      if (!this.splitview) {
         this.setAttribute("aria-level", 1);
         // `posinset` and `setsize` only need to be set explicitly
         // on split view tabs so that a11y tools can tell users that a
@@ -796,6 +803,35 @@
         this.removeAttribute("aria-posinset");
         this.removeAttribute("aria-setsize");
         this.removeAttribute("aria-label");
+      }
+    }
+
+    /**
+     * Set `aria-label` for this tab to indicate that it's in a Split View,
+     * along with its position within the Split View.
+     *
+     * @param {number} index
+     *   The index of this tab in the Split View.
+     */
+    updateSplitViewAriaLabel(index) {
+      let l10nId = "";
+      switch (index) {
+        case 0:
+          l10nId = window.RTL_UI
+            ? "tabbrowser-tab-label-tab-split-view-right"
+            : "tabbrowser-tab-label-tab-split-view-left";
+          break;
+        case 1:
+          l10nId = window.RTL_UI
+            ? "tabbrowser-tab-label-tab-split-view-left"
+            : "tabbrowser-tab-label-tab-split-view-right";
+          break;
+      }
+      if (l10nId) {
+        const ariaLabel = gBrowser.tabLocalization.formatValueSync(l10nId, {
+          label: this.getAttribute("label"),
+        });
+        this.setAttribute("aria-label", ariaLabel);
       }
     }
   }

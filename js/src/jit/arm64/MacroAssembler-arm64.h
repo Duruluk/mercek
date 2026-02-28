@@ -933,6 +933,9 @@ class MacroAssemblerCompat : public vixl::MacroAssembler {
   inline void loadStackPtr(const Address& src);
   inline void storeStackPtr(const Address& dest);
 
+  inline void loadStackPtrFromPrivateValue(const Address& src);
+  inline void storeStackPtrToPrivateValue(const Address& dest);
+
   // StackPointer testing functions.
   inline void branchTestStackPtr(Condition cond, Imm32 rhs, Label* label);
   inline void branchStackPtr(Condition cond, Register rhs, Label* label);
@@ -975,18 +978,6 @@ class MacroAssemblerCompat : public vixl::MacroAssembler {
     MOZ_ASSERT(scratch32.asUnsized() != lhs.base);
     MOZ_ASSERT(scratch32.asUnsized() != rhs);
     Ldr(scratch32, toMemOperand(lhs));
-    Cmp(scratch32, Operand(ARMRegister(rhs, 32)));
-  }
-  void cmp32(const vixl::Operand& lhs, Imm32 rhs) {
-    vixl::UseScratchRegisterScope temps(this);
-    const ARMRegister scratch32 = temps.AcquireW();
-    Mov(scratch32, lhs);
-    Cmp(scratch32, Operand(rhs.value));
-  }
-  void cmp32(const vixl::Operand& lhs, Register rhs) {
-    vixl::UseScratchRegisterScope temps(this);
-    const ARMRegister scratch32 = temps.AcquireW();
-    Mov(scratch32, lhs);
     Cmp(scratch32, Operand(ARMRegister(rhs, 32)));
   }
 
@@ -1343,13 +1334,6 @@ class MacroAssemblerCompat : public vixl::MacroAssembler {
   }
   void unboxDouble(const ValueOperand& src, FloatRegister dest) {
     Fmov(ARMFPRegister(dest, 64), ARMRegister(src.valueReg(), 64));
-  }
-
-  void unboxArgObjMagic(const ValueOperand& src, Register dest) {
-    MOZ_CRASH("unboxArgObjMagic");
-  }
-  void unboxArgObjMagic(const Address& src, Register dest) {
-    MOZ_CRASH("unboxArgObjMagic");
   }
 
   void unboxBoolean(const ValueOperand& src, Register dest) {

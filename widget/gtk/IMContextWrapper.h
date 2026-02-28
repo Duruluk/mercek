@@ -486,6 +486,10 @@ class IMContextWrapper final : public TextEventDispatcherListener {
   // mSetInputPurposeAndInputHints is set if `SetInputContext` wants `Focus`
   // to set input-purpose and input-hints.
   bool mSetInputPurposeAndInputHints;
+  // mPendingSetSurrounding is set if "retrieve_surrounding" signal is received
+  // but the surrounding text is not set yet. We retry setting the surrounding
+  // text when selection is changed in Gecko.
+  bool mPendingSetSurrounding = false;
 
   // sLastFocusedContext is a pointer to the last focused instance of this
   // class.  When a instance is destroyed and sLastFocusedContext refers it,
@@ -645,6 +649,18 @@ class IMContextWrapper final : public TextEventDispatcherListener {
    *                              false.
    */
   bool MaybeDispatchKeyEventAsProcessedByIME(EventMessage aFollowingEvent);
+
+  /**
+   * Dispatches eKeyDown and eKeyPress events for committed character.
+   * Optionally dispatches eKeyUp if aDispatchKeyUp is true (needed for
+   * Wayland text-input protocol where there's no GDK key release event).
+   *
+   * @param aKeyEvent           The keyboard event to dispatch.
+   * @param aDispatchKeyUp      If true, also dispatch eKeyUp event.
+   * @return                    Always returns true (caller should return).
+   */
+  bool DispatchKeyEventsForCommittedCharacter(WidgetKeyboardEvent& aKeyEvent,
+                                              bool aDispatchKeyUp);
 
   /**
    * Dispatches a composition start event.

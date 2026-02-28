@@ -32,6 +32,7 @@ const EnrollmentStatusReason = Object.freeze({
   PREF_FLIPS_CONFLICT: "PrefFlipsConflict",
   ERROR: "Error",
   UNENROLLED_IN_ANOTHER_PROFILE: "UnenrolledInAnotherProfile",
+  MIGRATION: "Migration",
 });
 
 const EnrollmentFailureReason = Object.freeze({
@@ -84,12 +85,14 @@ const UnenrollReason = Object.freeze({
   INDIVIDUAL_OPT_OUT: "individual-opt-out",
   LABS_DIABLED: "labs-disabled",
   LABS_OPT_OUT: "labs-opt-out",
+  MIGRATION: "migration",
   PREF_FLIPS_CONFLICT: "prefFlips-conflict",
   PREF_FLIPS_FAILED: "prefFlips-failed",
   PREF_VARIABLE_CHANGED: "pref-variable-changed",
   PREF_VARIABLE_MISSING: "pref-variable-missing",
   PREF_VARIABLE_NO_LONGER: "pref-variable-no-longer",
   RECIPE_NOT_SEEN: "recipe-not-seen",
+  ROLLOUTS_OPT_OUT: "rollouts-opt-out",
   STUDIES_OPT_OUT: "studies-opt-out",
   TARGETING_MISMATCH: "targeting-mismatch",
   UNENROLLED_IN_ANOTHER_PROFILE: "unenrolled-in-another-profile",
@@ -160,6 +163,7 @@ export const NimbusTelemetry = {
     branch,
     error_string,
     conflict_slug,
+    migration,
   }) {
     Glean.nimbusEvents.enrollmentStatus.record({
       slug,
@@ -168,6 +172,7 @@ export const NimbusTelemetry = {
       branch,
       error_string,
       conflict_slug,
+      migration,
     });
   },
 
@@ -242,6 +247,10 @@ export const NimbusTelemetry = {
       case UnenrollReason.CHANGED_PREF:
         legacyEvent.changedPref = cause.changedPref.name;
         gleanEvent.changed_pref = cause.changedPref.name;
+
+        // We've hit the limit of extra keys that can go on the legacy
+        // unenrollment event, so this key does not get mirrored.
+        gleanEvent.about_config_change = cause.isAboutConfigChange;
         break;
 
       case UnenrollReason.PREF_FLIPS_CONFLICT:
@@ -260,6 +269,10 @@ export const NimbusTelemetry = {
       case UnenrollReason.L10N_MISSING_ENTRY:
       case UnenrollReason.L10N_MISSING_LOCALE:
         gleanEvent.locale = cause.locale;
+        break;
+
+      case UnenrollReason.MIGRATION:
+        gleanEvent.migration = cause.migration;
         break;
     }
 
@@ -288,6 +301,7 @@ export const NimbusTelemetry = {
 
       case UnenrollReason.INDIVIDUAL_OPT_OUT:
       case UnenrollReason.LABS_OPT_OUT:
+      case UnenrollReason.ROLLOUTS_OPT_OUT:
       case UnenrollReason.STUDIES_OPT_OUT:
         enrollmentStatus.status = EnrollmentStatus.DISQUALIFIED;
         enrollmentStatus.reason = EnrollmentStatusReason.OPT_OUT;
@@ -313,6 +327,12 @@ export const NimbusTelemetry = {
         enrollmentStatus.status = EnrollmentStatus.DISQUALIFIED;
         enrollmentStatus.reason =
           EnrollmentStatusReason.UNENROLLED_IN_ANOTHER_PROFILE;
+        break;
+
+      case UnenrollReason.MIGRATION:
+        enrollmentStatus.status = EnrollmentStatus.WAS_ENROLLED;
+        enrollmentStatus.reason = EnrollmentStatusReason.MIGRATION;
+        enrollmentStatus.migration = cause.migration;
         break;
 
       default:

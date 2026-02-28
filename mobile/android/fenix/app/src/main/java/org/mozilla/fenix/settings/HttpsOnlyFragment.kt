@@ -101,6 +101,7 @@ class HttpsOnlyFragment : Fragment() {
         val linkClickListener: ClickableSpan = object : ClickableSpan() {
             override fun onClick(view: View) {
                 view.setOnClickListener {
+                    @Suppress("DEPRECATION")
                     (activity as HomeActivity).openToBrowserAndLoad(
                         searchTermOrURL = SupportUtils.getGenericSumoURLForTopic(
                             SupportUtils.SumoTopic.HTTPS_ONLY_MODE,

@@ -34,7 +34,7 @@ static constexpr size_t TypicalCacheLineSize = 64;
 namespace gc {
 
 class Arena;
-struct Cell;
+class Cell;
 class ArenaChunk;
 class StoreBuffer;
 class TenuredCell;
@@ -315,8 +315,8 @@ class alignas(TypicalCacheLineSize) ChunkMarkBitmap
 
   MOZ_ALWAYS_INLINE void getMarkWordAndMask(const void* cell, ColorBit colorBit,
                                             Word** wordp, uintptr_t* maskp) {
-    // Note: the JIT pre-barrier trampolines inline this code. Update
-    // MacroAssembler::emitPreBarrierFastPath code too when making changes here!
+    // Note: the JIT inlines this code. Update MacroAssembler::loadMarkBits and
+    // its callers when making changes here!
 
     MOZ_ASSERT(size_t(colorBit) < MarkBitsPerCell);
 
@@ -868,6 +868,9 @@ namespace gc {
 extern JS_PUBLIC_API void PerformIncrementalReadBarrier(JS::GCCellPtr thing);
 
 static MOZ_ALWAYS_INLINE void ExposeGCThingToActiveJS(JS::GCCellPtr thing) {
+  // js::jit::ReadBarrier is a specialized version of this function designed to
+  // be called from jitcode. If this code is changed, it should be kept in sync.
+
   // TODO: I'd like to assert !RuntimeHeapIsBusy() here but this gets
   // called while we are tracing the heap, e.g. during memory reporting
   // (see bug 1313318).
@@ -889,7 +892,7 @@ static MOZ_ALWAYS_INLINE void ExposeGCThingToActiveJS(JS::GCCellPtr thing) {
   MOZ_ASSERT(!thing.mayBeOwnedByOtherRuntime());
 
   auto* zone = JS::shadow::Zone::from(detail::GetTenuredGCThingZone(cell));
-  if (zone->needsIncrementalBarrier()) {
+  if (zone->needsMarkingBarrier()) {
     PerformIncrementalReadBarrier(thing);
   } else if (!zone->isGCPreparing() && detail::NonBlackCellIsMarkedGray(cell)) {
     MOZ_ALWAYS_TRUE(JS::UnmarkGrayGCThingRecursively(thing));
@@ -908,8 +911,7 @@ static MOZ_ALWAYS_INLINE void IncrementalReadBarrier(JS::GCCellPtr thing) {
 
   auto* cell = reinterpret_cast<TenuredCell*>(thing.asCell());
   auto* zone = JS::shadow::Zone::from(detail::GetTenuredGCThingZone(cell));
-  if (zone->needsIncrementalBarrier() &&
-      !detail::TenuredCellIsMarkedBlack(cell)) {
+  if (zone->needsMarkingBarrier() && !detail::TenuredCellIsMarkedBlack(cell)) {
     // GC things owned by other runtimes are always black.
     MOZ_ASSERT(!thing.mayBeOwnedByOtherRuntime());
     PerformIncrementalReadBarrier(thing);

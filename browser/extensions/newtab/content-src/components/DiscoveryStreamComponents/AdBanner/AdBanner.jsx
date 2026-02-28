@@ -25,7 +25,7 @@ const PREF_PROMOCARD_VISIBLE = "discoverystream.promoCard.visible";
  * @param type
  * @param prefs
  * @returns {Element}
- * @constructor
+ * @class
  */
 export const AdBanner = ({
   spoc,
@@ -54,9 +54,11 @@ export const AdBanner = ({
       height: undefined,
     };
   };
+  const nimbusPromoCardTrainhopEnabled =
+    prefs.trainhopConfig?.promoCard?.enabled;
   const promoCardEnabled =
     spoc.format === "billboard" &&
-    prefs[PREF_PROMOCARD_ENABLED] &&
+    (nimbusPromoCardTrainhopEnabled || prefs[PREF_PROMOCARD_ENABLED]) &&
     prefs[PREF_PROMOCARD_VISIBLE];
 
   const sectionsEnabled = prefs[PREF_SECTIONS_ENABLED];

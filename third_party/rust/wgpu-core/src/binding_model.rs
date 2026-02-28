@@ -18,9 +18,7 @@ use serde::Serialize;
 use wgt::error::{ErrorType, WebGpuError};
 
 use crate::{
-    device::{
-        bgl, Device, DeviceError, MissingDownlevelFlags, MissingFeatures, SHADER_STAGE_COUNT,
-    },
+    device::{bgl, Device, DeviceError, MissingDownlevelFlags, MissingFeatures},
     id::{BindGroupLayoutId, BufferId, ExternalTextureId, SamplerId, TextureViewId, TlasId},
     init_tracker::{BufferInitTrackerAction, TextureInitTrackerAction},
     pipeline::{ComputePipeline, RenderPipeline},
@@ -77,6 +75,12 @@ pub enum CreateBindGroupLayoutError {
     InvalidBindingIndex { binding: u32, maximum: u32 },
     #[error("Invalid visibility {0:?}")]
     InvalidVisibility(wgt::ShaderStages),
+    #[error("Binding index {binding}: {access:?} access to storage textures with format {format:?} is not supported")]
+    UnsupportedStorageTextureAccess {
+        binding: u32,
+        access: wgt::StorageTextureAccess,
+        format: wgt::TextureFormat,
+    },
 }
 
 impl WebGpuError for CreateBindGroupLayoutError {
@@ -90,7 +94,8 @@ impl WebGpuError for CreateBindGroupLayoutError {
             | Self::InvalidBindingIndex { .. }
             | Self::InvalidVisibility(_)
             | Self::ContainsBothBindingArrayAndDynamicOffsetArray
-            | Self::ContainsBothBindingArrayAndUniformBuffer => ErrorType::Validation,
+            | Self::ContainsBothBindingArrayAndUniformBuffer
+            | Self::UnsupportedStorageTextureAccess { .. } => ErrorType::Validation,
         }
     }
 }
@@ -168,7 +173,7 @@ pub enum CreateBindGroupError {
     #[error("Binding declared as a single item, but bind group is using it as an array")]
     SingleBindingExpected,
     #[error("Effective buffer binding size {size} for storage buffers is expected to align to {alignment}, but size is {size}")]
-    UnalignedEffectiveBufferBindingSizeForStorage { alignment: u8, size: u64 },
+    UnalignedEffectiveBufferBindingSizeForStorage { alignment: u32, size: u64 },
     #[error("Buffer offset {0} does not respect device's requested `{1}` limit {2}")]
     UnalignedBufferOffset(wgt::BufferAddress, &'static str, u32),
     #[error(
@@ -244,14 +249,6 @@ pub enum CreateBindGroupError {
     MissingTLASVertexReturn { binding: u32 },
     #[error("Bound texture views can not have both depth and stencil aspects enabled")]
     DepthStencilAspect,
-    #[error("The adapter does not support read access for storage textures of format {0:?}")]
-    StorageReadNotSupported(wgt::TextureFormat),
-    #[error("The adapter does not support atomics for storage textures of format {0:?}")]
-    StorageAtomicNotSupported(wgt::TextureFormat),
-    #[error("The adapter does not support write access for storage textures of format {0:?}")]
-    StorageWriteNotSupported(wgt::TextureFormat),
-    #[error("The adapter does not support read-write access for storage textures of format {0:?}")]
-    StorageReadWriteNotSupported(wgt::TextureFormat),
     #[error(transparent)]
     ResourceUsageCompatibility(#[from] ResourceUsageCompatibilityError),
     #[error(transparent)]
@@ -289,10 +286,6 @@ impl WebGpuError for CreateBindGroupError {
             | Self::WrongSamplerComparison { .. }
             | Self::WrongSamplerFiltering { .. }
             | Self::DepthStencilAspect
-            | Self::StorageReadNotSupported(_)
-            | Self::StorageWriteNotSupported(_)
-            | Self::StorageReadWriteNotSupported(_)
-            | Self::StorageAtomicNotSupported(_)
             | Self::MissingTLASVertexReturn { .. }
             | Self::InvalidExternalTextureMipLevelCount { .. }
             | Self::InvalidExternalTextureFormat { .. } => return ErrorType::Validation,
@@ -405,9 +398,9 @@ impl PerStageBindingTypeCounter {
     }
 
     pub(crate) fn merge(&mut self, other: &Self) {
-        self.vertex = self.vertex.max(other.vertex);
-        self.fragment = self.fragment.max(other.fragment);
-        self.compute = self.compute.max(other.compute);
+        self.vertex += other.vertex;
+        self.fragment += other.fragment;
+        self.compute += other.compute;
     }
 
     pub(crate) fn validate(
@@ -697,7 +690,7 @@ pub struct BindGroupLayoutDescriptor<'a> {
 /// Used by [`BindGroupLayout`]. It indicates whether the BGL must be
 /// used with a specific pipeline. This constraint only happens when
 /// the BGLs have been derived from a pipeline without a layout.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) enum ExclusivePipeline {
     None,
     Render(Weak<RenderPipeline>),
@@ -726,10 +719,17 @@ impl fmt::Display for ExclusivePipeline {
     }
 }
 
+#[derive(Debug)]
+pub enum RawBindGroupLayout {
+    Owning(ManuallyDrop<Box<dyn hal::DynBindGroupLayout>>),
+    /// The empty BGL was created by the device and will be destroyed by the device.
+    RefDeviceEmptyBGL,
+}
+
 /// Bind group layout.
 #[derive(Debug)]
 pub struct BindGroupLayout {
-    pub(crate) raw: ManuallyDrop<Box<dyn hal::DynBindGroupLayout>>,
+    pub(crate) raw: RawBindGroupLayout,
     pub(crate) device: Arc<Device>,
     pub(crate) entries: bgl::EntryMap,
     /// It is very important that we know if the bind group comes from the BGL pool.
@@ -740,7 +740,6 @@ pub struct BindGroupLayout {
     /// (derived BGLs) must not be removed.
     pub(crate) origin: bgl::Origin,
     pub(crate) exclusive_pipeline: crate::OnceCellOrLock<ExclusivePipeline>,
-    #[allow(unused)]
     pub(crate) binding_count_validator: BindingTypeMaxCountValidator,
     /// The `label` from the descriptor used to create the resource.
     pub(crate) label: String,
@@ -752,10 +751,15 @@ impl Drop for BindGroupLayout {
         if matches!(self.origin, bgl::Origin::Pool) {
             self.device.bgl_pool.remove(&self.entries);
         }
-        // SAFETY: We are in the Drop impl and we don't use self.raw anymore after this point.
-        let raw = unsafe { ManuallyDrop::take(&mut self.raw) };
-        unsafe {
-            self.device.raw().destroy_bind_group_layout(raw);
+        match self.raw {
+            RawBindGroupLayout::Owning(ref mut raw) => {
+                // SAFETY: We are in the Drop impl and we don't use self.raw anymore after this point.
+                let raw = unsafe { ManuallyDrop::take(raw) };
+                unsafe {
+                    self.device.raw().destroy_bind_group_layout(raw);
+                }
+            }
+            RawBindGroupLayout::RefDeviceEmptyBGL => {}
         }
     }
 }
@@ -767,7 +771,24 @@ crate::impl_storage_item!(BindGroupLayout);
 
 impl BindGroupLayout {
     pub(crate) fn raw(&self) -> &dyn hal::DynBindGroupLayout {
-        self.raw.as_ref()
+        match &self.raw {
+            RawBindGroupLayout::Owning(raw) => raw.as_ref(),
+            RawBindGroupLayout::RefDeviceEmptyBGL => self.device.empty_bgl.as_ref(),
+        }
+    }
+
+    fn empty(device: &Arc<Device>) -> Arc<Self> {
+        let exclusive_pipeline = crate::OnceCellOrLock::new();
+        exclusive_pipeline.set(ExclusivePipeline::None).unwrap();
+        Arc::new(Self {
+            raw: RawBindGroupLayout::RefDeviceEmptyBGL,
+            device: device.clone(),
+            entries: bgl::EntryMap::default(),
+            origin: bgl::Origin::Derived,
+            exclusive_pipeline,
+            binding_count_validator: BindingTypeMaxCountValidator::default(),
+            label: String::new(),
+        })
     }
 }
 
@@ -777,30 +798,24 @@ pub enum CreatePipelineLayoutError {
     #[error(transparent)]
     Device(#[from] DeviceError),
     #[error(
-        "Push constant at index {index} has range bound {bound} not aligned to {}",
-        wgt::PUSH_CONSTANT_ALIGNMENT
+        "Immediate data has range bound {size} which is not aligned to IMMEDIATE_DATA_ALIGNMENT ({})",
+        wgt::IMMEDIATE_DATA_ALIGNMENT
     )]
-    MisalignedPushConstantRange { index: usize, bound: u32 },
+    MisalignedImmediateSize { size: u32 },
     #[error(transparent)]
     MissingFeatures(#[from] MissingFeatures),
-    #[error("Push constant range (index {index}) provides for stage(s) {provided:?} but there exists another range that provides stage(s) {intersected:?}. Each stage may only be provided by one range")]
-    MoreThanOnePushConstantRangePerStage {
-        index: usize,
-        provided: wgt::ShaderStages,
-        intersected: wgt::ShaderStages,
-    },
-    #[error("Push constant at index {index} has range {}..{} which exceeds device push constant size limit 0..{max}", range.start, range.end)]
-    PushConstantRangeTooLarge {
-        index: usize,
-        range: Range<u32>,
-        max: u32,
-    },
+    #[error(
+        "Immediate data has size {size} which exceeds device immediate data size limit 0..{max}"
+    )]
+    ImmediateRangeTooLarge { size: u32, max: u32 },
     #[error(transparent)]
     TooManyBindings(BindingTypeMaxCountError),
     #[error("Bind group layout count {actual} exceeds device bind group limit {max}")]
     TooManyGroups { actual: usize, max: usize },
     #[error(transparent)]
     InvalidResource(#[from] InvalidResourceError),
+    #[error("Bind group layout at index {index} has an exclusive pipeline: {pipeline}")]
+    BglHasExclusivePipeline { index: usize, pipeline: String },
 }
 
 impl WebGpuError for CreatePipelineLayoutError {
@@ -810,10 +825,10 @@ impl WebGpuError for CreatePipelineLayoutError {
             Self::MissingFeatures(e) => e,
             Self::InvalidResource(e) => e,
             Self::TooManyBindings(e) => e,
-            Self::MisalignedPushConstantRange { .. }
-            | Self::MoreThanOnePushConstantRangePerStage { .. }
-            | Self::PushConstantRangeTooLarge { .. }
-            | Self::TooManyGroups { .. } => return ErrorType::Validation,
+            Self::MisalignedImmediateSize { .. }
+            | Self::ImmediateRangeTooLarge { .. }
+            | Self::TooManyGroups { .. }
+            | Self::BglHasExclusivePipeline { .. } => return ErrorType::Validation,
         };
         e.webgpu_error_type()
     }
@@ -821,36 +836,21 @@ impl WebGpuError for CreatePipelineLayoutError {
 
 #[derive(Clone, Debug, Error)]
 #[non_exhaustive]
-pub enum PushConstantUploadError {
-    #[error("Provided push constant with indices {offset}..{end_offset} overruns matching push constant range at index {idx}, with stage(s) {:?} and indices {:?}", range.stages, range.range)]
+pub enum ImmediateUploadError {
+    #[error("Provided immediate data written to offset {offset}..{end_offset} overruns the immediate data range with a size of {size}")]
     TooLarge {
         offset: u32,
         end_offset: u32,
-        idx: usize,
-        range: wgt::PushConstantRange,
+        size: u32,
     },
-    #[error("Provided push constant is for stage(s) {actual:?}, stage with a partial match found at index {idx} with stage(s) {matched:?}, however push constants must be complete matches")]
-    PartialRangeMatch {
-        actual: wgt::ShaderStages,
-        idx: usize,
-        matched: wgt::ShaderStages,
-    },
-    #[error("Provided push constant is for stage(s) {actual:?}, but intersects a push constant range (at index {idx}) with stage(s) {missing:?}. Push constants must provide the stages for all ranges they intersect")]
-    MissingStages {
-        actual: wgt::ShaderStages,
-        idx: usize,
-        missing: wgt::ShaderStages,
-    },
-    #[error("Provided push constant is for stage(s) {actual:?}, however the pipeline layout has no push constant range for the stage(s) {unmatched:?}")]
-    UnmatchedStages {
-        actual: wgt::ShaderStages,
-        unmatched: wgt::ShaderStages,
-    },
-    #[error("Provided push constant offset {0} does not respect `PUSH_CONSTANT_ALIGNMENT`")]
+    #[error(
+        "Provided immediate data offset {0} does not respect `IMMEDIATE_DATA_ALIGNMENT` ({ida})",
+        ida = wgt::IMMEDIATE_DATA_ALIGNMENT
+    )]
     Unaligned(u32),
 }
 
-impl WebGpuError for PushConstantUploadError {
+impl WebGpuError for ImmediateUploadError {
     fn webgpu_error_type(&self) -> ErrorType {
         ErrorType::Validation
     }
@@ -864,8 +864,8 @@ impl WebGpuError for PushConstantUploadError {
 #[cfg_attr(feature = "serde", serde(bound = "BGL: Serialize"))]
 pub struct PipelineLayoutDescriptor<'a, BGL = BindGroupLayoutId>
 where
-    [BGL]: ToOwned,
-    <[BGL] as ToOwned>::Owned: fmt::Debug,
+    [Option<BGL>]: ToOwned,
+    <[Option<BGL>] as ToOwned>::Owned: fmt::Debug,
 {
     /// Debug label of the pipeline layout.
     ///
@@ -875,21 +875,20 @@ where
     /// "set = 0", second entry will provide all the bindings for "set = 1" etc.
     #[cfg_attr(
         feature = "serde",
-        serde(bound(deserialize = "<[BGL] as ToOwned>::Owned: Deserialize<'de>"))
+        serde(bound(deserialize = "<[Option<BGL>] as ToOwned>::Owned: Deserialize<'de>"))
     )]
-    pub bind_group_layouts: Cow<'a, [BGL]>,
-    /// Set of push constant ranges this pipeline uses. Each shader stage that
-    /// uses push constants must define the range in push constant memory that
-    /// corresponds to its single `layout(push_constant)` uniform block.
+    pub bind_group_layouts: Cow<'a, [Option<BGL>]>,
+    /// The number of bytes of immediate data that are allocated for use
+    /// in the shader. The `var<immediate>`s in the shader attached to
+    /// this pipeline must be equal or smaller than this size.
     ///
-    /// If this array is non-empty, the
-    /// [`Features::PUSH_CONSTANTS`](wgt::Features::PUSH_CONSTANTS) feature must
-    /// be enabled.
-    pub push_constant_ranges: Cow<'a, [wgt::PushConstantRange]>,
+    /// If this value is non-zero, [`wgt::Features::IMMEDIATES`] must be enabled.
+    pub immediate_size: u32,
 }
 
 /// cbindgen:ignore
-pub type ResolvedPipelineLayoutDescriptor<'a> = PipelineLayoutDescriptor<'a, Arc<BindGroupLayout>>;
+pub type ResolvedPipelineLayoutDescriptor<'a, BGL = Arc<BindGroupLayout>> =
+    PipelineLayoutDescriptor<'a, BGL>;
 
 #[derive(Debug)]
 pub struct PipelineLayout {
@@ -897,8 +896,8 @@ pub struct PipelineLayout {
     pub(crate) device: Arc<Device>,
     /// The `label` from the descriptor used to create the resource.
     pub(crate) label: String,
-    pub(crate) bind_group_layouts: ArrayVec<Arc<BindGroupLayout>, { hal::MAX_BIND_GROUPS }>,
-    pub(crate) push_constant_ranges: ArrayVec<wgt::PushConstantRange, { SHADER_STAGE_COUNT }>,
+    pub(crate) bind_group_layouts: ArrayVec<Option<Arc<BindGroupLayout>>, { hal::MAX_BIND_GROUPS }>,
+    pub(crate) immediate_size: u32,
 }
 
 impl Drop for PipelineLayout {
@@ -917,86 +916,54 @@ impl PipelineLayout {
         self.raw.as_ref()
     }
 
-    pub(crate) fn get_binding_maps(&self) -> ArrayVec<&bgl::EntryMap, { hal::MAX_BIND_GROUPS }> {
-        self.bind_group_layouts
-            .iter()
-            .map(|bgl| &bgl.entries)
-            .collect()
+    pub fn get_bind_group_layout(
+        self: &Arc<Self>,
+        index: u32,
+    ) -> Result<Arc<BindGroupLayout>, GetBindGroupLayoutError> {
+        let max_bind_groups = self.device.limits.max_bind_groups;
+        if index >= max_bind_groups {
+            return Err(GetBindGroupLayoutError::IndexOutOfRange {
+                index,
+                max: max_bind_groups,
+            });
+        }
+        Ok(self
+            .bind_group_layouts
+            .get(index as usize)
+            .cloned()
+            .flatten()
+            .unwrap_or_else(|| BindGroupLayout::empty(&self.device)))
     }
 
-    /// Validate push constants match up with expected ranges.
-    pub(crate) fn validate_push_constant_ranges(
+    pub(crate) fn get_bgl_entry(
         &self,
-        stages: wgt::ShaderStages,
+        group: u32,
+        binding: u32,
+    ) -> Option<&wgt::BindGroupLayoutEntry> {
+        let bgl = self.bind_group_layouts.get(group as usize)?;
+        let bgl = bgl.as_ref()?;
+        bgl.entries.get(binding)
+    }
+
+    /// Validate immediates match up with expected ranges.
+    pub(crate) fn validate_immediates_ranges(
+        &self,
         offset: u32,
         end_offset: u32,
-    ) -> Result<(), PushConstantUploadError> {
-        // Don't need to validate size against the push constant size limit here,
-        // as push constant ranges are already validated to be within bounds,
+    ) -> Result<(), ImmediateUploadError> {
+        // Don't need to validate size against the immediate data size limit here,
+        // as immediate data ranges are already validated to be within bounds,
         // and we validate that they are within the ranges.
 
-        if offset % wgt::PUSH_CONSTANT_ALIGNMENT != 0 {
-            return Err(PushConstantUploadError::Unaligned(offset));
+        if !offset.is_multiple_of(wgt::IMMEDIATE_DATA_ALIGNMENT) {
+            return Err(ImmediateUploadError::Unaligned(offset));
         }
 
-        // Push constant validation looks very complicated on the surface, but
-        // the problem can be range-reduced pretty well.
-        //
-        // Push constants require (summarized from the vulkan spec):
-        // 1. For each byte in the range and for each shader stage in stageFlags,
-        //    there must be a push constant range in the layout that includes that
-        //    byte and that stage.
-        // 2. For each byte in the range and for each push constant range that overlaps that byte,
-        //    `stage` must include all stages in that push constant range’s `stage`.
-        //
-        // However there are some additional constraints that help us:
-        // 3. All push constant ranges are the only range that can access that stage.
-        //    i.e. if one range has VERTEX, no other range has VERTEX
-        //
-        // Therefore we can simplify the checks in the following ways:
-        // - Because 3 guarantees that the push constant range has a unique stage,
-        //   when we check for 1, we can simply check that our entire updated range
-        //   is within a push constant range. i.e. our range for a specific stage cannot
-        //   intersect more than one push constant range.
-        let mut used_stages = wgt::ShaderStages::NONE;
-        for (idx, range) in self.push_constant_ranges.iter().enumerate() {
-            // contains not intersects due to 2
-            if stages.contains(range.stages) {
-                if !(range.range.start <= offset && end_offset <= range.range.end) {
-                    return Err(PushConstantUploadError::TooLarge {
-                        offset,
-                        end_offset,
-                        idx,
-                        range: range.clone(),
-                    });
-                }
-                used_stages |= range.stages;
-            } else if stages.intersects(range.stages) {
-                // Will be caught by used stages check below, but we can do this because of 1
-                // and is more helpful to the user.
-                return Err(PushConstantUploadError::PartialRangeMatch {
-                    actual: stages,
-                    idx,
-                    matched: range.stages,
-                });
-            }
-
-            // The push constant range intersects range we are uploading
-            if offset < range.range.end && range.range.start < end_offset {
-                // But requires stages we don't provide
-                if !stages.contains(range.stages) {
-                    return Err(PushConstantUploadError::MissingStages {
-                        actual: stages,
-                        idx,
-                        missing: stages,
-                    });
-                }
-            }
-        }
-        if used_stages != stages {
-            return Err(PushConstantUploadError::UnmatchedStages {
-                actual: stages,
-                unmatched: stages - used_stages,
+        if end_offset > self.immediate_size {
+            return Err(ImmediateUploadError::TooLarge {
+                offset,
+                end_offset,
+                size: self.immediate_size,
             });
         }
         Ok(())
@@ -1014,7 +981,15 @@ crate::impl_storage_item!(PipelineLayout);
 pub struct BufferBinding<B = BufferId> {
     pub buffer: B,
     pub offset: wgt::BufferAddress,
-    pub size: Option<wgt::BufferSize>,
+
+    /// Size of the binding. If `None`, the binding spans from `offset` to the
+    /// end of the buffer.
+    ///
+    /// We use `BufferAddress` to allow a size of zero on this `wgpu_core` type,
+    /// because JavaScript bindings cannot readily express `Option<NonZeroU64>`.
+    /// The `wgpu` API uses `Option<BufferSize>` (i.e. `NonZeroU64`) for this
+    /// field.
+    pub size: Option<wgt::BufferAddress>,
 }
 
 pub type ResolvedBufferBinding = BufferBinding<Arc<Buffer>>;
@@ -1072,6 +1047,11 @@ pub type ResolvedBindingResource<'a> = BindingResource<
 #[derive(Clone, Debug, Error)]
 #[non_exhaustive]
 pub enum BindError {
+    #[error(
+        "Dynamic offsets not expected with null bind group at index {group}. However {actual} dynamic offset{s1} were provided.",
+        s1 = if *.actual >= 2 { "s" } else { "" },
+    )]
+    DynamicOffsetCountNotZero { group: u32, actual: usize },
     #[error(
         "{bind_group} {group} expects {expected} dynamic offset{s0}. However {actual} dynamic offset{s1} were provided.",
         s0 = if *.expected >= 2 { "s" } else { "" },
@@ -1164,6 +1144,14 @@ pub(crate) fn buffer_binding_type_bounds_check_alignment(
 }
 
 #[derive(Debug)]
+pub(crate) struct BindGroupLateBufferBindingInfo {
+    /// The normal binding index in the bind group.
+    pub binding_index: u32,
+    /// The size that exists at bind time.
+    pub size: wgt::BufferSize,
+}
+
+#[derive(Debug)]
 pub struct BindGroup {
     pub(crate) raw: Snatchable<Box<dyn hal::DynBindGroup>>,
     pub(crate) device: Arc<Device>,
@@ -1177,7 +1165,7 @@ pub struct BindGroup {
     pub(crate) dynamic_binding_info: Vec<BindGroupDynamicBindingData>,
     /// Actual binding sizes for buffers that don't have `min_binding_size`
     /// specified in BGL. Listed in the order of iteration of `BGL.entries`.
-    pub(crate) late_buffer_binding_sizes: Vec<wgt::BufferSize>,
+    pub(crate) late_buffer_binding_infos: Vec<BindGroupLateBufferBindingInfo>,
 }
 
 impl Drop for BindGroup {
@@ -1233,7 +1221,7 @@ impl BindGroup {
         {
             let (alignment, limit_name) =
                 buffer_binding_type_alignment(&self.device.limits, info.binding_type);
-            if offset as wgt::BufferAddress % alignment as u64 != 0 {
+            if !(offset as wgt::BufferAddress).is_multiple_of(alignment as u64) {
                 return Err(BindError::UnalignedDynamicBinding {
                     bind_group: self.error_ident(),
                     group: bind_group_index,
@@ -1272,8 +1260,8 @@ crate::impl_trackable!(BindGroup);
 #[derive(Clone, Debug, Error)]
 #[non_exhaustive]
 pub enum GetBindGroupLayoutError {
-    #[error("Invalid group index {0}")]
-    InvalidGroupIndex(u32),
+    #[error("Bind group layout index {index} is greater than the device's configured `max_bind_groups` limit {max}")]
+    IndexOutOfRange { index: u32, max: u32 },
     #[error(transparent)]
     InvalidResource(#[from] InvalidResourceError),
 }
@@ -1281,17 +1269,20 @@ pub enum GetBindGroupLayoutError {
 impl WebGpuError for GetBindGroupLayoutError {
     fn webgpu_error_type(&self) -> ErrorType {
         match self {
-            Self::InvalidGroupIndex(_) => ErrorType::Validation,
+            Self::IndexOutOfRange { .. } => ErrorType::Validation,
             Self::InvalidResource(e) => e.webgpu_error_type(),
         }
     }
 }
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
-#[error("Buffer is bound with size {bound_size} where the shader expects {shader_size} in group[{group_index}] compact index {compact_index}")]
+#[error(
+    "In bind group index {group_index}, the buffer bound at binding index {binding_index} \
+     is bound with size {bound_size} where the shader expects {shader_size}."
+)]
 pub struct LateMinBufferBindingSizeMismatch {
     pub group_index: u32,
-    pub compact_index: usize,
+    pub binding_index: u32,
     pub shader_size: wgt::BufferAddress,
     pub bound_size: wgt::BufferAddress,
 }

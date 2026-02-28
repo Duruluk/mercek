@@ -198,6 +198,7 @@ const TEST_GLOBAL = {
       insert() {},
       markPageAsTyped() {},
       removeObserver() {},
+      pageFrecencyThreshold() {},
     },
     "@mozilla.org/io/string-input-stream;1": {
       createInstance() {
@@ -249,6 +250,7 @@ const TEST_GLOBAL = {
       MODE_REJECT_OR_ACCEPT: 2,
       MODE_UNSET: 3,
     },
+    nsIProtocolProxyChannelFilter: {},
   },
   Cu: {
     importGlobalProperties() {},
@@ -258,6 +260,15 @@ const TEST_GLOBAL = {
   console: {
     ...console,
     error() {},
+    createInstance() {
+      return {
+        log() {},
+        debug() {},
+        info() {},
+        warn() {},
+        error() {},
+      };
+    },
   },
   dump() {},
   EveryWindow: {
@@ -368,6 +379,22 @@ const TEST_GLOBAL = {
     home: "US",
     REGION_TOPIC: "browser-region-updated",
   },
+  SearchService: {
+    init() {
+      return Promise.resolve();
+    },
+    getVisibleEngines: () =>
+      Promise.resolve([{ identifier: "google" }, { identifier: "bing" }]),
+    defaultEngine: {
+      identifier: "google",
+      aliases: ["@google"],
+    },
+    defaultPrivateEngine: {
+      identifier: "bing",
+      aliases: ["@bing"],
+    },
+    getEngineByAlias: async () => null,
+  },
   Services: {
     dirsvc: {
       get: () => ({ parent: { parent: { path: "appPath" } } }),
@@ -425,6 +452,10 @@ const TEST_GLOBAL = {
         spec,
       }),
     },
+    /**
+     * @backward-compat { version 149 }
+     *   The search service was replaced by a singleton in 149.
+     */
     search: {
       init() {
         return Promise.resolve();
@@ -444,6 +475,20 @@ const TEST_GLOBAL = {
     scriptSecurityManager: {
       createNullPrincipal() {},
       getSystemPrincipal() {},
+    },
+    vc: {
+      compare(a, b) {
+        // Rather than re-write Services.vc.compare completely, do
+        // a simple comparison of the major version.
+        // This means this function will give the wrong output for differences
+        // in minor versions, but should be sufficient for unit tests.
+        let majorA = parseInt(a, 10);
+        let majorB = parseInt(b, 10);
+        if (majorA === majorB) {
+          return 0;
+        }
+        return majorA > majorB ? 1 : -1;
+      },
     },
     wm: {
       getMostRecentWindow: () => window,
@@ -505,6 +550,7 @@ const TEST_GLOBAL = {
   FX_MONITOR_OAUTH_CLIENT_ID: "fake_client_id",
   ExperimentAPI: {},
   NimbusFeatures: FakeNimbusFeatures([
+    "adsBackend",
     "glean",
     "newtab",
     "newtabTrainhop",
@@ -552,6 +598,9 @@ const TEST_GLOBAL = {
 
   getFxAccountsSingleton() {},
   AboutNewTab: {},
+  AboutHomeStartupCache: {
+    onPreloadedNewTabMessage() {},
+  },
   Glean: {
     activityStream: {
       eventClick: {
@@ -692,6 +741,10 @@ const TEST_GLOBAL = {
     SERVER_URL: "bogus://foo",
   },
   NewTabContentPing,
+  ProxyService: {
+    registerChannelFilter() {},
+    unregisterChannelFilter() {},
+  },
 };
 overrider.set(TEST_GLOBAL);
 

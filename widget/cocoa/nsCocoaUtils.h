@@ -250,7 +250,12 @@ class nsCocoaUtils {
    */
   static BOOL ShouldRestoreStateDueToLaunchAtLogin();
 
-  static void PrepareForNativeAppModalDialog();
+  /**
+   * Returns true if the application is ready to run an app modal dialog, false
+   * otherwise. This has to be balanced with a call to
+   * CleanUpAfterNativeAppModalDialog once the app modal dialog is closed.
+   */
+  static bool PrepareForNativeAppModalDialog();
   static void CleanUpAfterNativeAppModalDialog();
 
   // 3 utility functions to go from a frame of imgIContainer to CGImage and then
@@ -370,7 +375,7 @@ class nsCocoaUtils {
   /**
    * Makes a cocoa event from a widget keyboard event.
    */
-  static NSEvent* MakeNewCococaEventFromWidgetEvent(
+  static NSEvent* MakeNewCocoaEventFromWidgetEvent(
       const mozilla::WidgetKeyboardEvent& aKeyEvent, NSInteger aWindowNumber,
       NSGraphicsContext* aContext);
 
@@ -504,7 +509,7 @@ class nsCocoaUtils {
       mozilla::Modifiers aModifiers);
 
   /**
-   * Return true if aAvailableType is a vaild NSPasteboard type.
+   * Return true if aAvailableType is a valid NSPasteboard type.
    */
   static bool IsValidPasteboardType(NSString* aAvailableType,
                                     bool aAllowFileURL);

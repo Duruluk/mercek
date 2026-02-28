@@ -5,12 +5,14 @@
 /* import-globals-from browser-siteProtections.js */
 
 ChromeUtils.defineESModuleGetters(this, {
+  BrowserUtils: "resource://gre/modules/BrowserUtils.sys.mjs",
   ContentBlockingAllowList:
     "resource://gre/modules/ContentBlockingAllowList.sys.mjs",
   E10SUtils: "resource://gre/modules/E10SUtils.sys.mjs",
   PanelMultiView:
     "moz-src:///browser/components/customizableui/PanelMultiView.sys.mjs",
   PlacesUtils: "resource://gre/modules/PlacesUtils.sys.mjs",
+  QWACs: "resource://gre/modules/psm/QWACs.sys.mjs",
   SiteDataManager: "resource:///modules/SiteDataManager.sys.mjs",
   UrlbarPrefs: "moz-src:///browser/components/urlbar/UrlbarPrefs.sys.mjs",
 });
@@ -50,6 +52,18 @@ XPCOMUtils.defineLazyPreferenceGetter(
   "httpsOnlyModeEnabledPBM",
   "dom.security.https_only_mode_pbm"
 );
+XPCOMUtils.defineLazyPreferenceGetter(
+  this,
+  "popupClickjackDelay",
+  "security.notification_enable_delay",
+  500
+);
+XPCOMUtils.defineLazyPreferenceGetter(
+  this,
+  "smartblockEmbedsEnabledPref",
+  "extensions.webcompat.smartblockEmbeds.enabled",
+  false
+);
 
 const ETP_ENABLED_ASSETS = {
   label: "trustpanel-etp-label-enabled",
@@ -65,17 +79,62 @@ const ETP_DISABLED_ASSETS = {
   innerDescription: "trustpanel-description-disabled",
 };
 
+const SMARTBLOCK_EMBED_INFO = [
+  {
+    matchPatterns: ["https://itisatracker.org/*"],
+    shimId: "EmbedTestShim",
+    displayName: "Test",
+  },
+  {
+    matchPatterns: [
+      "https://www.instagram.com/*",
+      "https://platform.instagram.com/*",
+    ],
+    shimId: "InstagramEmbed",
+    displayName: "Instagram",
+  },
+  {
+    matchPatterns: ["https://www.tiktok.com/*"],
+    shimId: "TiktokEmbed",
+    displayName: "Tiktok",
+  },
+  {
+    matchPatterns: ["https://platform.twitter.com/*"],
+    shimId: "TwitterEmbed",
+    displayName: "X",
+  },
+  {
+    matchPatterns: ["https://*.disqus.com/*"],
+    shimId: "DisqusEmbed",
+    displayName: "Disqus",
+  },
+];
+
 class TrustPanel {
   #state = null;
   #secInfo = null;
+
+  /**
+   * If the document is using a qualified website authentication certificate
+   * (QWAC), this may eventually be an nsIX509Cert corresponding to it.
+   */
+  #qwac = null;
+
+  /**
+   * Promise that will resolve when determining if the document is using a QWAC
+   * has resolved.
+   */
+  #qwacStatusPromise = null;
+
+  #host = null;
   #uri = null;
   #uriHasHost = null;
   #pageExtensionPolicy = null;
-  #isURILoadedFromFile = null;
-  #isSecureContext = null;
-  #isSecureInternalUI = null;
 
   #lastEvent = null;
+
+  #popupToggleDelayTimer = null;
+  #openingReason = null;
 
   #blockers = {
     SocialTracking,
@@ -91,6 +150,9 @@ class TrustPanel {
         blocker.init();
       }
     }
+
+    // Add an observer to listen to requests to open the protections panel
+    Services.obs.addObserver(this, "smartblock:open-protections-panel");
   }
 
   uninit() {
@@ -99,6 +161,8 @@ class TrustPanel {
         blocker.uninit();
       }
     }
+
+    Services.obs.removeObserver(this, "smartblock:open-protections-panel");
   }
 
   get #popup() {
@@ -123,14 +187,21 @@ class TrustPanel {
     this.showPopup({ event, openingReason: "shieldButtonClicked" });
   }
 
-  onContentBlockingEvent(event, _webProgress, _isSimulated, _previousState) {
-    if (!this.#enabled) {
+  async onContentBlockingEvent(
+    event,
+    _webProgress,
+    _isSimulated,
+    _previousState
+  ) {
+    // Only accept contentblocking events for uris that we initialised `updateIdentity`
+    // with, this can go wrong if trustpanel is enabled mid page load.
+    if (!this.#enabled || !this.#uri) {
       return;
     }
+
     // First update all our internal state based on the allowlist and the
     // different blockers:
     this.anyDetected = false;
-    this.anyBlocking = false;
     this.#lastEvent = event;
 
     // Check whether the user has added an exception for this site.
@@ -147,7 +218,10 @@ class TrustPanel {
       // the data with the document directly.
       blocker.activated = blocker.isBlocking(event);
       this.anyDetected = this.anyDetected || blocker.isDetected(event);
-      this.anyBlocking = this.anyBlocking || blocker.activated;
+    }
+
+    if (this.#popup) {
+      await this.#updatePopup();
     }
   }
 
@@ -166,9 +240,10 @@ class TrustPanel {
         .addEventListener("click", event => this.#openBlockerSubview(event));
       document
         .getElementById("trustpanel-privacy-link")
-        .addEventListener("click", () =>
-          window.openTrustedLinkIn("about:preferences#privacy", "tab")
-        );
+        .addEventListener("click", () => {
+          this.#hidePopup();
+          window.openTrustedLinkIn("about:preferences#privacy", "tab");
+        });
       document
         .getElementById("trustpanel-clear-cookies-button")
         .addEventListener("click", event =>
@@ -192,16 +267,38 @@ class TrustPanel {
       document
         .getElementById("trustpanel-popup-security-httpsonlymode-menulist")
         .addEventListener("command", () => this.#changeHttpsOnlyPermission());
+
+      this.#popup.addEventListener("popupshown", this);
     }
   }
 
-  showPopup() {
+  async showPopup(opts = {}) {
     this.#initializePopup();
-    this.#updatePopup();
 
-    let anchor = document.getElementById("trust-icon-container");
-    let opts = { position: "bottomleft topleft" };
-    PanelMultiView.openPopup(this.#popup, anchor, opts);
+    // Kick off background determination of QWAC status.
+    if (this.#isSecureContext && !this.#qwacStatusPromise) {
+      let qwacStatusPromise = QWACs.determineQWACStatus(
+        this.#secInfo,
+        this.#uri,
+        gBrowser.selectedBrowser.browsingContext
+      ).then(result => {
+        // Check that when this promise resolves, we're still on the same
+        // document as when it was created.
+        if (qwacStatusPromise == this.#qwacStatusPromise && result) {
+          this.#qwac = result;
+          this.#updateSecurityInformationSubview();
+        }
+      });
+      this.#qwacStatusPromise = qwacStatusPromise;
+    }
+
+    await this.#updatePopup();
+
+    this.#openingReason = opts.reason;
+
+    PanelMultiView.openPopup(this.#popup, this.#anchor(), {
+      position: "bottomleft topleft",
+    });
   }
 
   async #hidePopup() {
@@ -226,67 +323,68 @@ class TrustPanel {
     this.#uri = uri;
 
     this.#secInfo = gBrowser.securityUI.secInfo;
+    // Clear any previously-determined QWAC information.
+    this.#qwac = null;
+    this.#qwacStatusPromise = null;
     this.#pageExtensionPolicy = WebExtensionPolicy.getByURI(uri);
-    this.#isURILoadedFromFile = uri.schemeIs("file");
-    this.#isSecureContext = this.#getIsSecureContext();
-
-    this.#isSecureInternalUI = false;
-    if (this.#uri.schemeIs("about")) {
-      let module = E10SUtils.getAboutModule(this.#uri);
-      if (module) {
-        let flags = module.getURIFlags(this.#uri);
-        this.#isSecureInternalUI = !!(
-          flags & Ci.nsIAboutModule.IS_SECURE_CHROME_UI
-        );
-      }
-    }
 
     this.#updateUrlbarIcon();
   }
 
+  /**
+   * The trust icon may be hidden, in that case the identity box
+   * should be shown so use that as anchor.
+   *
+   * @returns {DOMElement}
+   */
+  #anchor() {
+    let anchors = [
+      document.getElementById("trust-icon-container"),
+      document.getElementById("identity-icon-box"),
+    ];
+    return anchors.find(element => element.checkVisibility());
+  }
+
   #updateUrlbarIcon() {
     let icon = document.getElementById("trust-icon-container");
-    let secureConnection = this.#isSecurePage();
-    icon.className = "";
+    icon.className = this.#isSecurePage() ? "secure" : "insecure";
 
     if (this.#isURILoadedFromFile) {
       icon.classList.add("file");
-    } else if (!this.#trackingProtectionEnabled) {
-      icon.classList.add("inactive");
-    } else if (secureConnection && this.#trackingProtectionEnabled) {
-      icon.classList.add("secure");
-    } else if (!secureConnection || !this.#trackingProtectionEnabled) {
-      icon.classList.add("insecure");
-    } else {
-      icon.classList.add("warning");
     }
 
-    icon.classList.toggle("chickletShown", this.#isSecureInternalUI);
+    if (!this.#trackingProtectionEnabled) {
+      icon.classList.add("inactive");
+    }
+
+    icon.setAttribute("tooltiptext", this.#tooltipText());
+    icon.classList.toggle("chickletShown", this.#isInternalSecurePage);
   }
 
   async #updatePopup() {
-    let secureConnection = this.#isSecurePage();
-
-    let connection = "not-secure";
-    if (secureConnection || this.#isInternalSecurePage(this.#uri)) {
-      connection = "secure";
-    }
-
-    this.#popup.setAttribute("connection", connection);
+    this.#host = BrowserUtils.formatURIForDisplay(this.#uri, {
+      onlyBaseDomain: true,
+    });
+    this.#popup.setAttribute("connection", this.#connectionState());
     this.#popup.setAttribute(
       "tracking-protection",
       this.#trackingProtectionStatus()
     );
 
+    await this.#updateMainView();
+  }
+
+  async #updateMainView() {
+    let secureConnection = this.#isSecurePage();
     let assets = this.#trackingProtectionEnabled
       ? ETP_ENABLED_ASSETS
       : ETP_DISABLED_ASSETS;
-    let host = window.gIdentityHandler.getHostForDisplay();
-    this.host = host;
 
-    let favicon = await PlacesUtils.favicons.getFaviconForPage(this.#uri);
-    document.getElementById("trustpanel-popup-icon").src =
-      favicon?.uri.spec ?? "";
+    if (this.#uri) {
+      let favicon = await PlacesUtils.favicons.getFaviconForPage(this.#uri);
+      document.getElementById("trustpanel-popup-icon").src =
+        favicon?.uri.spec ?? "";
+    }
 
     let toggle = document.getElementById("trustpanel-toggle");
     toggle.toggleAttribute("pressed", this.#trackingProtectionEnabled);
@@ -295,12 +393,12 @@ class TrustPanel {
       this.#trackingProtectionEnabled
         ? "trustpanel-etp-toggle-on"
         : "trustpanel-etp-toggle-off",
-      { host }
+      { host: this.#host }
     );
 
     let hostElement = document.getElementById("trustpanel-popup-host");
-    hostElement.textContent = host;
-    hostElement.setAttribute("tooltiptext", host);
+    hostElement.setAttribute("value", this.#host);
+    hostElement.setAttribute("tooltiptext", this.#host);
 
     document.l10n.setAttributes(
       document.getElementById("trustpanel-etp-label"),
@@ -325,42 +423,41 @@ class TrustPanel {
         : "trustpanel-connection-label-insecure"
     );
 
-    let canHandle = ContentBlockingAllowList.canHandle(
-      window.gBrowser.selectedBrowser
+    this.#updateAttribute(
+      document.getElementById("trustpanel-blocker-section"),
+      "hidden",
+      !this.anyDetected
     );
-    document
-      .getElementById("trustpanel-toggle")
-      .toggleAttribute("disabled", !canHandle);
-    document
-      .getElementById("trustpanel-toggle-section")
-      .toggleAttribute("disabled", !canHandle);
+    await this.#updateBlockerView();
+  }
 
-    if (!this.anyDetected) {
-      document.getElementById("trustpanel-blocker-section").hidden = true;
-    } else {
-      let count = 0;
-      let blocked = [];
-      let detected = [];
+  async #updateBlockerView() {
+    let count = this.#fetchSmartBlocked().length;
+    let blocked = [];
+    let detected = [];
 
-      for (let blocker of Object.values(this.#blockers)) {
-        if (blocker.isBlocking(this.#lastEvent)) {
-          blocked.push(blocker);
-          count += await blocker.getBlockerCount();
-        } else if (blocker.isDetected(this.#lastEvent)) {
-          detected.push(blocker);
-        }
+    for (let blocker of Object.values(this.#blockers)) {
+      if (blocker.isBlocking(this.#lastEvent)) {
+        blocked.push(blocker);
+        count += await blocker.getBlockerCount();
+      } else if (blocker.isDetected(this.#lastEvent)) {
+        detected.push(blocker);
       }
-      document.l10n.setArgs(
-        document.getElementById("trustpanel-blocker-section-header"),
-        { count }
-      );
-      this.#addButtons("trustpanel-blocked", blocked, true);
-      this.#addButtons("trustpanel-detected", detected, false);
-
-      document
-        .getElementById("trustpanel-blocker-section")
-        .removeAttribute("hidden");
     }
+
+    this.#addButtons("trustpanel-blocked", blocked, true);
+    this.#addButtons("trustpanel-detected", detected, false);
+
+    document
+      .getElementById("trustpanel-smartblock-section")
+      .toggleAttribute("hidden", !this.#addSmartblockEmbedToggles());
+
+    // This element is in the main view but updated in case
+    // any content blocking events were missed.
+    document.l10n.setArgs(
+      document.getElementById("trustpanel-blocker-section-header"),
+      { count }
+    );
   }
 
   async #showSecurityPopup() {
@@ -388,11 +485,11 @@ class TrustPanel {
     return this.#trackingProtectionEnabled ? "enabled" : "disabled";
   }
 
-  #openSecurityInformationSubview(event) {
+  #updateSecurityInformationSubview() {
     document.l10n.setAttributes(
       document.getElementById("trustpanel-securityInformationView"),
       "trustpanel-site-information-header",
-      { host: this.host }
+      { host: this.#host }
     );
 
     let customRoot = this.#isSecureConnection ? this.#hasCustomRoot() : false;
@@ -423,7 +520,10 @@ class TrustPanel {
     document.getElementById("identity-popup-content-verifier").textContent =
       verifier;
     document.getElementById("identity-popup-content-owner").textContent = owner;
+  }
 
+  #openSecurityInformationSubview(event) {
+    this.#updateSecurityInformationSubview();
     document
       .getElementById("trustpanel-popup-multiView")
       .showSubView("trustpanel-securityInformationView", event.target);
@@ -433,8 +533,9 @@ class TrustPanel {
     document.l10n.setAttributes(
       document.getElementById("trustpanel-blockerView"),
       "trustpanel-blocker-header",
-      { host: this.host }
+      { host: this.#host }
     );
+    await this.#updateBlockerView();
     document
       .getElementById("trustpanel-popup-multiView")
       .showSubView("trustpanel-blockerView", event.target);
@@ -482,7 +583,7 @@ class TrustPanel {
     document.l10n.setAttributes(
       document.getElementById("trustpanel-clearcookiesView"),
       "trustpanel-clear-cookies-header",
-      { host: window.gIdentityHandler.getHostForDisplay() }
+      { host: this.#host }
     );
     document
       .getElementById("trustpanel-popup-multiView")
@@ -527,17 +628,29 @@ class TrustPanel {
   }
 
   #isSecurePage() {
-    return (
-      this.#state & Ci.nsIWebProgressListener.STATE_IS_SECURE ||
-      this.#isInternalSecurePage(this.#uri)
-    );
+    if (this.#isInternalSecurePage) {
+      return true;
+    }
+    if (this.#isSecureConnection) {
+      return true;
+    }
+    if (this.#isBrokenConnection) {
+      return false;
+    }
+    if (this.#isCertErrorPage || this.#isCertUserOverridden) {
+      return false;
+    }
+    if (this.#isPotentiallyTrustworthy) {
+      return true;
+    }
+    return false;
   }
 
-  #isInternalSecurePage(uri) {
-    if (uri.schemeIs("about")) {
-      let module = E10SUtils.getAboutModule(uri);
+  get #isInternalSecurePage() {
+    if (this.#uri?.schemeIs("about")) {
+      let module = E10SUtils.getAboutModule(this.#uri);
       if (module) {
-        let flags = module.getURIFlags(uri);
+        let flags = module.getURIFlags(this.#uri);
         if (flags & Ci.nsIAboutModule.IS_SECURE_CHROME_UI) {
           return true;
         }
@@ -584,9 +697,8 @@ class TrustPanel {
    * Helper to parse out the important parts of _secInfo (of the SSL cert in
    * particular) for use in constructing identity UI strings
    */
-  #getIdentityData() {
+  #getIdentityData(cert = this.#secInfo.serverCert) {
     var result = {};
-    var cert = this.#secInfo.serverCert;
 
     // Human readable name of Subject
     result.subjectOrg = cert.organization;
@@ -612,7 +724,7 @@ class TrustPanel {
     return result;
   }
 
-  #getIsSecureContext() {
+  get #isSecureContext() {
     if (gBrowser.contentPrincipal?.originNoSuffix != "resource://pdf.js") {
       return gBrowser.securityUI.isSecureContext;
     }
@@ -780,6 +892,18 @@ class TrustPanel {
     return documentURI?.scheme == "about" && documentURI.filePath == "blocked";
   }
 
+  get #isURILoadedFromFile() {
+    return this.#uri.schemeIs("file");
+  }
+
+  /**
+   * Returns a promise that will resolve when determining QWAC status has
+   * finished. Primarily intended for tests.
+   */
+  get qwacStatusPromise() {
+    return this.#qwacStatusPromise;
+  }
+
   #supplementalText() {
     let supplemental = "";
     let verifier = "";
@@ -790,11 +914,12 @@ class TrustPanel {
       verifier = this.#tooltipText();
     }
 
-    // Fill in organization information if we have a valid EV certificate.
-    if (this.#isEV) {
-      let iData = this.#getIdentityData();
+    // Fill in organization information if we have a valid EV certificate or
+    // QWAC.
+    if (this.#isEV || this.#qwac) {
+      let iData = this.#getIdentityData(this.#qwac || this.#secInfo.serverCert);
       owner = iData.subjectOrg;
-      verifier = this._identityIconLabel.tooltipText;
+      verifier = this.#tooltipText();
 
       // Build an appropriate supplemental block out of whatever location data we have
       if (iData.city) {
@@ -825,7 +950,7 @@ class TrustPanel {
 
     if (this.#uriHasHost && this.#isSecureConnection) {
       // This is a secure connection.
-      if (!this._isCertUserOverridden) {
+      if (!this.#isCertUserOverridden) {
         // It's a normal cert, verifier is the CA Org.
         tooltip = gNavigatorBundle.getFormattedString(
           "identity.identified.verifier",
@@ -834,7 +959,6 @@ class TrustPanel {
       }
     } else if (this.#isBrokenConnection) {
       if (this.#isMixedActiveContentLoaded) {
-        this._identityBox.classList.add("mixedActiveContent");
         if (
           UrlbarPrefs.getScotchBonnetPref("trimHttps") &&
           warnTextOnInsecure
@@ -846,7 +970,7 @@ class TrustPanel {
       tooltip = gNavigatorBundle.getString("identity.notSecure.tooltip");
     }
 
-    if (this._isCertUserOverridden) {
+    if (this.#isCertUserOverridden) {
       // Cert is trusted because of a security exception, verifier is a special string.
       tooltip = gNavigatorBundle.getString(
         "identity.identified.verified_by_you"
@@ -858,12 +982,14 @@ class TrustPanel {
   #connectionState() {
     // Determine connection security information.
     let connection = "not-secure";
-    if (this.#isSecureInternalUI) {
+    if (this.#isInternalSecurePage) {
       connection = "chrome";
     } else if (this.#pageExtensionPolicy) {
       connection = "extension";
     } else if (this.#isURILoadedFromFile) {
       connection = "file";
+    } else if (this.#qwac) {
+      connection = "secure-etsi";
     } else if (this.#isEV) {
       connection = "secure-ev";
     } else if (this.#isCertUserOverridden) {
@@ -1083,6 +1209,233 @@ class TrustPanel {
       // security delay on a potential error page following this reload.
       gBrowser.selectedBrowser.focus();
     }
+  }
+
+  /**
+   * Adds the toggles into the smartblock toggle container. Clears existing toggles first, then
+   * searches through the contentBlockingLog for smartblock-compatible content.
+   *
+   * @returns {boolean} true if a smartblock compatible resource is blocked or shimmed, false otherwise
+   */
+  #addSmartblockEmbedToggles() {
+    if (!smartblockEmbedsEnabledPref) {
+      // Do not insert toggles if feature is disabled.
+      return false;
+    }
+
+    let container = document.getElementById(
+      "trustpanel-smartblock-toggle-container"
+    );
+    container.replaceChildren();
+
+    // check that there is an allowed or replaced flag present
+    let contentBlockingEvents =
+      gBrowser.selectedBrowser.getContentBlockingEvents();
+
+    // In the future, we should add a flag specifically for smartblock embeds so that
+    // these checks do not trigger when a non-embed-related shim is shimming
+    // a smartblock compatible site, see Bug 1926461
+    let somethingAllowedOrReplaced =
+      contentBlockingEvents &
+        Ci.nsIWebProgressListener.STATE_ALLOWED_TRACKING_CONTENT ||
+      contentBlockingEvents &
+        Ci.nsIWebProgressListener.STATE_REPLACED_TRACKING_CONTENT;
+
+    if (!somethingAllowedOrReplaced) {
+      // return early if there is no content that is allowed or replaced
+      return false;
+    }
+
+    let blocked = this.#fetchSmartBlocked();
+    if (!blocked.length) {
+      return false;
+    }
+
+    // search through content log for compatible blocked origins
+    for (let { shimAllowed, shimInfo } of blocked) {
+      const { shimId, displayName } = shimInfo;
+
+      // check that a toggle doesn't already exist
+      let existingToggle = document.getElementById(
+        `trustpanel-smartblock-${shimId.toLowerCase()}-toggle`
+      );
+      if (existingToggle) {
+        // make sure toggle state is allowed if ANY of the sites are allowed
+        if (shimAllowed) {
+          existingToggle.setAttribute("pressed", true);
+        }
+        // skip adding a new toggle
+        continue;
+      }
+
+      // create the toggle element
+      let toggle = document.createElement("moz-toggle");
+      toggle.setAttribute(
+        "id",
+        `trustpanel-smartblock-${shimId.toLowerCase()}-toggle`
+      );
+      toggle.setAttribute("data-l10n-attrs", "label");
+      document.l10n.setAttributes(
+        toggle,
+        "protections-panel-smartblock-blocking-toggle",
+        {
+          trackername: displayName,
+        }
+      );
+
+      // set toggle to correct position
+      toggle.toggleAttribute("pressed", !!shimAllowed);
+
+      // add functionality to toggle
+      toggle.addEventListener("toggle", event => {
+        if (event.target.pressed) {
+          this.#sendUnblockMessageToSmartblock(shimId);
+        } else {
+          this.#sendReblockMessageToSmartblock(shimId);
+        }
+        PanelMultiView.hidePopup(this.#popup);
+      });
+
+      container.insertAdjacentElement("beforeend", toggle);
+    }
+    return true;
+  }
+
+  #fetchSmartBlocked() {
+    let blocked = [];
+    let contentBlockingLog = JSON.parse(
+      gBrowser.selectedBrowser.getContentBlockingLog()
+    );
+    // search through content log for compatible blocked origins
+    for (let [origin, actions] of Object.entries(contentBlockingLog)) {
+      let shimAllowed = actions.some(
+        ([flag]) =>
+          (flag & Ci.nsIWebProgressListener.STATE_ALLOWED_TRACKING_CONTENT) != 0
+      );
+
+      let shimDetected = actions.some(
+        ([flag]) =>
+          (flag & Ci.nsIWebProgressListener.STATE_REPLACED_TRACKING_CONTENT) !=
+          0
+      );
+
+      if (!shimAllowed && !shimDetected) {
+        // origin is not being shimmed or allowed
+        continue;
+      }
+
+      let shimInfo = SMARTBLOCK_EMBED_INFO.find(element => {
+        let matchPatternSet = new MatchPatternSet(element.matchPatterns);
+        return matchPatternSet.matches(origin);
+      });
+      if (!shimInfo) {
+        // origin not relevant to smartblock
+        continue;
+      }
+
+      blocked.push({ shimAllowed, shimInfo });
+    }
+    return blocked;
+  }
+
+  async observe(subject, topic) {
+    if (!this.#enabled) {
+      return;
+    }
+    switch (topic) {
+      case "smartblock:open-protections-panel": {
+        if (gBrowser.selectedBrowser.browserId !== subject.browserId) {
+          break;
+        }
+        this.#initializePopup();
+        let multiview = document.getElementById("trustpanel-popup-multiView");
+        // TODO: https://bugzilla.mozilla.org/show_bug.cgi?id=1999928
+        // This currently opens as a standalone panel, we would like to open
+        // the panel with a back button and title the same way as if it
+        // were accessed via the urlbar icon.
+        let initialMainViewId = multiview.getAttribute("mainViewId");
+        this.#popup.addEventListener(
+          "popuphidden",
+          () => {
+            multiview.setAttribute("mainViewId", initialMainViewId);
+          },
+          { once: true }
+        );
+        multiview.setAttribute("mainViewId", "trustpanel-blockerView");
+        this.showPopup({ reason: "embedPlaceholderButton" });
+        break;
+      }
+    }
+  }
+
+  // We handle focus here when the panel is shown.
+  handleEvent(event) {
+    switch (event.type) {
+      case "popupshown":
+        this.onPopupShown(event);
+        break;
+    }
+  }
+
+  onPopupShown() {
+    // Disable the toggles for a short time after opening via SmartBlock placeholder button
+    // to prevent clickjacking.
+    if (this.#openingReason == "embedPlaceholderButton") {
+      this.#disablePopupToggles();
+      this.#popupToggleDelayTimer = setTimeout(() => {
+        this.#enablePopupToggles();
+      }, popupClickjackDelay);
+    }
+  }
+
+  /**
+   * Sends a message to webcompat extension to unblock content and remove placeholders
+   *
+   * @param {string} shimId - the id of the shim blocking the content
+   */
+  #sendUnblockMessageToSmartblock(shimId) {
+    Services.obs.notifyObservers(
+      gBrowser.selectedTab,
+      "smartblock:unblock-embed",
+      shimId
+    );
+  }
+
+  /**
+   * Sends a message to webcompat extension to reblock content
+   *
+   * @param {string} shimId - the id of the shim blocking the content
+   */
+  #sendReblockMessageToSmartblock(shimId) {
+    Services.obs.notifyObservers(
+      gBrowser.selectedTab,
+      "smartblock:reblock-embed",
+      shimId
+    );
+  }
+
+  #resetToggleSecDelay() {
+    clearTimeout(this.#popupToggleDelayTimer);
+    this.#popupToggleDelayTimer = setTimeout(() => {
+      this.#enablePopupToggles();
+    }, popupClickjackDelay);
+  }
+
+  #disablePopupToggles() {
+    // Disables all toggles in the protections panel
+    this.#popup.querySelectorAll("moz-toggle").forEach(toggle => {
+      toggle.setAttribute("disabled", true);
+      toggle.addEventListener("pointerdown", this.#resetToggleReference);
+    });
+  }
+
+  #resetToggleReference = this.#resetToggleSecDelay.bind(this);
+  #enablePopupToggles() {
+    // Enables all toggles in the protections panel
+    this.#popup.querySelectorAll("moz-toggle").forEach(toggle => {
+      toggle.removeAttribute("disabled");
+      toggle.removeEventListener("pointerdown", this.#resetToggleReference);
+    });
   }
 
   #updateAttribute(elem, attr, value) {

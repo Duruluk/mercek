@@ -349,7 +349,7 @@ class CycleCollectedJSRuntime {
                        nsCycleCollectionTraversalCallback& aCb) const;
 
   virtual bool DescribeCustomObjects(JSObject* aObject, const JSClass* aClasp,
-                                     char (&aName)[72]) const {
+                                     char (&aName)[512]) const {
     return false;  // We did nothing.
   }
 

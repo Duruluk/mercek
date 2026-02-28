@@ -11,9 +11,13 @@
 #include "mozilla/RefPtr.h"
 #include "mozilla/dom/BindingDeclarations.h"
 #include "mozilla/dom/CSSKeywordValue.h"
+#include "mozilla/dom/CSSMathSum.h"
 #include "mozilla/dom/CSSStyleValue.h"
+#include "mozilla/dom/CSSTransformValue.h"
+#include "mozilla/dom/CSSUnitValue.h"
 #include "mozilla/dom/StylePropertyMapBinding.h"
 #include "nsCOMPtr.h"
+#include "nsCSSProps.h"
 #include "nsDOMCSSDeclaration.h"
 #include "nsQueryObject.h"
 #include "nsString.h"
@@ -21,11 +25,13 @@
 
 namespace mozilla::dom {
 
-StylePropertyMap::StylePropertyMap(nsCOMPtr<nsISupports> aParent,
-                                   bool aComputed)
-    : StylePropertyMapReadOnly(std::move(aParent), aComputed) {
+StylePropertyMap::StylePropertyMap(Element* aElement, bool aComputed)
+    : StylePropertyMapReadOnly(aElement, aComputed) {
   MOZ_DIAGNOSTIC_ASSERT(!aComputed);
 }
+
+StylePropertyMap::StylePropertyMap(CSSStyleRule* aRule)
+    : StylePropertyMapReadOnly(aRule) {}
 
 JSObject* StylePropertyMap::WrapObject(JSContext* aCx,
                                        JS::Handle<JSObject*> aGivenProto) {
@@ -34,11 +40,23 @@ JSObject* StylePropertyMap::WrapObject(JSContext* aCx,
 
 // start of StylePropertyMap Web IDL implementation
 
+// https://drafts.css-houdini.org/css-typed-om/#dom-stylepropertymap-set
+//
 // XXX This is not yet fully implemented and optimized!
 void StylePropertyMap::Set(
     const nsACString& aProperty,
     const Sequence<OwningCSSStyleValueOrUTF8String>& aValues,
     ErrorResult& aRv) {
+  // Step 2.
+
+  NonCustomCSSPropertyId id = nsCSSProps::LookupProperty(aProperty);
+  if (id == eCSSProperty_UNKNOWN) {
+    aRv.ThrowTypeError("Invalid property: "_ns + aProperty);
+    return;
+  }
+
+  auto propertyId = CSSPropertyId::FromIdOrCustomProperty(id, aProperty);
+
   if (aValues.Length() != 1) {
     aRv.Throw(NS_ERROR_NOT_IMPLEMENTED);
     return;
@@ -53,18 +71,52 @@ void StylePropertyMap::Set(
 
   CSSStyleValue& styleValue = styleValueOrString.GetAsCSSStyleValue();
 
-  nsAutoCString value;
+  // Step 4
 
-  if (styleValue.IsCSSUnsupportedValue()) {
-    CSSUnsupportedValue& unsupportedValue =
-        styleValue.GetAsCSSUnsupportedValue();
+  const auto* valuePropertyId = styleValue.GetPropertyId();
 
-    unsupportedValue.GetValue(value);
-  } else if (styleValue.IsCSSKeywordValue()) {
-    CSSKeywordValue& keywordValue = styleValue.GetAsCSSKeywordValue();
+  if (valuePropertyId && *valuePropertyId != propertyId) {
+    aRv.ThrowTypeError("Invalid type for property"_ns);
+    return;
+  }
 
-    keywordValue.GetValue(value);
-  } else {
+  nsAutoCString cssText;
+
+  switch (styleValue.GetStyleValueType()) {
+    case CSSStyleValue::StyleValueType::TransformValue: {
+      CSSTransformValue& transformValue = styleValue.GetAsCSSTransformValue();
+
+      transformValue.ToCssTextWithProperty(propertyId, cssText);
+      break;
+    }
+
+    case CSSStyleValue::StyleValueType::NumericValue: {
+      CSSNumericValue& numericValue = styleValue.GetAsCSSNumericValue();
+
+      numericValue.ToCssTextWithProperty(propertyId, cssText);
+      break;
+    }
+
+    case CSSStyleValue::StyleValueType::KeywordValue: {
+      CSSKeywordValue& keywordValue = styleValue.GetAsCSSKeywordValue();
+
+      keywordValue.ToCssTextWithProperty(propertyId, cssText);
+      break;
+    }
+
+    case CSSStyleValue::StyleValueType::UnsupportedValue: {
+      CSSUnsupportedValue& unsupportedValue =
+          styleValue.GetAsCSSUnsupportedValue();
+
+      unsupportedValue.ToCssTextWithProperty(propertyId, cssText);
+      break;
+    }
+
+    case CSSStyleValue::StyleValueType::Uninitialized:
+      break;
+  }
+
+  if (cssText.IsEmpty()) {
     aRv.Throw(NS_ERROR_NOT_IMPLEMENTED);
     return;
   }
@@ -79,7 +131,7 @@ void StylePropertyMap::Set(
 
   nsCOMPtr<nsDOMCSSDeclaration> declaration = styledElement->Style();
 
-  declaration->SetProperty(aProperty, value, ""_ns, aRv);
+  declaration->SetProperty(aProperty, cssText, ""_ns, aRv);
 }
 
 void StylePropertyMap::Append(

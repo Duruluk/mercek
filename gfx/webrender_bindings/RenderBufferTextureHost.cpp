@@ -26,6 +26,8 @@ RenderBufferTextureHost::RenderBufferTextureHost(
   switch (mDescriptor.type()) {
     case layers::BufferDescriptor::TYCbCrDescriptor: {
       const layers::YCbCrDescriptor& ycbcr = mDescriptor.get_YCbCrDescriptor();
+      MOZ_ASSERT(gfx::IntRect(gfx::IntPoint(), ycbcr.ySize())
+                     .Contains(ycbcr.display()));
       mSize = ycbcr.display().Size();
       mFormat = gfx::SurfaceFormat::YUV420;
       break;

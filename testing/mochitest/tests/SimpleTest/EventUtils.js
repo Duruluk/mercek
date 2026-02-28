@@ -607,7 +607,7 @@ function _maybeSynthesizeDragOver(left, top, aEvent, aWindow) {
 }
 
 /**
- * @typedef {Object} MouseEventData
+ * @typedef {object} MouseEventData
  *
  * @property {string} [accessKey] - The character or key associated with
  *     the access key event. Typically a single character used to activate a UI
@@ -852,22 +852,24 @@ function synthesizeMouseAtCenter(aTarget, aEvent, aWindow, aCallback) {
 }
 
 /**
- * @typedef {Object} TouchEventData
- * @property {boolean} [aEvent.asyncEnabled] - If `true`, the event is
+ * @typedef {object} TouchEventData
+ * @property {boolean} [asyncEnabled] - If `true`, the event is
  * dispatched to the parent process through APZ, without being injected
  * into the OS event queue.
- * @property {string} [aEvent.type] - The touch event type. If undefined,
+ * @property {string} [type] - The touch event type. If undefined,
  * "touchstart" and "touchend" will be synthesized at same point.
- * @property {number | number[]} [aEvent.id] - The touch id. If you don't specify this,
+ * @property {number | number[]} [id] - The touch id. If you don't specify this,
  * default touch id will be used for first touch and further touch ids
  * are the values incremented from the first id.
- * @property {number | number[]} [aEvent.ry] - The X radius in CSS pixels of the touch
- * @property {number | number[]} [aEvent.ry] - The Y radius in CSS pixels of the touch
- * @property {number | number[]} [aEvent.angle] - The angle in degrees
- * @property {number | number[]} [aEvent.force] - The force of the touch
- * @property {number | number[]} [aEvent.tiltX] - The X tilt of the touch
- * @property {number | number[]} [aEvent.tiltY] - The Y tilt of the touch
- * @property {number | number[]} [aEvent.twist] - The twist of the touch
+ * @property {number | number[]} [rx] - The X radius in CSS pixels of the touch
+ * @property {number | number[]} [ry] - The Y radius in CSS pixels of the touch
+ * @property {number | number[]} [angle] - The angle in degrees
+ * @property {number | number[]} [force] - The force of the touch
+ * @property {number | number[]} [tiltX] - The X tilt of the touch
+ * @property {number | number[]} [tiltY] - The Y tilt of the touch
+ * @property {number | number[]} [twist] - The twist of the touch
+ * @property {number | number[]} [altitudeAngle] - The altitude angle of the touch
+ * @property {number | number[]} [azimuthAngle] - The azimuth angle of the touch
  */
 
 /**
@@ -884,7 +886,9 @@ function synthesizeMouseAtCenter(aTarget, aEvent, aWindow, aCallback) {
  * @param {number | number[]} aOffsetX - The relative offset from left of aTarget.
  * @param {number | number[]} aOffsetY - The relative offset from top of aTarget.
  * @param {TouchEventData} aEvent - Details of the touch event to dispatch
- * @param {DOMWindow} [aWindow=window] - DOM window used to dispatch the event.
+ * @param {DOMWindow} [aWindow] - DOM window used to dispatch the event.
+ * @param {Function} [aCallback] - A callback function that is invoked when the
+ *                                 touch event is dispatched.
  *
  * @returns true if and only if aEvent.type is specified and default of the
  * event is prevented.
@@ -894,7 +898,8 @@ function synthesizeTouch(
   aOffsetX,
   aOffsetY,
   aEvent = {},
-  aWindow = window
+  aWindow = window,
+  aCallback
 ) {
   let rectX, rectY;
   if (Array.isArray(aTarget)) {
@@ -932,7 +937,7 @@ function synthesizeTouch(
     }
     return aOffsetY + rectY[0];
   })();
-  return synthesizeTouchAtPoint(offsetX, offsetY, aEvent, aWindow);
+  return synthesizeTouchAtPoint(offsetX, offsetY, aEvent, aWindow, aCallback);
 }
 
 /**
@@ -947,11 +952,19 @@ function synthesizeTouch(
  * @param {number | number[]} aTop - The relative offset from top of aTarget.
  * @param {TouchEventData} aEvent - Details of the touch event to dispatch
  * @param {DOMWindow} [aWindow=window] - DOM window used to dispatch the event.
+ * @param {Function} [aCallback] - A callback function that is invoked when the
+ *                                 touch event is dispatched.
  *
  * @returns true if and only if aEvent.type is specified and default of the
  * event is prevented.
  */
-function synthesizeTouchAtPoint(aLeft, aTop, aEvent = {}, aWindow = window) {
+function synthesizeTouchAtPoint(
+  aLeft,
+  aTop,
+  aEvent = {},
+  aWindow = window,
+  aCallback
+) {
   let utils = _getDOMWindowUtils(aWindow);
   if (!utils) {
     return false;
@@ -1028,37 +1041,53 @@ function synthesizeTouchAtPoint(aLeft, aTop, aEvent = {}, aWindow = window) {
   const tiltXArray = getSameLengthArrayOfEventProperty("tiltX", 0);
   const tiltYArray = getSameLengthArrayOfEventProperty("tiltY", 0);
   const twistArray = getSameLengthArrayOfEventProperty("twist", 0);
+  const altitudeAngleArray = getSameLengthArrayOfEventProperty(
+    "altitudeAngle",
+    undefined
+  );
+  const azimuthAngleArray = getSameLengthArrayOfEventProperty(
+    "azimuthAngle",
+    undefined
+  );
 
-  const modifiers = _parseModifiers(aEvent, aWindow);
-
-  const asyncOption = aEvent.asyncEnabled
-    ? utils.ASYNC_ENABLED
-    : utils.ASYNC_DISABLED;
-
-  const args = [
-    idArray,
-    leftArray,
-    topArray,
-    rxArray,
-    ryArray,
-    angleArray,
-    forceArray,
-    tiltXArray,
-    tiltYArray,
-    twistArray,
-    modifiers,
-    asyncOption,
-  ];
-
-  const sender =
-    aEvent.mozInputSource === "pen" ? "sendTouchEventAsPen" : "sendTouchEvent";
-
-  if ("type" in aEvent && aEvent.type) {
-    return utils[sender](aEvent.type, ...args);
+  const touches = [];
+  for (let i = 0; i < arrayLength; i++) {
+    touches.push({
+      identifier: idArray[i],
+      offsetX: leftArray[i],
+      offsetY: topArray[i],
+      radiiX: rxArray[i],
+      radiiY: ryArray[i],
+      rotationAngle: angleArray[i],
+      pressure: forceArray[i],
+      tiltX: tiltXArray[i],
+      tiltY: tiltYArray[i],
+      twist: twistArray[i],
+      altitudeAngle: altitudeAngleArray[i],
+      azimuthAngle: azimuthAngleArray[i],
+    });
   }
 
-  utils[sender]("touchstart", ...args);
-  utils[sender]("touchend", ...args);
+  const args = [
+    touches,
+    _parseModifiers(aEvent, aWindow),
+    {
+      isAsyncEnabled: aEvent.asyncEnabled || false,
+      isPen: aEvent.mozInputSource === "pen",
+      isDOMEventSynthesized: aEvent.isSynthesized,
+    },
+  ];
+
+  if ("type" in aEvent && aEvent.type) {
+    return _EU_maybeWrap(aWindow).synthesizeTouchEvent(
+      aEvent.type,
+      ...args,
+      aCallback
+    );
+  }
+
+  _EU_maybeWrap(aWindow).synthesizeTouchEvent("touchstart", ...args);
+  _EU_maybeWrap(aWindow).synthesizeTouchEvent("touchend", ...args, aCallback);
   return false;
 }
 
@@ -1068,61 +1097,66 @@ function synthesizeTouchAtPoint(aLeft, aTop, aEvent = {}, aWindow = window) {
  * @param {Element | Element[]} aTarget - The target element
  * @param {TouchEventData} aEvent - Details of the touch event to dispatch
  * @param {DOMWindow} [aWindow=window] - DOM window used to dispatch the event.
+ * @param {Function} [aCallback] - A callback function that is invoked when the
+ *                                 touch event is dispatched.
+ *
+ * @returns {boolean} Whether the event had preventDefault() called on it.
  */
-function synthesizeTouchAtCenter(aTarget, aEvent = {}, aWindow = window) {
+function synthesizeTouchAtCenter(aTarget, aEvent, aWindow, aCallback) {
   var rect = aTarget.getBoundingClientRect();
-  synthesizeTouchAtPoint(
+  return synthesizeTouchAtPoint(
     rect.left + rect.width / 2,
     rect.top + rect.height / 2,
     aEvent,
-    aWindow
+    aWindow,
+    aCallback
   );
 }
 
 /**
- * @typedef {Object} WheelEventData
- * @property {string} [aEvent.accessKey] - The character or key associated with
+ * @typedef {object} WheelEventData
+ * @property {string} [accessKey] - The character or key associated with
  *     the access key event. Typically a single character used to activate a UI
  *     element via keyboard shortcuts (e.g., Alt + accessKey).
- * @property {boolean} [aEvent.altKey] - If set to `true`, the Alt key will be
+ * @property {boolean} [altKey] - If set to `true`, the Alt key will be
  *     considered pressed.
- * @property {boolean} [aEvent.asyncEnabled] - If `true`, the event is
+ * @property {boolean} [asyncEnabled] - If `true`, the event is
  *     dispatched to the parent process through APZ, without being injected
  *     into the OS event queue.
- * @property {boolean} [aEvent.ctrlKey] - If set to `true`, the Ctrl key will
+ * @property {boolean} [ctrlKey] - If set to `true`, the Ctrl key will
  *     be considered pressed.
- * @property {number} [aEvent.deltaMode=WheelEvent.DOM_DELTA_PIXEL] - Delta Mode
+ * @property {number} [deltaMode=WheelEvent.DOM_DELTA_PIXEL] - Delta Mode
  *     for scrolling (pixel, line, or page), which must be one of the
  *     `WheelEvent.DOM_DELTA_*` constants.
- * @property {number} [aEvent.deltaX=0] - Floating-point value in CSS pixels to
+ * @property {number} [deltaX=0] - Floating-point value in CSS pixels to
  *     scroll in the x direction.
- * @property {number} [aEvent.deltaY=0] - Floating-point value in CSS pixels to
+ * @property {number} [deltaY=0] - Floating-point value in CSS pixels to
  *     scroll in the y direction.
- * @property {number} [aEvent.deltaZ=0] - Floating-point value in CSS pixels to
+ * @property {number} [deltaZ=0] - Floating-point value in CSS pixels to
  *     scroll in the z direction.
- * @property {number} [aEvent.expectedOverflowDeltaX] - Decimal value
+ * @property {number} [expectedOverflowDeltaX] - Decimal value
  *     indicating horizontal scroll overflow. Only the sign is checked: `0`,
  *     positive, or negative.
- * @property {number} [aEvent.expectedOverflowDeltaY] - Decimal value
+ * @property {number} [expectedOverflowDeltaY] - Decimal value
  *     indicating vertical scroll overflow. Only the sign is checked: `0`,
  *     positive, or negative.
- * @property {boolean} [aEvent.isCustomizedByPrefs] - If set to `true` the
+ * @property {boolean} [isCustomizedByPrefs] - If set to `true` the
  *     delta values are computed from preferences.
- * @property {boolean} [aEvent.isMomentum] - If set to `true` the event will be
+ * @property {boolean} [isMomentum] - If set to `true` the event will be
  *     caused by momentum.
- * @property {boolean} [aEvent.isNoLineOrPageDelta] - If `true`, the creator
+ * @property {boolean} [isNoLineOrPageDelta] - If `true`, the creator
  *     does not set `lineOrPageDeltaX/Y`. When a widget wheel event is
  *     generated from this object, those fields will be automatically
  *     calculated during dispatch by the `EventStateManager`.
- * @property {number} [aEvent.lineOrPageDeltaX] - If set to a non-zero value
+ * @property {number} [lineOrPageDeltaX] - If set to a non-zero value
  *      for a `DOM_DELTA_PIXEL` event, the EventStateManager will dispatch a
  *     `NS_MOUSE_SCROLL` event for a horizontal scroll.
- * @property {number} [aEvent.lineOrPageDeltaY] - If set to a non-zero value
+ * @property {number} [lineOrPageDeltaY] - If set to a non-zero value
  *     for a `DOM_DELTA_PIXEL` event, the EventStateManager will dispatch a
  *     `NS_MOUSE_SCROLL` event for a vertical scroll.
- * @property {boolean} [aEvent.metaKey] - If set to `true`, the Meta key will
+ * @property {boolean} [metaKey] - If set to `true`, the Meta key will
  *     be considered pressed.
- * @property {boolean} [aEvent.shiftKey] - If set to `true`, the Shift key will
+ * @property {boolean} [shiftKey] - If set to `true`, the Shift key will
  *     be considered pressed.
  */
 
@@ -1468,7 +1502,7 @@ function synthesizeNativeTap(
  * @param {object} aParams
  * @param {string} aParams.type "click", "mousedown", "mouseup" or "mousemove"
  * @param {Element} aParams.target Origin of offsetX and offsetY, must be an element
- * @param {Boolean} [aParams.atCenter]
+ * @param {boolean} [aParams.atCenter]
  *        Instead of offsetX/Y, synthesize the event at center of `target`.
  * @param {number} [aParams.offsetX]
  *        X offset in `target` (in CSS pixels if `scale` is "screenPixelsPerCSSPixel")
@@ -1480,12 +1514,12 @@ function synthesizeNativeTap(
  * @param {number} [aParams.screenY]
  *        Y offset in screen (in CSS pixels if `scale` is "screenPixelsPerCSSPixel"),
  *        Neither offsetX/Y nor atCenter must be set if this is set.
- * @param {String} [aParams.scale="screenPixelsPerCSSPixel"]
+ * @param {string} [aParams.scale="screenPixelsPerCSSPixel"]
  *        If scale is "screenPixelsPerCSSPixel", devicePixelRatio will be used.
  *        If scale is "inScreenPixels", clientX/Y nor scaleX/Y are not adjusted with screenPixelsPerCSSPixel.
  * @param {number} [aParams.button=0]
  *        Defaults to 0, if "click", "mousedown", "mouseup", set same value as DOM MouseEvent.button
- * @param {Object} [aParams.modifiers={}]
+ * @param {object} [aParams.modifiers={}]
  *        Active modifiers, see `_parseNativeModifiers`
  * @param {DOMWindow} [aParams.win=window]
  *        The window to use its utils. Defaults to the window in which EventUtils.js is running.
@@ -1709,7 +1743,7 @@ function synthesizeAndWaitNativeMouseMove(
  * Synthesize a key event. It is targeted at whatever would be targeted by an
  * actual keypress by the user, typically the focused element.
  *
- * @param {String} aKey
+ * @param {string} aKey
  *        Should be either:
  *
  *        - key value (recommended).  If you specify a non-printable key name,
@@ -1719,10 +1753,10 @@ function synthesizeAndWaitNativeMouseMove(
  *        - keyCode name starting with ``VK_`` (e.g., ``VK_RETURN``).  This is available
  *          only for compatibility with legacy API.  Don't use this with new tests.
  *
- * @param {Object} [aEvent]
+ * @param {object} [aEvent]
  *        Optional event object with more specifics about the key event to
  *        synthesize.
- * @param {String} [aEvent.code]
+ * @param {string} [aEvent.code]
  *        If you don't specify this explicitly, it'll be guessed from aKey
  *        of US keyboard layout.  Note that this value may be different
  *        between browsers.  For example, "Insert" is never set only on
@@ -1738,7 +1772,7 @@ function synthesizeAndWaitNativeMouseMove(
  *        If you want to specify this, you can specify this explicitly.
  *        However, if you don't specify this value, it will be computed
  *        from code value.
- * @param {String} aEvent.type
+ * @param {string} aEvent.type
  *        Basically, you shouldn't specify this.  Then, this function will
  *        synthesize keydown (, keypress) and keyup.
  *        If keydown is specified, this only fires keydown (and keypress if
@@ -1762,7 +1796,6 @@ function synthesizeAndWaitNativeMouseMove(
  * the modifiers only during dispatching the key events.
  * Note that if some of these values are false, they are ignored (i.e.,
  * not inactivated with this function).
- *
  */
 function synthesizeKey(aKey, aEvent = undefined, aWindow = window, aCallback) {
   const event = aEvent === undefined || aEvent === null ? {} : aEvent;
@@ -3302,7 +3335,7 @@ function createDragEventObject(
  *        ]
  *
  *        Pass null to avoid modifying dataTransfer.
- * @param {String} [aDropEffect="move"]
+ * @param {string} [aDropEffect="move"]
  *        The drop effect to set during the dragstart event, or 'move' if omitted.
  * @param {DOMWindow} [aWindow=window]
  *        The DOM window in which the drag happens. Defaults to the window in which
@@ -3310,7 +3343,7 @@ function createDragEventObject(
  * @param {DOMWindow} [aDestWindow=aWindow]
  *        Used when aDestElement is in a different DOM window than aSrcElement.
  *        Default is to match ``aWindow``.
- * @param {Object} [aDragEvent={}]
+ * @param {object} [aDragEvent={}]
  *        Defaults to empty object. Overwrites an object passed to sendDragEvent.
  * @return {[boolean, DataTransfer]}
  *        A two element array, where the first element is the value returned
@@ -3412,9 +3445,9 @@ function synthesizeDragOver(
  * @param {DOMWindow} [aDestWindow=window]
  *        The DOM window in which the drop happens. Defaults to the window in which
  *        EventUtils.js is loaded.
- * @param {Object} [aDragEvent={}]
+ * @param {object} [aDragEvent={}]
  *        Defaults to empty object. Overwrites an object passed to sendDragEvent.
- * @return {String}
+ * @return {string}
  *        "none" if aResult is true, ``aDataTransfer.dropEffect`` otherwise.
  */
 function synthesizeDropAfterDragOver(
@@ -3510,7 +3543,7 @@ function startDragSession(aWindow, aDropEffect) {
  *            ]
  *
  *        Pass null to avoid modifying dataTransfer.
- * @param {String} [aDropEffect="move"]
+ * @param {string} [aDropEffect="move"]
  *        The drop effect to set during the dragstart event, or 'move' if omitted..
  * @param {DOMWindow} [aWindow=window]
  *        The DOM window in which the drag happens. Defaults to the window in which
@@ -3518,9 +3551,9 @@ function startDragSession(aWindow, aDropEffect) {
  * @param {DOMWindow} [aDestWindow=aWindow]
  *        Used when aDestElement is in a different DOM window than aSrcElement.
  *        Default is to match ``aWindow``.
- * @param {Object} [aDragEvent={}]
+ * @param {object} [aDragEvent={}]
  *        Defaults to empty object. Overwrites an object passed to sendDragEvent.
- * @return {String}
+ * @return {string}
  *        The drop effect that was desired.
  */
 function synthesizeDrop(
@@ -3561,7 +3594,12 @@ function synthesizeDrop(
   } finally {
     let srcWindowUtils = _getDOMWindowUtils(aWindow);
     const srcDragSession = srcWindowUtils.dragSession;
-    srcDragSession.endDragSession(true, _parseModifiers(aDragEvent));
+    if (srcDragSession) {
+      // After each event handler, there is a microtask checkpoint.
+      // Event handlers or microtasks might've already ended our drag session.
+      // E.g. in SubDialog.open during browser_toolbar_drop_bookmarklet.js
+      srcDragSession.endDragSession(true, _parseModifiers(aDragEvent));
+    }
   }
 }
 
@@ -3616,7 +3654,7 @@ function _computeSrcElementFromSrcSelection(aSrcSelection) {
  * Note that if synthesized dragstart is canceled, this throws an exception
  * because in such case, Gecko does not start drag session.
  *
- * @param {Object} aParams
+ * @param {object} aParams
  * @param {Event} aParams.dragEvent
  *                The DnD events will be generated with modifiers specified with this.
  * @param {Element} aParams.srcElement
@@ -3644,9 +3682,9 @@ function _computeSrcElementFromSrcSelection(aSrcSelection) {
  *                The DOM window for dispatching event on srcElement, defaults to the current window object.
  * @param {DOMWindow} aParams.destWindow
  *                The DOM window for dispatching event on destElement, defaults to the current window object.
- * @param {Boolean} aParams.expectCancelDragStart
+ * @param {boolean} aParams.expectCancelDragStart
  *                Set to true if the test cancels "dragstart"
- * @param {Boolean} aParams.expectSrcElementDisconnected
+ * @param {boolean} aParams.expectSrcElementDisconnected
  *                Set to true if srcElement will be disconnected and
  *                "dragend" event won't be fired.
  * @param {Function} aParams.logFunc
@@ -4160,14 +4198,10 @@ function _checkDataTransferItems(aDataTransfer, aExpectedDragData) {
 }
 
 /**
- * This callback type is used with ``synthesizePlainDragAndCancel()``.
- * It should compare ``actualData`` and ``expectedData`` and return
- * true if the two should be considered equal, false otherwise.
- *
- * @callback eqTest
- * @param {*} actualData
- * @param {*} expectedData
- * @return {boolean}
+ * @typedef {(actualData: any, expectedData: any) -> boolean} eqTest
+ *   This callback type is used with ``synthesizePlainDragAndCancel()``.
+ *   It should compare ``actualData`` and ``expectedData`` and return
+ *   true if the two should be considered equal, false otherwise.
  */
 
 /**
@@ -4176,7 +4210,7 @@ function _checkDataTransferItems(aDataTransfer, aExpectedDragData) {
  * of "dragstart".  Additionally, this checks whether the dataTransfer of
  * "dragstart" event has only expected items.
  *
- * @param {Object} aParams
+ * @param {object} aParams
  *        The params which is set to the argument of ``synthesizePlainDragAndDrop()``.
  * @param {Array} aExpectedDataTransferItems
  *        All expected dataTransfer items.
@@ -4184,14 +4218,14 @@ function _checkDataTransferItems(aDataTransfer, aExpectedDragData) {
  *
  *        [
  *          [
- *            {"type": value, "data": value, eqTest: function}
+ *            {"type": value, "data": value, "eqTest": eqTest}
  *            ...,
  *          ],
  *          ...
  *        ]
  *
  *        This can also be null.
- *        You can optionally provide ``eqTest`` {@type eqTest} if the
+ *        You can optionally provide ``eqTest`` if the
  *        comparison to the expected data transfer items can't be done
  *        with x == y;
  * @return {boolean}
@@ -4342,7 +4376,7 @@ async function _synthesizeMockDndFromChild(aParams) {
  * called from content processes, in which case the drag is over the window
  * that is in context, and no checks of DND internals will occur.
  *
- * @param {Object} aParams
+ * @param {object} aParams
  * @param {Window} aParams.sourceBrowsingCxt
  *                The BrowsingContext (possibly remote) that contains
  *                srcElement.  Only set in parent process.
@@ -4363,32 +4397,32 @@ async function _synthesizeMockDndFromChild(aParams) {
  * @param {number} aParams.step
  *                The 2D step for intermediate dragging mousemoves.
  *                Default is [5,5].
- * @param {Boolean} aParams.expectCancelDragStart
+ * @param {boolean} aParams.expectCancelDragStart
  *                Set to true if srcElement is set up to cancel "dragstart"
  * @param {number} aParams.cancel
  *                The 2D coord the mouse is moved to as the last step if
  *                expectCancelDragStart is set
- * @param {Boolean} aParams.expectSrcElementDisconnected
+ * @param {boolean} aParams.expectSrcElementDisconnected
  *                Set to true if srcElement will be disconnected and
  *                "dragend" event won't be fired.
- * @param {Boolean} aParams.expectDragLeave
+ * @param {boolean} aParams.expectDragLeave
  *                Set to true if the drop event will be converted to a
  *                dragleave before it is sent (e.g. it was rejected by a
  *                content analysis check).
- * @param {Boolean} aParams.expectNoDragEvents
+ * @param {boolean} aParams.expectNoDragEvents
  *                Set to true if no mouse or drag events should be received
  *                on the source or target.
- * @param {Boolean} aParams.expectNoDragTargetEvents
+ * @param {boolean} aParams.expectNoDragTargetEvents
  *                Set to true if the drag should be blocked from sending
  *                events to the target.
- * @param {Boolean} aParams.dropPromise
+ * @param {boolean} aParams.dropPromise
  *                A promise that the caller will resolve before we check
  *                that the drop has happened.  Default is a pre-resolved
  *                promise.
- * @param {String} aParms.contextLabel
+ * @param {string} aParms.contextLabel
  *                Label that will appear in each output message.  Useful to
  *                distinguish between concurrent calls.  Default is none.
- * @param {Boolean} aParams.throwOnExtraMessage
+ * @param {boolean} aParams.throwOnExtraMessage
  *                Throw an exception in child process when an unexpected
  *                event is received.  Used for debugging.  Default is false.
  * @param {Function} aParams.record
@@ -4405,7 +4439,7 @@ async function _synthesizeMockDndFromChild(aParams) {
  *                call this from content, to skip testing of DND internals.
  *                This parameter is required in the parent process and is
  *                optional in content processes.
- * @param {Object} aParams.dragController
+ * @param {object} aParams.dragController
  *                MockDragController that the function should use.  This
  *                function will automatically generate one if none is given.
  *                This can only be set in the parent process.

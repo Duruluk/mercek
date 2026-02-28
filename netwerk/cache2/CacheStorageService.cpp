@@ -6,7 +6,6 @@
 
 #include "CacheLog.h"
 #include "CacheStorageService.h"
-#include <iterator>
 #include "CacheFileIOManager.h"
 #include "CacheObserver.h"
 #include "CacheIndex.h"
@@ -20,7 +19,6 @@
 #include "nsIObserverService.h"
 #include "nsIFile.h"
 #include "nsIURI.h"
-#include "nsINetworkPredictor.h"
 #include "nsCOMPtr.h"
 #include "nsContentUtils.h"
 #include "nsNetCID.h"
@@ -160,8 +158,16 @@ void CacheStorageService::ShutdownBackground() {
   }
 
 #ifdef NS_FREE_PERMANENT_DATA
-  Pool(MemoryPool::EType::DISK).mManagedEntries.clear();
-  Pool(MemoryPool::EType::MEMORY).mManagedEntries.clear();
+  // Properly unregister entries before clearing the lists to maintain
+  // the invariant that IsRegistered() reflects actual list membership.
+  // This prevents crashes if pending UNREGISTER operations run after shutdown.
+  RefPtr<CacheEntry> entry;
+  while ((entry = Pool(MemoryPool::EType::DISK).mManagedEntries.popFirst())) {
+    entry->SetRegistered(false);
+  }
+  while ((entry = Pool(MemoryPool::EType::MEMORY).mManagedEntries.popFirst())) {
+    entry->SetRegistered(false);
+  }
 #endif
 
   LOG(("CacheStorageService::ShutdownBackground - done"));
@@ -744,10 +750,6 @@ static bool RemoveExactEntry(CacheEntryTable* aEntries, nsACString const& aKey,
     return false;  // Already replaced...
   }
 
-  // Remove from DictionaryCache immediately, to ensure the removal is
-  // synchronous
-  DictionaryCache::RemoveDictionaryFor(aEntry->GetURI());
-
   LOG(("RemoveExactEntry [entry=%p removed]", aEntry));
   aEntries->Remove(aKey);
   return true;
@@ -1175,11 +1177,6 @@ bool CacheStorageService::IsForcedValidEntry(
   // Entry timeout has been reached
   mForcedValidEntries.Remove(aContextEntryKey);
 
-  if (!data.viewed) {
-    glean::predictor::prefetch_use_status
-        .EnumGet(glean::predictor::PrefetchUseStatusLabel::eWaitedtoolong)
-        .Add();
-  }
   return false;
 }
 
@@ -1220,13 +1217,6 @@ void CacheStorageService::RemoveEntryForceValid(nsACString const& aContextKey,
 
   LOG(("CacheStorageService::RemoveEntryForceValid context='%s' entryKey=%s",
        aContextKey.BeginReading(), aEntryKey.BeginReading()));
-  ForcedValidData data;
-  bool ok = mForcedValidEntries.Get(aContextKey + aEntryKey, &data);
-  if (ok && !data.viewed) {
-    glean::predictor::prefetch_use_status
-        .EnumGet(glean::predictor::PrefetchUseStatusLabel::eWaitedtoolong)
-        .Add();
-  }
   mForcedValidEntries.Remove(aContextKey + aEntryKey);
 }
 
@@ -1238,11 +1228,6 @@ void CacheStorageService::ForcedValidEntriesPrune(TimeStamp& now) {
 
   for (auto iter = mForcedValidEntries.Iter(); !iter.Done(); iter.Next()) {
     if (iter.Data().validUntil < now) {
-      if (!iter.Data().viewed) {
-        glean::predictor::prefetch_use_status
-            .EnumGet(glean::predictor::PrefetchUseStatusLabel::eWaitedtoolong)
-            .Add();
-      }
       iter.Remove();
     }
   }
@@ -1382,6 +1367,9 @@ void CacheStorageService::PurgeExpiredOrOverMemoryLimit() {
 }
 
 void CacheStorageService::MemoryPool::PurgeExpiredOrOverMemoryLimit() {
+  if (StaticPrefs::network_cache_purge_disable()) {
+    return;
+  }
   TimeStamp start(TimeStamp::Now());
 
   uint32_t const memoryLimit = Limit();
@@ -1510,8 +1498,8 @@ Result<size_t, nsresult> CacheStorageService::MemoryPool::PurgeByFrecency(
       } else {
         if (entry->GetEnhanceID().EqualsLiteral("dict:")) {
           LOG(
-              ("*** Entry is a dictionary origin, metadata size %d, referenced "
-               "%d, Frecency %f",
+              ("*** Ignored Entry is a dictionary origin, metadata size %d, "
+               "referenced %d, Frecency %f",
                entry->GetMetadataMemoryConsumption(), entry->IsReferenced(),
                entry->GetFrecency()));
         }
@@ -1530,7 +1518,9 @@ Result<size_t, nsresult> CacheStorageService::MemoryPool::PurgeByFrecency(
       break;
     }
 
-    RefPtr<CacheEntry> entry = checkPurge.mEntry;
+    // Ensure it's deleted immediately if purged so we can record the
+    // mMemorySize savings
+    RefPtr<CacheEntry> entry = std::move(checkPurge.mEntry);
 
     if (entry->Purge(CacheEntry::PURGE_WHOLE)) {
       numPurged++;
@@ -1544,7 +1534,10 @@ Result<size_t, nsresult> CacheStorageService::MemoryPool::PurgeByFrecency(
     }
   }
 
-  LOG(("MemoryPool::PurgeByFrecency done"));
+  LOG(
+      ("MemoryPool::PurgeByFrecency done, purged %zu - mMemorySize %u, "
+       "memoryLimit %u",
+       numPurged, (uint32_t)mMemorySize, memoryLimit));
 
   return numPurged;
 }
@@ -2292,8 +2285,10 @@ void CacheStorageService::TelemetryRecordEntryRemoval(CacheEntry* entry) {
 
   glean::network::http_cache_entry_reuse_count.AccumulateSingleSample(
       entry->UseCount());
-  glean::network::http_cache_entry_alive_time.AccumulateRawDuration(
-      TimeStamp::NowLoRes() - entry->LoadStart());
+  if (Telemetry::CanRecordPrereleaseData()) {
+    glean::network::http_cache_entry_alive_time.AccumulateRawDuration(
+        TimeStamp::NowLoRes() - entry->LoadStart());
+  }
 }
 
 // nsIMemoryReporter
@@ -2451,6 +2446,38 @@ CacheStorageService::Flush(nsIObserver* aObserver) {
                                                        CacheEntry::PURGE_WHOLE);
 
   return thread->Dispatch(r, CacheIOThread::WRITE);
+}
+
+NS_IMETHODIMP
+CacheStorageService::ClearDictionaryCacheMemory() {
+  LOG(("CacheStorageService::ClearDictionaryCacheMemory"));
+  RefPtr<DictionaryCache> cache = DictionaryCache::GetInstance();
+  if (cache) {
+    cache->Clear();
+  }
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+CacheStorageService::CorruptDictionaryHash(const nsACString& aURI) {
+  LOG(("CacheStorageService::CorruptDictionaryHash [uri=%s]",
+       PromiseFlatCString(aURI).get()));
+  RefPtr<DictionaryCache> cache = DictionaryCache::GetInstance();
+  if (cache) {
+    cache->CorruptHashForTesting(aURI);
+  }
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+CacheStorageService::ClearDictionaryDataForTesting(const nsACString& aURI) {
+  LOG(("CacheStorageService::ClearDictionaryDataForTesting [uri=%s]",
+       PromiseFlatCString(aURI).get()));
+  RefPtr<DictionaryCache> cache = DictionaryCache::GetInstance();
+  if (cache) {
+    cache->ClearDictionaryDataForTesting(aURI);
+  }
+  return NS_OK;
 }
 
 }  // namespace mozilla::net

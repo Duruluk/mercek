@@ -258,7 +258,7 @@ static already_AddRefed<dom::AnimationTimeline> GetTimeline(
   switch (aStyleTimeline.tag) {
     case StyleAnimationTimeline::Tag::Timeline: {
       // Check scroll-timeline-name property or view-timeline-property.
-      nsAtom* name = aStyleTimeline.AsTimeline().AsAtom();
+      nsAtom* name = aStyleTimeline.AsTimeline().value.AsAtom();
       return name != nsGkAtoms::_empty
                  ? GetNamedProgressTimeline(aPresContext->Document(), aTarget,
                                             name)

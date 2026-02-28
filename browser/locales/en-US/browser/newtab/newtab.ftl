@@ -58,6 +58,11 @@ newtab-topsites-url-input =
     .placeholder = Type or paste a URL
 newtab-topsites-url-validation = Valid URL required
 
+## Clear text button for the URL and image URL input fields in the Top Sites form.
+
+newtab-topsites-clear-input =
+    .aria-label = Clear text
+
 newtab-topsites-image-url-label = Custom Image URL
 newtab-topsites-use-image-link = Use a custom image…
 newtab-topsites-image-validation = Image failed to load. Try a different URL.
@@ -94,11 +99,6 @@ topsite-label-pinned =
 newtab-menu-section-tooltip =
     .title = Open menu
     .aria-label = Open menu
-
-# Tooltip for dismiss button
-newtab-dismiss-button-tooltip =
-    .title = Remove
-    .aria-label = Remove
 
 # This tooltip is for the context menu of Pocket cards or Topsites
 # Variables:
@@ -216,21 +216,6 @@ newtab-discovery-empty-section-topstories-loading = Loading…
 # Displays when a layout in a section took too long to fetch articles.
 newtab-discovery-empty-section-topstories-timed-out = Oops! We almost loaded this section, but not quite.
 
-## Thumbs up and down buttons that shows over a newtab stories card thumbnail on hover.
-
-# Clicking the thumbs up button for this story will result in more stories like this one being recommended
-newtab-pocket-thumbs-up-tooltip =
-    .title = More like this
-# Clicking the thumbs down button for this story informs us that the user does not feel like the story is interesting for them
-newtab-pocket-thumbs-down-tooltip =
-    .title = Not for me
-# Used to show the user a message upon clicking the thumbs up or down buttons
-newtab-toast-thumbs-up-or-down2 =
-    .message = Thanks. Your feedback will help us improve your feed.
-newtab-toast-dismiss-button =
-    .title = Dismiss
-    .aria-label = Dismiss
-
 ## Error Fallback Content.
 ## This message and suggested action link are shown in each section of UI that fails to render.
 
@@ -259,18 +244,19 @@ newtab-custom-stories-personalized-checkbox-label = Personalized stories based o
 newtab-custom-weather-toggle =
   .label = Weather
   .description = Today’s forecast at a glance
-newtab-custom-trending-search-toggle =
-  .label = Trending searches
-  .description = Popular and frequently searched topics
 newtab-custom-widget-weather-toggle =
   .label = Weather
-newtab-custom-widget-trending-search-toggle =
-  .label = Trending searches
 newtab-custom-widget-lists-toggle =
   .label = Lists
 newtab-custom-widget-timer-toggle =
   .label = Timer
 newtab-custom-widget-section-title = Widgets
+newtab-custom-widget-section-toggle =
+    .label = Widgets
+newtab-widget-manage-title = Widgets
+newtab-widget-manage-widget-button =
+    .label = Manage widgets
+
 # Tooltip for close button
 newtab-custom-close-menu-button =
     .title = Close
@@ -388,8 +374,9 @@ feature-highlight-wallpaper =
 
 # Variables:
 #   $provider (string) - Service provider for weather data
-newtab-weather-see-forecast =
+newtab-weather-see-forecast-description =
     .title = See forecast in { $provider }
+    .aria-description = { $provider } ∙ Sponsored
 # Variables:
 #   $provider (string) - Service provider for weather data
 newtab-weather-sponsored = { $provider } ∙ Sponsored
@@ -398,6 +385,8 @@ newtab-weather-change-location-search-input-placeholder =
     .placeholder = Search location
     .aria-label = Search location
 newtab-weather-menu-weather-display = Weather display
+newtab-weather-todays-forecast = Today’s forecast
+newtab-weather-see-full-forecast = See full forecast
 # Display options are:
 # - Simple: Displays a current weather condition icon and the current temperature
 # - Detailed: Include simple information plus a short text summary: e.g. "Mostly cloudy"
@@ -410,7 +399,7 @@ newtab-weather-menu-temperature-option-fahrenheit = Fahrenheit
 newtab-weather-menu-temperature-option-celsius = Celsius
 newtab-weather-menu-change-temperature-units-fahrenheit = Switch to Fahrenheit
 newtab-weather-menu-change-temperature-units-celsius = Switch to Celsius
-newtab-weather-menu-hide-weather = Hide weather on New Tab
+newtab-weather-menu-hide-weather-v2 = Hide weather
 newtab-weather-menu-learn-more = Learn more
 newtab-weather-menu-detect-my-location = Detect my location
 # This message is shown if user is working offline
@@ -530,7 +519,7 @@ newtab-download-mobile-highlight-image =
 newtab-shortcuts-highlight-title = Your favorites at your fingertips
 newtab-shortcuts-highlight-subtitle = Add a shortcut to keep your favorite sites one click away.
 
-## Strings for reporting ads and content
+## Strings for reporting issues with ads and content
 
 newtab-report-content-why-reporting-this =
   .label = Why are you reporting this?
@@ -548,24 +537,28 @@ newtab-report-content-inappropriate-offensive =
   .label = Inappropriate or offensive
 newtab-report-content-spam-misleading =
   .label = Spam or misleading
+newtab-report-content-requires-payment-subscription =
+  .label = Requires payment or subscription
+newtab-report-content-requires-payment-subscription-learn-more = Learn more
 newtab-report-cancel = Cancel
 newtab-report-submit = Submit
 newtab-toast-thanks-for-reporting =
     .message = Thank you for reporting this.
 
-## Strings for trending searches
-
-# "Trending searches refers to popular searches from search engines
-newtab-trending-searches-title = Trending searches
-newtab-trending-searches-show-trending =
-    .title = Show trending searches
-newtab-trending-searches-hide-trending =
-    .title = Hide trending searches
-newtab-trending-searches-learn-more = Learn more
-newtab-trending-searches-dismiss = Hide trending searches
-
 ## Strings for task / to-do list productivity widget
 
+newtab-widget-section-title = Widgets
+# Tooltip for hide all widgets button
+newtab-widget-section-hide-all-button =
+    .title = Hide widgets
+    .aria-label = Hide all widgets
+newtab-widget-section-maximize =
+    .title = Expand widgets
+    .aria-label = Expand all widgets to full size
+newtab-widget-section-minimize =
+    .title = Minimize widgets
+    .aria-label = Collapse all widgets to compact size
+newtab-widget-section-feedback = Tell us what you think
 newtab-widget-lists-name-label-default =
     .label = Task list
 newtab-widget-lists-name-placeholder-default =
@@ -627,8 +620,15 @@ newtab-widget-timer-menu-notifications-on = Turn on notifications
 newtab-widget-timer-menu-hide = Hide timer
 newtab-widget-timer-menu-learn-more = Learn more
 
-# Message that appears when widgets are full-height. This reminds users that there is more New Tab content to see if they scroll
-newtab-widget-keep-scrolling = Scroll for more
+# Strings for daily briefing card
+
+# The title displays above a set of top news headlines.
+newtab-daily-briefing-card-title = Top Headlines
+newtab-daily-briefing-card-menu-dismiss = Dismiss
+
+# Variables:
+#   $minutes (number) - Time since the feed has been refreshed
+newtab-daily-briefing-card-timestamp = Updated { $minutes }m ago
 
 newtab-widget-message-title = Stay focused with lists and a built-in timer
 # to-dos stands for "things to do".
@@ -636,9 +636,40 @@ newtab-widget-message-copy = From quick reminders to daily to-dos, focus session
 
 # Strings for the default promo card
 
-newtab-promo-card-title = Support { -brand-product-name }
-newtab-promo-card-body = Our sponsors support our mission to build a better web
-newtab-promo-card-cta = Learn more
+newtab-promo-card-title-addons = Simple add-ons, big impact
+# “starter pack” means a curated set of recommended browser extensions to help users get started
+newtab-promo-card-body-addons = Try the { -brand-product-name } staff picks extension starter pack.
+newtab-promo-card-cta-addons = See our picks
 newtab-promo-card-dismiss-button =
+    .title = Dismiss
+    .aria-label = Dismiss
+
+## Strings for activation window message variants. In certain experiment configurations,
+## the strings from these variants may be displayed in a message below the search input
+## for the first 48 hours of a new profile's lifetime. Some messages include buttons with
+## labels, but not all.
+
+newtab-activation-window-message-dismiss-button =
+    .title = Dismiss
+    .aria-label = Dismiss
+
+# "This space" refers to about:newtab. The call to action here ("make it your own")
+# is to customize newtab with a background image or colour, or by tweaking the
+# existing widgetry that appears on it.
+newtab-activation-window-message-customization-focus-header = Make this space your own
+newtab-activation-window-message-customization-focus-message = Choose a fresh wallpaper, add shortcuts to your favorite sites, and stay up-to-date on stories that interest you.
+newtab-activation-window-message-customization-focus-primary-button =
+    .label = Start customizing
+
+# "This space" refers to about:newtab. The sentiment of "plays by your rules" is
+# meant to evoke the idea that newtab is malleable and customizable. The call to
+# action is to customize newtab with a background image or colour, or by tweaking
+# the existing widgetry that appears on it.
+newtab-activation-window-message-values-focus-header = This space plays by your rules
+newtab-activation-window-message-values-focus-message = { -brand-product-name } lets you browse the way you like, with a more personal way to start your day online. Make { -brand-product-name } your own.
+
+##
+
+newtab-card-dismiss-button =
     .title = Dismiss
     .aria-label = Dismiss

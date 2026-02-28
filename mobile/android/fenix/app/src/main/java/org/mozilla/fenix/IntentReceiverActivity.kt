@@ -18,7 +18,7 @@ import mozilla.components.support.base.log.logger.Logger
 import mozilla.components.support.utils.EXTRA_ACTIVITY_REFERRER_CATEGORY
 import mozilla.components.support.utils.EXTRA_ACTIVITY_REFERRER_PACKAGE
 import mozilla.components.support.utils.INTENT_TYPE_PDF
-import mozilla.components.support.utils.ext.getApplicationInfoCompat
+import mozilla.components.support.utils.ext.packageManagerCompatHelper
 import mozilla.components.support.utils.toSafeIntent
 import org.mozilla.fenix.GleanMetrics.Events
 import org.mozilla.fenix.HomeActivity.Companion.PRIVATE_BROWSING_MODE
@@ -43,6 +43,12 @@ class IntentReceiverActivity : Activity() {
         // DO NOT MOVE ANYTHING ABOVE THIS getProfilerTime CALL.
         val startTimeProfiler = components.core.engine.profiler?.getProfilerTime()
 
+        // The intent property is nullable, but the rest of the code below
+        // assumes it is not. If it's null, then we make a new one and open
+        // the HomeActivity.
+        val intent = intent?.let { Intent(it) } ?: Intent()
+        intent.sanitize().stripUnwantedFlags()
+
         // DO NOT MOVE the app link intent launch type setting below the super.onCreate call
         // as it impacts the activity lifecycle observer and causes false launch type detection.
         // e.g. COLD launch is interpreted as WARM due to [Activity.onActivityCreated] being called
@@ -57,11 +63,6 @@ class IntentReceiverActivity : Activity() {
             super.onCreate(savedInstanceState)
         }
 
-        // The intent property is nullable, but the rest of the code below
-        // assumes it is not. If it's null, then we make a new one and open
-        // the HomeActivity.
-        val intent = intent?.let { Intent(it) } ?: Intent()
-        intent.sanitize().stripUnwantedFlags()
         processIntent(intent)
 
         components.core.engine.profiler?.addMarker(
@@ -158,14 +159,14 @@ class IntentReceiverActivity : Activity() {
         val r = try {
             // NB: referrer can be spoofed by the calling application. Use with caution.
             referrer
-        } catch (e: RuntimeException) {
+        } catch (_: RuntimeException) {
             // this could happen if the referrer intent contains data we can't deserialize
             return
         } ?: return
         intent.putExtra(EXTRA_ACTIVITY_REFERRER_PACKAGE, r.host)
         r.host?.let { host ->
             try {
-                val category = packageManager.getApplicationInfoCompat(host, 0).category
+                val category = packageManagerCompatHelper.getApplicationInfoCompat(host, 0).category
                 intent.putExtra(EXTRA_ACTIVITY_REFERRER_CATEGORY, category)
             } catch (_: PackageManager.NameNotFoundException) {
                 // At least we tried.

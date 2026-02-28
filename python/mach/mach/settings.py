@@ -2,32 +2,21 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this file,
 # You can obtain one at http://mozilla.org/MPL/2.0/.
 
-from mach.config import ConfigType
+from textwrap import dedent
+
 from mach.decorators import SettingsProvider
 
 
-class NullableBooleanType(ConfigType):
-    """ConfigType for nullable boolean: True, False, or None."""
+def _get_log_formatters():
+    from mozlog.commandline import log_formatters
 
-    @staticmethod
-    def validate(value):
-        if value is not None and not isinstance(value, bool):
-            raise TypeError()
+    return list(log_formatters)
 
-    @staticmethod
-    def from_config(config, section, option):
-        value = config.get(section, option).lower()
-        if value == "true":
-            return True
-        elif value == "false":
-            return False
-        return None
 
-    @staticmethod
-    def to_config(value):
-        if value is None:
-            return "unknown"
-        return "true" if value else "false"
+def _get_log_levels():
+    from mozlog.structuredlog import log_levels
+
+    return [level.lower() for level in log_levels]
 
 
 @SettingsProvider
@@ -57,7 +46,7 @@ class MachSettings:
                 ),
                 (
                     "mach_telemetry.is_employee",
-                    NullableBooleanType,
+                    "nullable_boolean",
                     "Cached value for whether the user is a Mozilla employee "
                     "(None=unknown, True=employee, False=not an employee)",
                     None,
@@ -82,11 +71,11 @@ class MachSettings:
                 (
                     "runprefs.*",
                     "string",
-                    """
+                    dedent("""
         Pass a pref into Firefox when using `mach run`, of the form `foo.bar=value`.
         Prefs will automatically be cast into the appropriate type. Integers can be
         single quoted to force them to be strings.
-        """.strip(),
+        """),
                 ),
             ]
 
@@ -120,6 +109,12 @@ class MachSettings:
                     "Do not automatically open a browser during authentication.",
                     False,
                 ),
+                (
+                    "try.noartifact",
+                    "boolean",
+                    "Do not autodetect artifact mode base on mozconfig. The '--artifact' flag must be used explicitly if artifact try pushes are desired.",
+                    False,
+                ),
             ]
 
         def taskgraph_config_settings():
@@ -135,31 +130,26 @@ class MachSettings:
             ]
 
         def test_config_settings():
-            from mozlog.commandline import log_formatters
-            from mozlog.structuredlog import log_levels
-
             format_desc = (
                 "The default format to use when running tests with `mach test`."
             )
-            format_choices = list(log_formatters)
             level_desc = (
                 "The default log level to use when running tests with `mach test`."
             )
-            level_choices = [l.lower() for l in log_levels]
             return [
                 (
                     "test.format",
                     "string",
                     format_desc,
                     "mach",
-                    {"choices": format_choices},
+                    {"choices": _get_log_formatters},
                 ),
                 (
                     "test.level",
                     "string",
                     level_desc,
                     "info",
-                    {"choices": level_choices},
+                    {"choices": _get_log_levels},
                 ),
             ]
 

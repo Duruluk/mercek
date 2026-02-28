@@ -24,6 +24,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   NimbusFeatures: "resource://nimbus/ExperimentAPI.sys.mjs",
   PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.sys.mjs",
   ScreenshotsUtils: "resource:///modules/ScreenshotsUtils.sys.mjs",
+  SearchService: "moz-src:///toolkit/components/search/SearchService.sys.mjs",
   SearchUIUtils: "moz-src:///browser/components/search/SearchUIUtils.sys.mjs",
   SearchUtils: "moz-src:///toolkit/components/search/SearchUtils.sys.mjs",
   ShortcutUtils: "resource://gre/modules/ShortcutUtils.sys.mjs",
@@ -91,21 +92,20 @@ XPCOMUtils.defineLazyPreferenceGetter(
   false
 );
 
-XPCOMUtils.defineLazyPreferenceGetter(
-  lazy,
-  "TEXT_FRAGMENTS_SHOW_CONTEXT_MENU",
-  "dom.text_fragments.create_text_fragment.enabled",
-  false
-);
-
 const PASSWORD_FIELDNAME_HINTS = ["current-password", "new-password"];
 const USERNAME_FIELDNAME_HINT = "username";
+
+const ALLOWED_CHROME_IMAGE_URLS = new Set([
+  "chrome://global/skin/illustrations/security-error.svg",
+  "chrome://global/skin/illustrations/no-connection.svg",
+]);
 
 export class nsContextMenu {
   /**
    * A promise to retrieve the translations language pair
    * if the context menu was opened in a context relevant to
    * open the SelectTranslationsPanel.
+   *
    * @type {Promise<{sourceLanguage: string, targetLanguage: string}>}
    */
   #translationsLangPairPromise;
@@ -113,6 +113,7 @@ export class nsContextMenu {
   /**
    * The value of the `main-context-menu-new-feature-badge` l10n string. Fetched
    * lazily.
+   *
    * @type {string}
    */
   #newFeatureBadgeL10nString;
@@ -454,9 +455,7 @@ export class nsContextMenu {
 
   initTextFragmentItems() {
     const shouldShow =
-      lazy.TEXT_FRAGMENTS_SHOW_CONTEXT_MENU &&
       lazy.TEXT_FRAGMENTS_ENABLED &&
-      lazy.STRIP_ON_SHARE_ENABLED &&
       !(
         this.inPDFViewer ||
         this.inFrame ||
@@ -465,7 +464,10 @@ export class nsContextMenu {
       ) &&
       (this.hasTextFragments || this.isContentSelected);
     this.showItem("context-copy-link-to-highlight", shouldShow);
-    this.showItem("context-copy-clean-link-to-highlight", shouldShow);
+    this.showItem(
+      "context-copy-clean-link-to-highlight",
+      shouldShow && lazy.STRIP_ON_SHARE_ENABLED
+    );
 
     // disables both options by default, while API tries to build a text fragment
     this.setItemAttr("context-copy-link-to-highlight", "disabled", true);
@@ -477,12 +479,7 @@ export class nsContextMenu {
   }
 
   async getTextDirective() {
-    if (
-      !Services.prefs.getBoolPref(
-        "dom.text_fragments.create_text_fragment.enabled",
-        false
-      )
-    ) {
+    if (!lazy.TEXT_FRAGMENTS_ENABLED) {
       return;
     }
     this.textFragmentURL = await this.actor.getTextDirective();
@@ -570,6 +567,9 @@ export class nsContextMenu {
     let showContainers =
       Services.prefs.getBoolPref("privacy.userContext.enabled") &&
       lazy.ContextualIdentityService.getPublicIdentities().length;
+    let showSplitViews = Services.prefs.getBoolPref(
+      "browser.tabs.splitView.enabled"
+    );
     this.showItem("context-openlink", shouldShow && !isWindowPrivate);
     this.showItem(
       "context-openlinkprivate",
@@ -586,6 +586,7 @@ export class nsContextMenu {
       "context-previewlink",
       lazy.LinkPreview.shouldShowContextMenu(this)
     );
+    this.showItem("context-openlinkinsplitview", shouldShow && showSplitViews);
   }
 
   initNavigationItems() {
@@ -990,7 +991,7 @@ export class nsContextMenu {
     this.showItem("spell-check-enabled", canSpell);
     document
       .getElementById("spell-check-enabled")
-      .setAttribute("checked", canSpell && InlineSpellCheckerUI.enabled);
+      .toggleAttribute("checked", canSpell && InlineSpellCheckerUI.enabled);
 
     this.showItem("spell-add-to-dictionary", onMisspelling);
     this.showItem("spell-undo-add-to-dictionary", showUndo);
@@ -1085,19 +1086,10 @@ export class nsContextMenu {
     let disabledAttr = this.#canStripParams() ? null : true;
     this.setItemAttr("context-stripOnShareLink", "disabled", disabledAttr);
 
-    let copyLinkSeparator = this.document.getElementById(
-      "context-sep-copylink"
+    let sendLinkSeparator = this.document.getElementById(
+      "context-sep-sendlinktodevice"
     );
-    // Show "Copy Link", "Copy" and "Copy Clean Link" with no divider, and "copy link" and "Send link to Device" with no divider between.
-    // Other cases will show a divider.
-    copyLinkSeparator.toggleAttribute(
-      "ensureHidden",
-      this.onLink &&
-        !this.onMailtoLink &&
-        !this.onTelLink &&
-        !this.onImage &&
-        this.syncItemsShown
-    );
+    sendLinkSeparator.toggleAttribute("ensureHidden", !this.syncItemsShown);
 
     this.showItem("context-copyvideourl", this.onVideo);
     this.showItem("context-copyaudiourl", this.onAudio);
@@ -1268,19 +1260,7 @@ export class nsContextMenu {
       }
 
       // Update sub-menu items.
-      let fragment = lazy.LoginManagerContextMenu.addLoginsToMenu(
-        this.targetIdentifier,
-        this.browser,
-        formOrigin
-      );
-
-      if (!fragment) {
-        return;
-      }
-
-      showUseSavedLogin = true;
-      let popup = document.getElementById("fill-login-popup");
-      popup.appendChild(fragment);
+      this.updatePasswordManagerSubMenuItems(document, formOrigin);
     } finally {
       const documentURI = this.contentData?.documentURIObject;
       const showRelay =
@@ -1304,6 +1284,25 @@ export class nsContextMenu {
           : true
       );
     }
+  }
+
+  async updatePasswordManagerSubMenuItems(document, formOrigin) {
+    const fragment = await lazy.LoginManagerContextMenu.addLoginsToMenu(
+      this.targetIdentifier,
+      this.browser,
+      formOrigin
+    );
+
+    if (!fragment) {
+      return;
+    }
+
+    let popup = document.getElementById("fill-login-popup");
+    popup.appendChild(fragment);
+
+    this.showItem("fill-login", true);
+
+    this.setItemAttr("passwordmgr-items-separator", "ensureHidden", null);
   }
 
   initSyncItems() {
@@ -1415,11 +1414,7 @@ export class nsContextMenu {
       let revealPassword = this.document.getElementById(
         "context-reveal-password"
       );
-      if (this.passwordRevealed) {
-        revealPassword.setAttribute("checked", "true");
-      } else {
-        revealPassword.removeAttribute("checked");
-      }
+      revealPassword.toggleAttribute("checked", this.passwordRevealed);
     }
     this.showItem("context-reveal-password", shouldShow);
   }
@@ -1565,6 +1560,27 @@ export class nsContextMenu {
       "tab",
       this._openLinkInParameters(params)
     );
+  }
+
+  // Open linked-to URL in a new split view
+  openLinkInSplitView() {
+    let win = this.window;
+    let currentTab = win.gBrowser.getTabForBrowser(this.browser);
+    let userContextId = currentTab ? currentTab.userContextId : 0;
+    let params = {
+      userContextId,
+      ...this._getGlobalHistoryOptions(),
+      inBackground: false,
+      resolveOnNewTabCreated: browser => {
+        let linkTab = win.gBrowser.getTabForBrowser(browser);
+        if (linkTab && currentTab) {
+          win.gBrowser.addTabSplitView([currentTab, linkTab]);
+          win.gBrowser.selectedTab = linkTab;
+        }
+      },
+    };
+
+    win.openLinkIn(this.linkURL, "tab", this._openLinkInParameters(params));
   }
 
   // open URL in current tab
@@ -1763,9 +1779,12 @@ export class nsContextMenu {
         });
       }, console.error);
     } else {
+      const isAllowedChromeImage = ALLOWED_CHROME_IMAGE_URLS.has(this.mediaURL);
+      const principal = isAllowedChromeImage ? systemPrincipal : this.principal;
+
       this.window.urlSecurityCheck(
         this.mediaURL,
-        this.principal,
+        principal,
         Ci.nsIScriptSecurityManager.DISALLOW_SCRIPT
       );
 
@@ -1773,7 +1792,7 @@ export class nsContextMenu {
       this.window.openLinkIn(this.mediaURL, where, {
         referrerInfo,
         forceAllowDataURI: true,
-        triggeringPrincipal: this.principal,
+        triggeringPrincipal: principal,
         triggeringRemoteType: this.remoteType,
         policyContainer: this.policyContainer,
       });
@@ -2164,7 +2183,12 @@ export class nsContextMenu {
         );
       }, console.error);
     } else if (this.onImage) {
-      this.window.urlSecurityCheck(this.mediaURL, this.principal);
+      const isAllowedChromeImage = ALLOWED_CHROME_IMAGE_URLS.has(this.mediaURL);
+      const principal = isAllowedChromeImage
+        ? Services.scriptSecurityManager.getSystemPrincipal()
+        : this.principal;
+
+      this.window.urlSecurityCheck(this.mediaURL, principal);
       this.window.internalSave(
         this.mediaURL,
         null, // originalURL
@@ -2181,7 +2205,7 @@ export class nsContextMenu {
         false, // don't skip prompt for where to save
         null, // cache key
         isPrivate,
-        this.principal
+        principal
       );
     } else if (this.onVideo || this.onAudio) {
       let defaultFileName = "";
@@ -2320,7 +2344,7 @@ export class nsContextMenu {
     // If the user saved, engineInfo contains `name` and `alias`.
     // Otherwise, it's undefined.
     if (engineInfo) {
-      let searchEngine = await Services.search.addUserEngine({
+      let searchEngine = await lazy.SearchService.addUserEngine({
         name: engineInfo.name,
         alias: engineInfo.alias,
         url,
@@ -2341,9 +2365,9 @@ export class nsContextMenu {
    * Show/hide one item (specified via name or the item element itself).
    * If the element is not found, then this function finishes silently.
    *
-   * @param {Element|String} aItemOrId The item element or the name of the element
+   * @param {Element | string} aItemOrId The item element or the name of the element
    *                                   to show.
-   * @param {Boolean} aShow Set to true to show the item, false to hide it.
+   * @param {boolean} aShow Set to true to show the item, false to hide it.
    */
   showItem(aItemOrId, aShow) {
     var item =
@@ -2360,15 +2384,25 @@ export class nsContextMenu {
   // nicely for the disabled attribute).
   setItemAttr(aID, aAttr, aVal) {
     var elem = this.document.getElementById(aID);
-    if (elem) {
-      if (aVal == null) {
-        // null indicates attr should be removed.
-        elem.removeAttribute(aAttr);
-      } else {
-        // Set attr=val.
-        elem.setAttribute(aAttr, aVal);
-      }
+    if (!elem) {
+      return;
     }
+    if (aVal == null) {
+      // null indicates attr should be removed.
+      elem.removeAttribute(aAttr);
+      return;
+    }
+    if (typeof aVal == "boolean") {
+      // TODO(emilio): Replace this with toggleAttribute, but needs test fixes.
+      if (aVal) {
+        elem.setAttribute(aAttr, aVal);
+      } else {
+        elem.removeAttribute(aAttr);
+      }
+      return;
+    }
+    // Set attr=val.
+    elem.setAttribute(aAttr, aVal);
   }
 
   // Temporary workaround for DOM api not yet implemented by XUL nodes.
@@ -2399,9 +2433,9 @@ export class nsContextMenu {
 
   /**
    * Strips any known query params from the link URI.
+   *
    * @returns {nsIURI|null} - the stripped version of the URI,
    * or the original URI if we could not strip any query parameter.
-   *
    */
   getStrippedLink(uri = this.linkURI) {
     if (!uri) {
@@ -2422,8 +2456,8 @@ export class nsContextMenu {
 
   /**
    * Checks if there is a query parameter that can be stripped
-   * @returns {Boolean}
    *
+   * @returns {boolean}
    */
   #canStripParams(uri = this.linkURI) {
     if (!uri) {
@@ -2439,8 +2473,8 @@ export class nsContextMenu {
 
   /**
    * Checks if a webpage is a secure interal webpage
-   * @returns {Boolean}
    *
+   * @returns {boolean}
    */
   isSecureAboutPage() {
     let { currentURI } = this.browser;
@@ -2699,9 +2733,7 @@ export class nsContextMenu {
     const translateSelectionItem = this.document.getElementById(
       "context-translate-selection"
     );
-    const translationsEnabled = Services.prefs.getBoolPref(
-      "browser.translations.enable"
-    );
+    const translationsEnabled = lazy.TranslationsParent.AIFeature.isEnabled;
     const selectTranslationsEnabled = Services.prefs.getBoolPref(
       "browser.translations.select.enable"
     );
@@ -2782,8 +2814,8 @@ export class nsContextMenu {
 
     const { gNavigatorBundle } = this.window;
     // format "Search <engine> for <selection>" string to show in menu
-    let engineName = Services.search.defaultEngine.name;
-    let privateEngineName = Services.search.defaultPrivateEngine.name;
+    let engineName = lazy.SearchService.defaultEngine.name;
+    let privateEngineName = lazy.SearchService.defaultPrivateEngine.name;
     if (!menuItem.hidden) {
       const docIsPrivate = lazy.PrivateBrowsingUtils.isBrowserPrivate(
         this.browser
@@ -2827,7 +2859,12 @@ export class nsContextMenu {
     if (!menuitem) {
       return;
     }
-    if (!Services.search.hasSuccessfullyInitialized) {
+    if (!lazy.SearchService.hasSuccessfullyInitialized) {
+      menuitem.hidden = true;
+      return;
+    }
+
+    if (isPrivateSearchMenuitem && !lazy.PrivateBrowsingUtils.enabled) {
       menuitem.hidden = true;
       return;
     }
@@ -2837,8 +2874,8 @@ export class nsContextMenu {
     );
     let engine =
       isBrowserPrivate || isPrivateSearchMenuitem
-        ? Services.search.defaultPrivateEngine
-        : Services.search.defaultEngine;
+        ? lazy.SearchService.defaultPrivateEngine
+        : lazy.SearchService.defaultEngine;
 
     menuitem.hidden =
       !isContextRelevant ||
@@ -2853,7 +2890,7 @@ export class nsContextMenu {
           )));
 
     if (!menuitem.hidden) {
-      let url = engine.wrappedJSObject.getURLOfType(searchUrlType);
+      let url = engine.getURLOfType(searchUrlType);
       if (
         url?.acceptedContentTypes &&
         (!this.contentData?.contentType ||
@@ -2906,7 +2943,7 @@ export class nsContextMenu {
         return;
       }
 
-      let visualSearchUrl = menuitem.engine.wrappedJSObject.getURLOfType(
+      let visualSearchUrl = menuitem.engine.getURLOfType(
         lazy.SearchUtils.URL_TYPE.VISUAL_SEARCH
       );
       this.window.document.l10n.setAttributes(
@@ -2946,7 +2983,7 @@ export class nsContextMenu {
       engine,
       policyContainer,
       searchUrlType,
-      usePrivate,
+      usePrivateWindow: usePrivate,
       window: this.window,
       searchText: searchTerms,
       triggeringPrincipal: principal,

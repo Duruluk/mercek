@@ -10,6 +10,7 @@ name = "crashreporter"
 anyhow = "1.0"
 buildid_reader = { path = "../../../library/buildid_reader" }
 cfg-if = "1.0"
+crashping = { path = "../../crashping" }
 env_logger = { version = "0.10", default-features = false }
 flate2 = "1"
 fluent = "0.17.0"
@@ -17,7 +18,7 @@ glean = { workspace = true }
 intl-memoizer = "0.5"
 libloading = "0.8"
 log = "0.4.17"
-memtest = "0.4.0"
+memtest = { version = "0.4.0", git = "https://github.com/mozilla/memtest", rev = "ad681ba425beb0aeba95f03e671432b4be932174" }
 minidump-analyzer = { path = "../../minidump-analyzer" }
 mozbuild = "0.1"
 mozilla-central-workspace-hack = { version = "0.1", features = ["crashreporter"], optional = true }

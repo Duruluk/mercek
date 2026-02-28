@@ -181,7 +181,7 @@ class RemoteAccessible : public Accessible, public HyperTextAccessibleBase {
 
   // Methods that potentially access a cache.
 
-  virtual ENameValueFlag Name(nsString& aName) const override;
+  virtual ENameValueFlag Name(nsString& aName) const override final;
   virtual EDescriptionValueFlag Description(
       nsString& aDescription) const override;
   virtual void Value(nsString& aValue) const override;
@@ -392,11 +392,8 @@ class RemoteAccessible : public Accessible, public HyperTextAccessibleBase {
 
   virtual bool HasPrimaryAction() const override;
 
+  virtual bool HasCustomActions() const override;
   virtual bool IsEditable() const override;
-
-#if !defined(XP_WIN)
-  void Announce(const nsString& aAnnouncement, uint16_t aPriority);
-#endif  // !defined(XP_WIN)
 
   // HTMLMeterAccessible
   int32_t ValueRegion() const;
@@ -499,6 +496,10 @@ class RemoteAccessible : public Accessible, public HyperTextAccessibleBase {
   nsAtom* GetPrimaryAction() const;
 
   virtual nsTArray<int32_t>& GetCachedHyperTextOffsets() override;
+
+  nsTArray<Accessible*> LegendsOrCaptions() const;
+
+  RemoteAccessible* LegendOrCaptionFor() const;
 
  private:
   /**

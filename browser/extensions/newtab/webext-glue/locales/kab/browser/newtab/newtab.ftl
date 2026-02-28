@@ -316,6 +316,9 @@ newtab-custom-widget-lists-toggle =
 newtab-custom-widget-timer-toggle =
     .label = Amakud
 newtab-custom-widget-section-title = Iwiǧiten
+newtab-custom-widget-section-toggle =
+    .label = Iwiǧiten
+newtab-widget-manage-title = Iwiǧiten
 # Tooltip for close button
 newtab-custom-close-menu-button =
     .title = Mdel
@@ -356,7 +359,7 @@ newtab-wallpaper-brown = Aqehwi
 
 newtab-wallpaper-category-title-abstract = Amadwan
 
-## Celestial
+## Firefox
 
 newtab-wallpaper-category-title-photographs = Tiwlafin
 newtab-wallpaper-white-mountains = Idurar imellalen
@@ -475,7 +478,7 @@ newtab-download-mobile-highlight-title = Sader { -brand-product-name } i uziraz
 newtab-download-mobile-highlight-image =
     .aria-label = Tangalt QR i usader n { -brand-product-name } i uziraz
 
-## Strings for reporting ads and content
+## Strings for reporting issues with ads and content
 
 newtab-report-content-why-reporting-this =
     .label = Ayɣer i d-tuzneḍ aneqqis ɣef waya?
@@ -489,10 +492,6 @@ newtab-report-cancel = Sefsex
 newtab-report-submit = Azen
 newtab-toast-thanks-for-reporting =
     .message = Tanemmirt imi d-temliḍ aya:
-
-## Strings for trending searches
-
-newtab-trending-searches-learn-more = Issin ugar
 
 ## Strings for task / to-do list productivity widget
 
@@ -525,10 +524,6 @@ newtab-widget-timer-mode-focus =
     .label = Focus
 newtab-widget-timer-mode-break =
     .label = Angaz
-newtab-widget-timer-play =
-    .title = Urar
-newtab-widget-timer-pause =
-    .title = Asteɛfu
 newtab-widget-timer-label-play =
     .label = Urar
 newtab-widget-timer-label-pause =

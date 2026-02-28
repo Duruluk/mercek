@@ -17,7 +17,6 @@ import mozilla.appservices.logins.LoginsApiException
 import mozilla.components.concept.storage.LoginEntry
 import mozilla.components.concept.storage.LoginsStorage
 import mozilla.components.lib.state.Middleware
-import mozilla.components.lib.state.MiddlewareContext
 import mozilla.components.lib.state.Store
 import org.mozilla.fenix.settings.SupportUtils
 
@@ -43,23 +42,24 @@ internal class LoginsMiddleware(
     private val clipboardManager: ClipboardManager?,
 ) : Middleware<LoginsState, LoginsAction> {
 
-    private val scope = CoroutineScope(ioDispatcher)
+    private val ioScope = CoroutineScope(ioDispatcher)
+    private val mainScope = CoroutineScope(Dispatchers.Main)
 
-    @Suppress("LongMethod", "ComplexMethod")
+    @Suppress("LongMethod", "CyclomaticComplexMethod")
     override fun invoke(
-        context: MiddlewareContext<LoginsState, LoginsAction>,
+        store: Store<LoginsState, LoginsAction>,
         next: (LoginsAction) -> Unit,
         action: LoginsAction,
     ) {
-        val preReductionState = context.state
+        val preReductionState = store.state
         next(action)
 
         when (action) {
             is LoginsListAppeared -> {
-                context.store.loadLoginsList()
+                store.loadLoginsList()
             }
             is SearchLogins -> {
-                context.store.loadLoginsList()
+                store.loadLoginsList()
             }
             is LoginsListBackClicked -> {
                 exitLogins()
@@ -71,7 +71,7 @@ internal class LoginsMiddleware(
                 getNavController().navigate(LoginsDestinations.EDIT_LOGIN)
             }
             is LoginDeletionDialogAction.DeleteTapped -> {
-                scope.launch {
+                ioScope.launch {
                     preReductionState.loginsLoginDetailState?.login?.guid?.let {
                         loginsStorage.delete(
                             it,
@@ -84,8 +84,8 @@ internal class LoginsMiddleware(
                     }
                 }
             }
-            is LoginsListSortMenuAction -> scope.launch {
-                persistLoginsSortOrder(context.store.state.sortOrder)
+            is LoginsListSortMenuAction -> ioScope.launch {
+                persistLoginsSortOrder(store.state.sortOrder)
             }
             is LearnMoreAboutSync -> {
                 openTab(
@@ -112,20 +112,14 @@ internal class LoginsMiddleware(
                 getNavController().navigate(LoginsDestinations.LIST)
             }
             is AddLoginAction.AddLoginSaveClicked -> {
-                context.store.handleAddLogin()
+                store.handleAddLogin()
             }
             is EditLoginBackClicked -> {
                 getNavController().navigate(LoginsDestinations.LOGIN_DETAILS)
             }
             is EditLoginAction.SaveEditClicked -> {
-                context.store.handleEditLogin(loginItem = action.login)
+                store.handleEditLogin(loginItem = action.login)
             }
-            is UnlockScreenAction.LeaveTapped -> exitLogins()
-            is UnlockScreenAction.UnlockTapped,
-            is LifecycleAction.OnResume,
-            is BiometricAuthenticationAction.Started,
-            is BiometricAuthenticationAction.Succeeded,
-            is BiometricAuthenticationAction.Failed,
             is LoginsLoaded,
             is EditLoginAction.UsernameChanged,
             is EditLoginAction.PasswordChanged,
@@ -133,15 +127,14 @@ internal class LoginsMiddleware(
             is AddLoginAction.HostChanged,
             is AddLoginAction.UsernameChanged,
             is AddLoginAction.PasswordChanged,
+            is DetailLoginAction.PasswordVisibilityChanged,
             is DetailLoginMenuAction.DeleteLoginMenuItemClicked,
             is LoginDeletionDialogAction.CancelTapped,
-            is ViewDisposed,
-            is LifecycleAction.OnPause,
                 -> Unit
         }
     }
 
-    private fun Store<LoginsState, LoginsAction>.loadLoginsList() = scope.launch {
+    private fun Store<LoginsState, LoginsAction>.loadLoginsList() = ioScope.launch {
         val loginItems = arrayListOf<LoginItem>()
 
         loginsStorage.list().forEach { login ->
@@ -182,7 +175,7 @@ internal class LoginsMiddleware(
     }
 
     private fun Store<LoginsState, LoginsAction>.handleAddLogin() =
-        scope.launch {
+        ioScope.launch {
             val host = state.loginsAddLoginState?.host ?: ""
             val newLoginToAdd = LoginEntry(
                 origin = host,
@@ -194,29 +187,31 @@ internal class LoginsMiddleware(
 
             try {
                 val loginAdded = loginsStorage.add(newLoginToAdd)
-                dispatch(
-                    LoginClicked(
-                        LoginItem(
-                            guid = loginAdded.guid,
-                            url = loginAdded.origin,
-                            username = loginAdded.username,
-                            password = loginAdded.password,
+                mainScope.launch {
+                    dispatch(
+                        LoginClicked(
+                            LoginItem(
+                                guid = loginAdded.guid,
+                                url = loginAdded.origin,
+                                username = loginAdded.username,
+                                password = loginAdded.password,
+                            ),
                         ),
-                    ),
-                )
+                    )
+                }
             } catch (exception: LoginsApiException) {
                 exception.printStackTrace()
             }
         }
 
-    private fun handleLoginsDetailsBackPressed() = scope.launch {
+    private fun handleLoginsDetailsBackPressed() = ioScope.launch {
         withContext(Dispatchers.Main) {
             getNavController().navigate(LoginsDestinations.LIST)
         }
     }
 
     private fun Store<LoginsState, LoginsAction>.handleEditLogin(loginItem: LoginItem) =
-        scope.launch {
+        ioScope.launch {
             val updatedLogin = LoginEntry(
                 origin = loginItem.url,
                 formActionOrigin = loginItem.url,
@@ -227,16 +222,18 @@ internal class LoginsMiddleware(
 
             try {
                 val loginEdited = loginsStorage.update(loginItem.guid, updatedLogin)
-                dispatch(
-                    LoginClicked(
-                        LoginItem(
-                            guid = loginEdited.guid,
-                            url = loginEdited.origin,
-                            username = loginEdited.username,
-                            password = loginEdited.password,
+                mainScope.launch {
+                    dispatch(
+                        LoginClicked(
+                            LoginItem(
+                                guid = loginEdited.guid,
+                                url = loginEdited.origin,
+                                username = loginEdited.username,
+                                password = loginEdited.password,
+                            ),
                         ),
-                    ),
-                )
+                    )
+                }
             } catch (exception: LoginsApiException) {
                 exception.printStackTrace()
             }

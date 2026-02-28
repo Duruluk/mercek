@@ -14,6 +14,7 @@
 
 #include "builtin/BigInt.h"
 #include "builtin/MapObject.h"
+#include "builtin/ModuleObject.h"
 #include "builtin/TestingFunctions.h"
 #include "frontend/FrontendContext.h"  // FrontendContext
 #include "gc/PublicIterators.h"
@@ -37,6 +38,7 @@
 #include "vm/ArgumentsObject.h"
 #include "vm/BooleanObject.h"
 #include "vm/DateObject.h"
+#include "vm/EnvironmentObject.h"
 #include "vm/ErrorObject.h"
 #include "vm/Interpreter.h"
 #include "vm/JSContext.h"
@@ -307,6 +309,16 @@ JS_PUBLIC_API bool js::IsSystemZone(Zone* zone) { return zone->isSystemZone(); }
 
 JS_PUBLIC_API bool js::IsFunctionObject(JSObject* obj) {
   return obj->is<JSFunction>();
+}
+
+JS_PUBLIC_API const char* js::MaybeGetModuleFilename(JSObject* obj) {
+  if (obj->is<ModuleObject>()) {
+    return obj->as<ModuleObject>().filename();
+  }
+  if (obj->is<ModuleEnvironmentObject>()) {
+    return obj->as<ModuleEnvironmentObject>().module().filename();
+  }
+  return nullptr;
 }
 
 JS_PUBLIC_API bool js::IsSavedFrame(JSObject* obj) {

@@ -33,7 +33,7 @@ class MOZ_ONLY_USED_TO_AVOID_STATIC_CONSTRUCTORS MOZ_CAPABILITY("mutex")
   // the compiler.  In non-debug builds, don't declare a constructor so that
   // the compiler can see that the constructor is trivial.
 #ifdef DEBUG
-  StaticMutex() { MOZ_ASSERT(!mMutex); }
+  constexpr StaticMutex() { MOZ_ASSERT(!mMutex); }
 #endif
 
   void Lock() MOZ_CAPABILITY_ACQUIRE() { Mutex()->Lock(); }

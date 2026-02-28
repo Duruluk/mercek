@@ -9,6 +9,7 @@
 #include "mozilla/dom/AnonymousContentBinding.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/Element.h"
+#include "mozilla/dom/ElementBinding.h"
 #include "mozilla/dom/ShadowRoot.h"
 #include "nsCycleCollectionParticipant.h"
 
@@ -25,8 +26,9 @@ already_AddRefed<AnonymousContent> AnonymousContent::Create(Document& aDoc) {
   host->SetAttr(kNameSpaceID_None, nsGkAtoms::role, u"presentation"_ns, false);
   host->SetAttr(kNameSpaceID_None, nsGkAtoms::_class,
                 u"anonymous-content-host"_ns, false);
-  RefPtr<ShadowRoot> root = host->AttachShadowWithoutNameChecks(
-      ShadowRootMode::Closed, Element::DelegatesFocus::No);
+  ShadowRootInit init;
+  init.mMode = ShadowRootMode::Closed;
+  RefPtr<ShadowRoot> root = host->AttachShadowWithoutNameChecks(init);
   root->SetIsUAWidget();
   return do_AddRef(new AnonymousContent(host.forget(), root.forget()));
 }

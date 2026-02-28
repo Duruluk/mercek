@@ -1348,6 +1348,21 @@ nsresult Database::InitSchema(bool* aDatabaseMigrated) {
 
       // Firefox 141 uses schema version 82
 
+      if (currentSchemaVersion < 83) {
+        rv = MigrateV83Up();
+        NS_ENSURE_SUCCESS(rv, rv);
+      }
+
+      // The schema 84 migration was the same as 85, we had to re-run it to
+      // correct issues with origin frecency.
+
+      if (currentSchemaVersion < 85) {
+        rv = MigrateV85Up();
+        NS_ENSURE_SUCCESS(rv, rv);
+      }
+
+      // Firefox 147 uses schema version 84
+
       // Schema Upgrades must add migration code here.
       // >>> IMPORTANT! <<<
       // NEVER MIX UP SYNC AND ASYNC EXECUTION IN MIGRATORS, YOU MAY LOCK THE
@@ -1721,8 +1736,6 @@ nsresult Database::InitFunctions(mozIStorageConnection* aMainConn) {
   NS_ENSURE_SUCCESS(rv, rv);
   rv = StripPrefixAndUserinfoFunction::create(aMainConn);
   NS_ENSURE_SUCCESS(rv, rv);
-  rv = IsFrecencyDecayingFunction::create(aMainConn);
-  NS_ENSURE_SUCCESS(rv, rv);
   rv = NoteSyncChangeFunction::create(aMainConn);
   NS_ENSURE_SUCCESS(rv, rv);
   rv = InvalidateDaysOfHistoryFunction::create(aMainConn);
@@ -1808,26 +1821,38 @@ nsresult Database::InitTempEntities() {
   rv = mMainConn->ExecuteSimpleSQL(CREATE_PLACES_METADATA_AFTERDELETE_TRIGGER);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  if (StaticPrefs::places_frecency_pages_alternative_featureGate_AtStartup()) {
-    int32_t viewTimeMs =
-        StaticPrefs::
-            places_frecency_pages_alternative_interactions_viewTimeSeconds_AtStartup() *
-        1000;
-    int32_t viewTimeIfManyKeypressesMs =
-        StaticPrefs::
-            places_frecency_pages_alternative_interactions_viewTimeIfManyKeypressesSeconds_AtStartup() *
-        1000;
-    int32_t manyKeypresses = StaticPrefs::
-        places_frecency_pages_alternative_interactions_manyKeypresses_AtStartup();
+  // Thresholds chosen for elevating a visit to a higher bucket.
+  bool useAlternative =
+      StaticPrefs::places_frecency_pages_alternative_featureGate_AtStartup();
+  int32_t viewTimeMs =
+      (useAlternative
+           ? StaticPrefs::
+                     places_frecency_pages_alternative_interactions_viewTimeSeconds_AtStartup() *
+                 1000
+           : StaticPrefs::
+                     places_frecency_pages_interactions_viewTimeSeconds_AtStartup() *
+                 1000);
+  int32_t viewTimeIfManyKeypressesMs =
+      (useAlternative
+           ? StaticPrefs::
+                     places_frecency_pages_alternative_interactions_viewTimeIfManyKeypressesSeconds_AtStartup() *
+                 1000
+           : StaticPrefs::
+                     places_frecency_pages_interactions_viewTimeIfManyKeypressesSeconds_AtStartup() *
+                 1000);
+  int32_t manyKeypresses =
+      (useAlternative
+           ? StaticPrefs::
+                 places_frecency_pages_alternative_interactions_manyKeypresses_AtStartup()
+           : StaticPrefs::
+                 places_frecency_pages_interactions_manyKeypresses_AtStartup());
+  rv = mMainConn->ExecuteSimpleSQL(CREATE_PLACES_METADATA_AFTERINSERT_TRIGGER(
+      viewTimeMs, viewTimeIfManyKeypressesMs, manyKeypresses));
+  NS_ENSURE_SUCCESS(rv, rv);
 
-    rv = mMainConn->ExecuteSimpleSQL(CREATE_PLACES_METADATA_AFTERINSERT_TRIGGER(
-        viewTimeMs, viewTimeIfManyKeypressesMs, manyKeypresses));
-    NS_ENSURE_SUCCESS(rv, rv);
-
-    rv = mMainConn->ExecuteSimpleSQL(CREATE_PLACES_METADATA_AFTERUPDATE_TRIGGER(
-        viewTimeMs, viewTimeIfManyKeypressesMs, manyKeypresses));
-    NS_ENSURE_SUCCESS(rv, rv);
-  }
+  rv = mMainConn->ExecuteSimpleSQL(CREATE_PLACES_METADATA_AFTERUPDATE_TRIGGER(
+      viewTimeMs, viewTimeIfManyKeypressesMs, manyKeypresses));
+  NS_ENSURE_SUCCESS(rv, rv);
 
   // Create triggers to remove rows with empty json
   rv = mMainConn->ExecuteSimpleSQL(CREATE_MOZ_PLACES_EXTRA_AFTERUPDATE_TRIGGER);
@@ -2255,6 +2280,25 @@ nsresult Database::MigrateV82Up() {
   return NS_OK;
 }
 
+nsresult Database::MigrateV83Up() {
+  // Recalculate frecency due to changing calculate_frecency.
+  nsresult rv = mMainConn->ExecuteSimpleSQL(
+      "UPDATE moz_places SET recalc_frecency = 1 WHERE frecency > 0"_ns);
+  NS_ENSURE_SUCCESS(rv, rv);
+  return NS_OK;
+}
+
+nsresult Database::MigrateV85Up() {
+  // Recalculate frecency due to changing frecency and giving too high a bonus
+  // for non-typed URLs.
+  nsresult rv = mMainConn->ExecuteSimpleSQL(
+      "UPDATE moz_origins "
+      "SET recalc_frecency = 1 "
+      "WHERE frecency > 1"_ns);
+  NS_ENSURE_SUCCESS(rv, rv);
+  return NS_OK;
+}
+
 int64_t Database::CreateMobileRoot() {
   MOZ_ASSERT(NS_IsMainThread());
 
@@ -2402,11 +2446,12 @@ void Database::Shutdown() {
 
   mClosed = true;
 
-  // Execute PRAGMA optimized as last step, this will ensure proper database
-  // performance across restarts.
+  // Execute PRAGMA optimize as last step, this will ensure proper database
+  // performance across restarts. The 0x12 flags mean: run ANALYZE on tables
+  // that might benefit (0x02), with a row limit to keep runtime bounded (0x10).
   nsCOMPtr<mozIStoragePendingStatement> ps;
   MOZ_ALWAYS_SUCCEEDS(mMainConn->ExecuteSimpleSQLAsync(
-      "PRAGMA optimize(0x02)"_ns, nullptr, getter_AddRefs(ps)));
+      "PRAGMA optimize(0x12)"_ns, nullptr, getter_AddRefs(ps)));
 
   if (NS_FAILED(mMainConn->AsyncClose(connectionShutdown))) {
     (void)connectionShutdown->Complete(NS_ERROR_UNEXPECTED, nullptr);

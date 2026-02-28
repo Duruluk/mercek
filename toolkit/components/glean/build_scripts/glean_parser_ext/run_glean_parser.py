@@ -2,6 +2,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+import functools
 import os
 import pickle
 import sys
@@ -17,7 +18,7 @@ from glean_parser import lint, metrics, parser, translate, util
 from glean_parser.lint import METRIC_CHECKS, CheckType, GlinterNit
 from glean_parser.pings import Ping
 from metrics_header_names import convert_yaml_path_to_header_name
-from mozbuild.util import FileAvoidWrite, memoize
+from mozbuild.util import FileAvoidWrite
 from util import generate_metric_ids
 
 import js
@@ -47,7 +48,7 @@ METRIC_CHECKS["GIFFT_NON_PING_LIFETIME"] = (
 )
 
 
-@memoize
+@functools.cache
 def get_deps():
     # Any imported python module is added as a dep automatically,
     # so we only need the index and the templates.
@@ -124,9 +125,9 @@ def parse(args, interesting_yamls=None):
             with open(cache_file, "rb") as cache:
                 cached_objects, cached_options = pickle.load(cache)
                 objects.update(cached_objects)
-                assert (
-                    options is None or cached_options == options
-                ), "consistent options"
+                assert options is None or cached_options == options, (
+                    "consistent options"
+                )
                 options = options or cached_options
         return objects, options
 
@@ -225,6 +226,11 @@ def main(cpp_fd, *args):
     def open_output(filename):
         return FileAvoidWrite(os.path.join(cpp_fd_path.parent, filename))
 
+    def is_standalone(header_name):
+        # SpiderMonkey must be buildable without some of the types available to
+        # FOG (like nsCString and nsTArray), so it uses the standalone Glean types
+        return header_name.startswith("JsSrc")
+
     all_objs, options = parse(args)
     all_metric_header_files = {}
 
@@ -241,6 +247,7 @@ def main(cpp_fd, *args):
                 all_metric_header_files[filename] = {}
             if not category_name in all_metric_header_files[filename]:
                 all_metric_header_files[filename][category_name] = {}
+            metric.standalone = is_standalone(filename)
             all_metric_header_files[filename][category_name][name] = metric
 
     get_metric_id = generate_metric_ids(all_objs, options)
@@ -252,7 +259,11 @@ def main(cpp_fd, *args):
                 if header_name == cpp_fd_path.stem
                 else open_output(header_name + ".h")
             ),
-            {"header_name": header_name, "get_metric_id": get_metric_id},
+            {
+                "header_name": header_name,
+                "get_metric_id": get_metric_id,
+                "standalone": is_standalone(header_name),
+            },
         )
 
     return get_deps()
@@ -372,12 +383,10 @@ def output_gifft_map(output_fd, probe_type, all_objs, cpp_fd, options):
                         sys.exit(1)
                     ids_to_probes[get_metric_id(metric)] = info
                 # If we don't support a mirror for this metric type: build error.
-                elif not any(
-                    [
-                        metric.type in types_for_probe
-                        for types_for_probe in GIFFT_TYPES.values()
-                    ]
-                ):
+                elif not any([
+                    metric.type in types_for_probe
+                    for types_for_probe in GIFFT_TYPES.values()
+                ]):
                     print(
                         f"Glean metric {category_name}.{metric.name} is of type {metric.type}"
                         " which can't be mirrored (we don't know how).",

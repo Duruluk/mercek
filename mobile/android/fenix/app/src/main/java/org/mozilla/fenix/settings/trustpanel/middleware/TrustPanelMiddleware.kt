@@ -16,7 +16,6 @@ import mozilla.components.feature.session.SessionUseCases
 import mozilla.components.feature.session.TrackingProtectionUseCases
 import mozilla.components.lib.publicsuffixlist.PublicSuffixList
 import mozilla.components.lib.state.Middleware
-import mozilla.components.lib.state.MiddlewareContext
 import mozilla.components.lib.state.Store
 import mozilla.components.support.ktx.kotlin.getOrigin
 import org.mozilla.fenix.components.PermissionStorage
@@ -60,12 +59,11 @@ class TrustPanelMiddleware(
 ) : Middleware<TrustPanelState, TrustPanelAction> {
 
     override fun invoke(
-        context: MiddlewareContext<TrustPanelState, TrustPanelAction>,
+        store: Store<TrustPanelState, TrustPanelAction>,
         next: (TrustPanelAction) -> Unit,
         action: TrustPanelAction,
     ) {
-        val currentState = context.state
-        val store = context.store
+        val currentState = store.state
 
         when (action) {
             is TrustPanelAction.ClearSiteData -> clearSiteData(currentState)
@@ -77,16 +75,25 @@ class TrustPanelMiddleware(
             -> togglePermission(currentState, action.permission, store)
             is TrustPanelAction.UpdateAutoplayValue,
             -> updateAutoplayValue(currentState, action.autoplayValue, store)
-
+            is TrustPanelAction.RequestQWAC -> requestQwac(currentState, store)
             else -> Unit
         }
 
         next(action)
     }
 
+    private fun requestQwac(
+        currentState: TrustPanelState,
+        store: Store<TrustPanelState, TrustPanelAction>,
+    ) = scope.launch(Dispatchers.Main) {
+        currentState.sessionState?.engineState?.engineSession?.qwacStatus { cert ->
+            store.dispatch(TrustPanelAction.UpdateQWAC(cert))
+        }
+    }
+
     private fun toggleTrackingProtection(
         currentState: TrustPanelState,
-    ) = scope.launch(Dispatchers.Main) {
+    ) = scope.launch {
         currentState.sessionState?.let { session ->
             if (currentState.isTrackingProtectionEnabled) {
                 trackingProtectionUseCases.addException(session.id)

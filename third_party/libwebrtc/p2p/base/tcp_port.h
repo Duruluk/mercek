@@ -19,6 +19,7 @@
 #include "absl/memory/memory.h"
 #include "absl/strings/string_view.h"
 #include "api/candidate.h"
+#include "api/environment/environment.h"
 #include "api/sequence_checker.h"
 #include "api/task_queue/pending_task_safety_flag.h"
 #include "api/transport/stun.h"
@@ -29,11 +30,11 @@
 #include "rtc_base/async_packet_socket.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/containers/flat_map.h"
+#include "rtc_base/net_helper.h"
 #include "rtc_base/network/received_packet.h"
 #include "rtc_base/network/sent_packet.h"
 #include "rtc_base/socket.h"
 #include "rtc_base/socket_address.h"
-#include "rtc_base/third_party/sigslot/sigslot.h"
 #include "rtc_base/weak_ptr.h"
 
 namespace webrtc {
@@ -123,10 +124,11 @@ class TCPPort : public Port {
   friend class TCPConnection;
 };
 
-class TCPConnection : public Connection, public sigslot::has_slots<> {
+class TCPConnection : public Connection {
  public:
   // Connection is outgoing unless socket is specified
-  TCPConnection(WeakPtr<Port> tcp_port,
+  TCPConnection(const Environment& env,
+                WeakPtr<Port> tcp_port,
                 const Candidate& candidate,
                 AsyncPacketSocket* socket = nullptr);
   ~TCPConnection() override;

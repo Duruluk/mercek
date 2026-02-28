@@ -9,7 +9,11 @@ import android.os.RemoteException
 import androidx.annotation.VisibleForTesting
 import com.android.installreferrer.api.InstallReferrerClient
 import com.android.installreferrer.api.InstallReferrerStateListener
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import mozilla.components.support.base.log.logger.Logger
+import org.mozilla.fenix.distributions.DistributionIdManager
 import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.ext.settings
 
@@ -29,6 +33,7 @@ class MarketingAttributionService(private val context: Context) {
     /**
      * Starts the connection with the install referrer and handle the response.
      */
+    @Suppress("CognitiveComplexMethod")
     fun start() {
         val client = InstallReferrerClient.newBuilder(context).build()
         referrerClient = client
@@ -51,16 +56,26 @@ class MarketingAttributionService(private val context: Context) {
                                 null
                             }
 
+                            val distributionIdManager = context.components.distributionIdManager
+
                             if (!installReferrerResponse.isNullOrBlank()) {
                                 response = installReferrerResponse
-                                val utmParams = UTMParams.parseUTMParameters(installReferrerResponse)
+                                val utmParams =
+                                    UTMParams.parseUTMParameters(installReferrerResponse)
 
-                                context.components.distributionIdManager
-                                    .updateDistributionIdFromUtmParams(utmParams)
+                                distributionIdManager.updateDistributionIdFromUtmParams(utmParams)
+                                CoroutineScope(Dispatchers.IO).launch {
+                                    distributionIdManager.startAdjustIfSkippingConsentScreen()
+                                }
                             }
 
-                            context.settings().shouldShowMarketingOnboarding =
-                                shouldShowMarketingOnboarding(installReferrerResponse)
+                            CoroutineScope(Dispatchers.IO).launch {
+                                context.settings().shouldShowMarketingOnboarding =
+                                    shouldShowMarketingOnboarding(
+                                        installReferrerResponse,
+                                        distributionIdManager,
+                                    )
+                            }
 
                             return
                         }
@@ -103,7 +118,14 @@ class MarketingAttributionService(private val context: Context) {
         var response: String? = null
 
         @VisibleForTesting
-        internal fun shouldShowMarketingOnboarding(installReferrerResponse: String?): Boolean {
+        internal suspend fun shouldShowMarketingOnboarding(
+            installReferrerResponse: String?,
+            distributionIdManager: DistributionIdManager,
+        ): Boolean {
+            if (distributionIdManager.isPartnershipDistribution()) {
+                return !distributionIdManager.shouldSkipMarketingConsentScreen()
+            }
+
             if (installReferrerResponse.isNullOrBlank()) {
                 return false
             }

@@ -1,4 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+
+<!--
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at http://mozilla.org/MPL/2.0/.
+-->
+
 <resources xmlns:tools="http://schemas.android.com/tools" xmlns:moz="http://mozac.org/tools">
   <!-- App name for private browsing mode. %s is the name of the app (for example "Firefox"). -->
   <string name="app_name_private_5">%s privatu</string>
@@ -25,9 +32,9 @@
   <!-- Placeholder text shown in the search bar when using application search engines -->
   <string name="application_search_hint">Stampittate i termini à ricercà</string>
   <!-- No Open Tabs Message Description -->
-  <string name="no_open_tabs_description">E vostre unghjette aperte seranu affissate quì.</string>
+  <string name="no_open_tabs_description" tools:ignore="UnusedResources" moz:removedIn="149">E vostre unghjette aperte seranu affissate quì.</string>
   <!-- No Private Tabs Message Description -->
-  <string name="no_private_tabs_description">E vostre unghjette private seranu affissate quì.</string>
+  <string name="no_private_tabs_description" tools:ignore="UnusedResources" moz:removedIn="149">E vostre unghjette private seranu affissate quì.</string>
   <!-- The header text displayed on the private tabs page when no private tabs are open -->
   <string name="tab_manager_empty_private_tabs_page_header">Navigazione privata</string>
   <!-- The supplementary text displayed on the private tabs page when no private tabs are open. %1$s is the name of the app (for example "Firefox") -->
@@ -47,13 +54,15 @@
   <!-- Content description for close button while in multiselect mode in tab tray -->
   <string name="tab_tray_close_multiselect_content_description">Piantà u modu di selezzione multiple</string>
   <!-- Content description for save to collection button while in multiselect mode in tab tray -->
-  <string name="tab_tray_collection_button_multiselect_content_description">Arregistrà l’unghjette selezziunate in una cullezzione</string>
+  <string name="tab_tray_collection_button_multiselect_content_description" tools:ignore="UnusedResources" moz:removedIn="149">Arregistrà l’unghjette selezziunate in una cullezzione</string>
   <!-- The header text displayed on the synced tabs page when the user is not logged into an account. -->
   <string name="tab_manager_empty_synced_tabs_page_header">Ricuperà l’unghjette da qualsiasi apparechju</string>
   <!-- The supplementary text displayed on the synced tabs page when the user is not logged into an account. -->
   <string name="tab_manager_empty_synced_tabs_page_description">Cunnittitevi per urganizà l’unghjette sincrunizate da tutti i vostri apparechji.</string>
   <!-- The action text displayed on the synced tabs page when the user is not logged into an account, prompting the user to sign into their account. When clicked, it takes the user to the account sign-in flow. -->
   <string name="tab_manager_empty_synced_tabs_page_sign_in_cta">Cunnettesi</string>
+  <!-- Text for the button used to show all stories -->
+  <string name="homepage_all_stories">Tutti l’articuli</string>
   <!--
     Home - Bookmarks
 
@@ -76,13 +85,6 @@
     Title for info card on private homescreen in True Private Browsing Mode.
   -->
   <string name="felt_privacy_desc_card_title">Ùn lascià alcuna traccia nant’à st’apparechju</string>
-  <!--
-    Explanation for private browsing displayed to users on home view when they first enable
-    private mode in our new Total Private Browsing mode.
-    %1$s is the name of the app (for example "Firefox").
-    %2$s is a link using felt_privacy_info_card_subtitle_link_text as text
-  -->
-  <string name="felt_privacy_info_card_subtitle_2">%1$s squassa i vostri canistrelli, cronolugia è dati di siti quandu vo chjudite tutte e vostre unghjette private. %2$s</string>
   <!--
     Description of private browsing mode displayed to users on the homepage when they enable private mode.
     %1$s is the name of the app (for example "Firefox").
@@ -199,13 +201,11 @@
   <!-- Browser menu button that opens the extensions manager -->
   <string name="browser_menu_extensions">Estensioni</string>
   <!-- Browser menu banner header text for extensions onboarding when all installed extensions have been disabled. -->
-  <string name="browser_menu_disabled_extensions_banner_onboarding_header">Avete estensioni installate, ma ùn sò micca attivate</string>
+  <string name="browser_menu_disabled_extensions_banner_onboarding_header" tools:ignore="UnusedResources" moz:removedIn="149">Avete estensioni installate, ma ùn sò micca attivate</string>
   <!-- Browser menu button that opens the extensions manager -->
   <string name="browser_menu_manage_extensions">Amministrà l’estensioni</string>
   <!-- Browser menu group that contains additional settings in collapsed state -->
   <string name="browser_menu_more_settings">Più</string>
-  <!-- Browser menu group that contains additional settings in expanded state -->
-  <string name="browser_menu_less_settings" moz:removedIn="144" tools:ignore="UnusedResources">Menu</string>
   <!--
     Content description (not visible, for screen readers etc.): Label for plus icon used to add extension.
     %1$s is the name of the extension (for example: ClearURLs).
@@ -222,9 +222,9 @@
   <!-- Browser menu button that opens account settings -->
   <string name="browser_menu_account_settings">Infurmazione nant’à u contu</string>
   <!-- Browser menu button that sends a user to help articles -->
-  <string name="browser_menu_help">Aiutu</string>
+  <string name="browser_menu_help" tools:ignore="UnusedResources" moz:removedIn="149">Aiutu</string>
   <!-- Browser menu button that sends a to a the what's new article -->
-  <string name="browser_menu_whats_new">Ciò chì hè novu</string>
+  <string name="browser_menu_whats_new" tools:ignore="UnusedResources" moz:removedIn="149">Ciò chì hè novu</string>
   <!-- Browser menu button that opens the settings menu -->
   <string name="browser_menu_settings">Parametri</string>
   <!-- Browser menu button that opens a user's library -->
@@ -232,7 +232,7 @@
   <!-- Browser menu toggle that requests a desktop site -->
   <string name="browser_menu_desktop_site">Versione urdinatore</string>
   <!-- Browser menu button that reopens a private tab as a regular tab -->
-  <string name="browser_menu_open_in_regular_tab">Apre in un’unghjetta nurmale</string>
+  <string name="browser_menu_open_in_regular_tab" tools:ignore="UnusedResources" moz:removedIn="149">Apre in un’unghjetta nurmale</string>
   <!-- Browser menu toggle that adds a shortcut to the site on the device home screen. -->
   <string name="browser_menu_add_to_homescreen">Aghjunghje à u screnu d’accolta</string>
   <!-- Browser menu toggle that adds a PWA of the site on the device home screen. -->
@@ -260,7 +260,7 @@
     Browser menu text shown in custom tabs to indicate this is a Fenix tab
     %1$s is the name of the app (for example "Firefox").
   -->
-  <string name="browser_menu_powered_by">FUNZIUNEGHJA GRAZIA À %1$s</string>
+  <string name="browser_menu_powered_by" tools:ignore="UnusedResources" moz:removedIn="149">FUNZIUNEGHJA GRAZIA À %1$s</string>
   <!--
     Browser menu text shown in custom tabs to indicate this is a Fenix tab
     %1$s is the name of the app (for example "Firefox").
@@ -273,15 +273,15 @@
   <!-- Browser menu button to open the current page in an external app -->
   <string name="browser_menu_open_app_link">Apre in un’appiecazione</string>
   <!-- Browser menu button to show reader view appearance controls e.g. the used font type and size -->
-  <string name="browser_menu_customize_reader_view">Persunalizà u modu di lettura</string>
+  <string name="browser_menu_customize_reader_view" tools:ignore="UnusedResources" moz:removedIn="149">Persunalizà u modu di lettura</string>
   <!-- Browser menu button to show reader view appearance controls e.g. the used font type and size -->
   <string name="browser_menu_customize_reader_view_2">Persunalizà u modu di lettura</string>
   <!-- Browser menu label for adding a bookmark -->
-  <string name="browser_menu_add">Aghjunghje</string>
+  <string name="browser_menu_add" tools:ignore="UnusedResources" moz:removedIn="149">Aghjunghje</string>
   <!-- Browser menu label for editing a bookmark -->
-  <string name="browser_menu_edit">Mudificà</string>
+  <string name="browser_menu_edit" tools:ignore="UnusedResources" moz:removedIn="149">Mudificà</string>
   <!-- Button shown on the home page that opens the Customize home settings -->
-  <string name="browser_menu_customize_home_1">Persunalizà a pagina d’accolta</string>
+  <string name="browser_menu_customize_home_1" tools:ignore="UnusedResources" moz:removedIn="149">Persunalizà a pagina d’accolta</string>
   <!-- Browser menu label to sign in to sync on the device using Mozilla accounts -->
   <string name="browser_menu_sign_in">Cunnettesi</string>
   <!-- Browser menu caption label for the "Sign in" browser menu item described in `browser_menu_sign_in` -->
@@ -300,16 +300,12 @@
   <string name="browser_close_main_menu_handlebar_content_description">Chjode u listinu</string>
   <!-- Content description (not visible, for screen readers etc.) for main menu navigation header. -->
   <string name="browser_main_menu_content_description_navigation_header">Navigazione</string>
-  <!-- Content description (not visible, for screen readers etc.) for main menu help button. -->
-  <string name="browser_main_menu_content_description_help_button" tools:ignore="UnusedResources" moz:removedIn="146">Aiutu</string>
-  <!-- Content description (not visible, for screen readers etc.) for main menu settings button. -->
-  <string name="browser_main_menu_content_description_settings_button" tools:ignore="UnusedResources" moz:removedIn="146">Parametri</string>
   <!-- Content description (not visible, for screen readers etc.) for bottom sheet handlebar extensions menu. -->
-  <string name="browser_extensions_menu_handlebar_content_description">Chjode u pannellu di u listinu di l’estensioni</string>
+  <string name="browser_extensions_menu_handlebar_content_description" tools:ignore="UnusedResources" moz:removedIn="149">Chjode u pannellu di u listinu di l’estensioni</string>
   <!-- Content description (not visible, for screen readers etc.) for bottom sheet handlebar save menu. -->
-  <string name="browser_save_menu_handlebar_content_description">Chjode u pannellu di u listinu d’arregistramentu</string>
+  <string name="browser_save_menu_handlebar_content_description" tools:ignore="UnusedResources" moz:removedIn="149">Chjode u pannellu di u listinu d’arregistramentu</string>
   <!-- Content description (not visible, for screen readers etc.) for bottom sheet handlebar tools menu. -->
-  <string name="browser_tools_menu_handlebar_content_description">Chjode u pannellu di u listinu di l’attrezzi</string>
+  <string name="browser_tools_menu_handlebar_content_description" tools:ignore="UnusedResources" moz:removedIn="149">Chjode u pannellu di u listinu di l’attrezzi</string>
   <!-- Content description (not visible, for screen readers etc.) for bottom sheet handlebar custom tab menu. -->
   <string name="browser_custom_tab_menu_handlebar_content_description">Chjode u pannellu di u listinu di l’unghjette persunalizate</string>
   <!-- Browser menu label that bookmarks the currently visited page -->
@@ -321,7 +317,7 @@
   <!-- Browser menu label for navigating to the translation feature, which provides language translation options the current visited page -->
   <string name="browser_menu_translate_page_2">Traduce a pagina</string>
   <!-- Browser menu label for navigating to the Web Compat Reporter feature, which provides users the ability to send bug reports for broken sites. -->
-  <string name="browser_menu_webcompat_reporter">Signalà prublemi cù stu situ…</string>
+  <string name="browser_menu_webcompat_reporter" tools:ignore="UnusedResources" moz:removedIn="149">Signalà prublemi cù stu situ…</string>
   <!-- Browser menu label for navigating to the Web Compat Reporter feature, which provides users the ability to send bug reports for broken sites. -->
   <string name="browser_menu_webcompat_reporter_2">Signalà prublemi cù stu situ</string>
   <!-- Browser menu label that is displayed when the current page has been translated by the translation feature. -->
@@ -444,20 +440,9 @@
   -->
   <string name="juno_onboarding_privacy_notice_text" tools:ignore="BrandUsage">Dichjarazione di cunfidenzialità di Firefox</string>
   <!-- Title for set firefox as default browser screen used by Nimbus experiments. -->
-  <string name="juno_onboarding_default_browser_title_nimbus_2">A vostra prutezzione cunta per noi</string>
-  <!--
-    Title for set firefox as default browser screen used by Nimbus experiments.
-    Note: The word "Firefox" should NOT be translated
-  -->
-  <string name="juno_onboarding_default_browser_title_nimbus_3" tools:ignore="BrandUsage,UnusedResources" moz:removedIn="146">Scuprite perchè Firefox piace à milioni di persone</string>
-  <!-- Title for set firefox as default browser screen used by Nimbus experiments. -->
-  <string name="juno_onboarding_default_browser_title_nimbus_4" tools:ignore="UnusedResources" moz:removedIn="146">A navigazione assicurizata cù più di scelta</string>
+  <string name="juno_onboarding_default_browser_title_nimbus_2">A vostra prutezzione ci impreme</string>
   <!-- Description for set firefox as default browser screen used by Nimbus experiments. -->
   <string name="juno_onboarding_default_browser_description_nimbus_3">U nostru navigatore sustinutu da un urganismu senza scopu lucrativu impedisce l’imprese di seguitavvi da manera sicreta nant’à u Web.</string>
-  <!-- Description for set firefox as default browser screen used by Nimbus experiments. -->
-  <string name="juno_onboarding_default_browser_description_nimbus_4" tools:ignore="UnusedResources" moz:removedIn="146">Più di 10 milioni di persone prutegenu a so vita privata scigliendu un navigatore sustinutu da un’organizazione senza scopu lucrativu.</string>
-  <!-- Description for set firefox as default browser screen used by Nimbus experiments. -->
-  <string name="juno_onboarding_default_browser_description_nimbus_5" tools:ignore="UnusedResources" moz:removedIn="146">Perseguitatori cunnisciuti ? Bluccati autumaticamente. Estensioni ? Ci n’hè più di 700 ; pruvatele. Schedarii PDF ? U nostru lettore integratu ne faciliteghja a ghjestione.</string>
   <!-- Text for the button to set firefox as default browser on the device -->
   <string name="juno_onboarding_default_browser_positive_button" tools:ignore="UnusedResources">Sceglie cum’è navigatore predefinitu</string>
   <!-- Text for the button dismiss the screen and move on with the flow -->
@@ -547,60 +532,60 @@
   <!-- Used as text for the link in onboarding_term_of_service_line_three. -->
   <string name="onboarding_term_of_service_line_three_link_text">Amministrà</string>
   <!-- Terms of use (ToU) onboarding redesign title. -->
-  <string name="onboarding_redesign_tou_title">Lanciate u navigatore Android ultimu</string>
+  <string name="onboarding_redesign_tou_title" tools:ignore="UnusedResources">Lanciate u navigatore Android ultimu</string>
   <!-- Terms of use (ToU) first subheader. -->
-  <string name="onboarding_redesign_tou_subheader_one">Caricate i siti à a vitezza di u lume</string>
+  <string name="onboarding_redesign_tou_subheader_one" tools:ignore="UnusedResources">Caricate i siti à a vitezza di u lume</string>
   <!-- Terms of use (ToU) second subheader. -->
-  <string name="onboarding_redesign_tou_subheader_two">Prutezzione autumatica contr’à u spiunagiu</string>
+  <string name="onboarding_redesign_tou_subheader_two" tools:ignore="UnusedResources">Prutezzione autumatica contr’à u spiunagiu</string>
   <!-- Terms of use (ToU) third subheader. -->
-  <string name="onboarding_redesign_tou_subheader_three">Millai di persunalizazioni</string>
+  <string name="onboarding_redesign_tou_subheader_three" tools:ignore="UnusedResources">Millai di persunalizazioni</string>
   <!--
     Terms of use (ToU) first body text. %1$s is replaced by an active link,
     using onboarding_redesign_tou_body_one_link_text as text (“Firefox Terms of Use”).
   -->
-  <string name="onboarding_redesign_tou_body_one">Cuntinuendu, vole si dì chì vo accettate e%1$s.</string>
+  <string name="onboarding_redesign_tou_body_one" tools:ignore="UnusedResources">Cuntinuendu, vole si dì chì vo accettate e%1$s.</string>
   <!-- Used as text for the link in onboarding_redesign_tou_body_one. -->
-  <string name="onboarding_redesign_tou_body_one_link_text" tools:ignore="BrandUsage">cundizioni d’utilizazione di Firefox</string>
+  <string name="onboarding_redesign_tou_body_one_link_text" tools:ignore="BrandUsage,UnusedResources">cundizioni d’utilizazione di Firefox</string>
   <!--
     Terms of use (ToU) second body text. 'Firefox' is intentionally hardcoded.
     %1$s is replaced by an active link, using onboarding_redesign_tou_body_two_link_text as text (“Privacy Notice”).
   -->
-  <string name="onboarding_redesign_tou_body_two" tools:ignore="BrandUsage">Firefox face casu di a vostra vita privata. Sapene di più in a nostra %1$s.</string>
+  <string name="onboarding_redesign_tou_body_two" tools:ignore="BrandUsage,UnusedResources">Firefox face casu di a vostra vita privata. Sapene di più in a nostra %1$s.</string>
   <!-- Used as text for the link in onboarding_redesign_tou_body_two. -->
-  <string name="onboarding_redesign_tou_body_two_link_text">Pulitica di cunfidenzialità</string>
+  <string name="onboarding_redesign_tou_body_two_link_text" tools:ignore="UnusedResources">Pulitica di cunfidenzialità</string>
   <!--
     Terms of use (ToU) third body text. 'Firefox' and 'Mozilla' are intentionally hardcoded.
     %1$s is replaced by an active link using onboarding_redesign_tou_body_three_link_text as text (“Manage Settings”).
   -->
-  <string name="onboarding_redesign_tou_body_three" tools:ignore="BrandUsage">Per aiutà à amendà u navigatore, Firefox manda à Mozilla dati di diagnosticu è d’interazzione. %1$s</string>
+  <string name="onboarding_redesign_tou_body_three" tools:ignore="BrandUsage,UnusedResources">Per aiutà à amendà u navigatore, Firefox manda à Mozilla dati di diagnosticu è d’interazzione. %1$s</string>
   <!-- Used as text for the link in onboarding_redesign_tou_body_three. -->
-  <string name="onboarding_redesign_tou_body_three_link_text">Amministrà i parametri</string>
+  <string name="onboarding_redesign_tou_body_three_link_text" tools:ignore="UnusedResources">Amministrà i parametri</string>
   <!-- Terms of use (ToU) onboarding page continue button label. -->
-  <string name="onboarding_redesign_tou_agree_and_continue_button_label">Cuntinuà</string>
+  <string name="onboarding_redesign_tou_agree_and_continue_button_label" tools:ignore="UnusedResources">Cuntinuà</string>
   <!-- Onboarding header for the toolbar selection card. -->
-  <string name="onboarding_redesign_customize_toolbar_title">Induve vulete piazzà a vostra barra d’indirizzu\u00a0?</string>
+  <string name="onboarding_redesign_customize_toolbar_title" tools:ignore="UnusedResources">Induve vulete piazzà a vostra barra d’indirizzu\u00a0?</string>
   <!-- Onboarding label for 'Continue' button. -->
-  <string name="onboarding_redesign_continue_button">Cuntinuà</string>
+  <string name="onboarding_redesign_continue_button" tools:ignore="UnusedResources">Cuntinuà</string>
   <!-- Marketing onboarding page title. 'Firefox' is intentionally hardcoded. -->
-  <string name="onboarding_marketing_redesign_title" tools:ignore="BrandUsage">Aiutateci à fà cresce Firefox</string>
+  <string name="onboarding_marketing_redesign_title" tools:ignore="BrandUsage,UnusedResources">Aiutateci à fà cresce Firefox</string>
   <!-- Marketing onboarding page opt-out checkbox. Unchecking the box does not increase data collection. Our data practices remain the same. 'Mozilla' is intentionally hardcoded. -->
-  <string name="onboarding_marketing_redesign_opt_out_checkbox" tools:ignore="BrandUsage">Spartite cumu vo avete scupertu Firefox, è chì vo l’impiegate, cù i cumpagni cummerciali di Mozilla. Sti dati ùn sò mai vindute.</string>
+  <string name="onboarding_marketing_redesign_opt_out_checkbox" tools:ignore="BrandUsage,UnusedResources">Spartite cumu vo avete scupertu Firefox, è chì vo l’impiegate, cù i cumpagni cummerciali di Mozilla. Sti dati ùn sò mai vindute.</string>
   <!-- Marketing onboarding page clickable link text to "learn more" on how data is used. -->
-  <string name="onboarding_marketing_redesign_learn_more">Cumu no impieghemu i dati</string>
+  <string name="onboarding_marketing_redesign_learn_more" tools:ignore="UnusedResources">Cumu no impieghemu i dati</string>
   <!-- Marketing onboarding page button label. Button to confirm choice and start browsing. -->
-  <string name="onboarding_marketing_redesign_positive_button">Cunfirmà</string>
+  <string name="onboarding_marketing_redesign_positive_button" tools:ignore="UnusedResources">Cunfirmà</string>
   <!-- Set to default browser onboarding redesign title. -->
-  <string name="onboarding_redesign_set_default_browser_title">Predefinite una prutezzione autumatica contr’à u spiunagiu</string>
+  <string name="onboarding_redesign_set_default_browser_title" tools:ignore="UnusedResources">Predefinite una prutezzione autumatica contr’à u spiunagiu</string>
   <!-- Set to default browser onboarding redesign body. -->
-  <string name="onboarding_redesign_set_default_browser_body">Basta un solu gestu per impedisce l’imprese di spiunà i vostri clicchi.</string>
+  <string name="onboarding_redesign_set_default_browser_body" tools:ignore="UnusedResources">Basta un solu gestu per impedisce l’imprese di spiunà i vostri clicchi.</string>
   <!-- Sync onboarding redesign title. 'Firefox' is intentionally hardcoded. -->
-  <string name="onboarding_redesign_sync_title" tools:ignore="BrandUsage">Sincrunizate dapertuttu induve vo impiegate Firefox</string>
+  <string name="onboarding_redesign_sync_title" tools:ignore="BrandUsage,UnusedResources">Sincrunizate dapertuttu induve vo impiegate Firefox</string>
   <!-- Sync onboarding redesign body. -->
-  <string name="onboarding_redesign_sync_body">Accidite à e vostre indette, unghjette è parolle d’entrata nant’à ogni apparechju. Tuttu essendu prutettu da cifratura.</string>
+  <string name="onboarding_redesign_sync_body" tools:ignore="UnusedResources">Accidite à e vostre indette, unghjette è parolle d’entrata nant’à ogni apparechju. Tuttu essendu prutettu da cifratura.</string>
   <!-- Sync onboarding redesign positive button text. -->
-  <string name="onboarding_redesign_sync_positive_button">Lancià a sincrunizazione</string>
+  <string name="onboarding_redesign_sync_positive_button" tools:ignore="UnusedResources">Lancià a sincrunizazione</string>
   <!-- Sync onboarding redesign negative button text. -->
-  <string name="onboarding_redesign_sync_negative_button">Micca subitu</string>
+  <string name="onboarding_redesign_sync_negative_button" tools:ignore="UnusedResources">Micca subitu</string>
   <!-- Marketing onboarding page title. 'Firefox' is intentionally hardcoded. -->
   <string name="onboarding_marketing_title" tools:ignore="BrandUsage,UnusedResources">Aiutateci à fà cresce Firefox</string>
   <!-- Marketing onboarding page body. 'Firefox' is intentionally hardcoded. -->
@@ -617,6 +602,86 @@
   <string name="onboarding_marketing_body_1" tools:ignore="BrandUsage,UnusedResources">Spartite cumu vo avete scupertu Firefox, è chì vo l’impiegate, cù i cumpagni cummerciali di Mozilla. Sti dati ùn sò mai vindute.</string>
   <!-- Marketing onboarding page button label variant. Button to confirm choice and start browsing. -->
   <string name="onboarding_marketing_positive_button_1" tools:ignore="UnusedResources">Accettà è principià a navigazione</string>
+  <!-- ==== Project "Nova" onboarding strings ==== -->
+
+  <!-- "Continue" onboarding button. -->
+  <string name="nova_onboarding_continue_button">Cuntinuà</string>
+  <!-- "Not now" onboarding button. -->
+  <string name="nova_onboarding_negative_button">Micca subitu</string>
+  <!-- Terms of use (ToU) onboarding title. -->
+  <string name="nova_onboarding_tou_title" tools:ignore="UnusedResources">Appruntatevi à navigà in libertà sana</string>
+  <!-- Terms of use (ToU) onboarding subtitle. -->
+  <string name="nova_onboarding_tou_subtitle">Rapida, sicura è degna di cunfidenza.\nOra a navigazione hè ancu più bella.</string>
+  <!--
+    Terms of use (ToU) onboarding body line one.
+    %1$s is replaced by an active link, using nova_onboarding_tou_body_line_1_link_text as text (“Firefox Terms of Use”).
+  -->
+  <string name="nova_onboarding_tou_body_line_1">Cuntinuendu, vole si dì chì vo accettate e%1$s.</string>
+  <!-- Terms of use (ToU) onboarding body line one link text for nova_onboarding_tou_body_line_1. 'Firefox' is intentionally hardcoded. -->
+  <string name="nova_onboarding_tou_body_line_1_link_text" tools:ignore="BrandUsage">cundizioni d’utilizazione di Firefox</string>
+  <!--
+    Terms of use (ToU) onboarding body line two. 'Firefox' is intentionally hardcoded.
+    %1$s is replaced by an active link, using nova_onboarding_tou_body_line_2_link_text as text (“Privacy Notice”).
+  -->
+  <string name="nova_onboarding_tou_body_line_2" tools:ignore="BrandUsage">Firefox face casu di a vostra vita privata. Sapene di più in a nostra %1$s.</string>
+  <!-- Terms of use (ToU) onboarding body line two link text for nova_onboarding_tou_body_line_2. -->
+  <string name="nova_onboarding_tou_body_line_2_link_text">Pulitica di cunfidenzialità</string>
+  <!--
+    Terms of use (ToU) onboarding body line three. 'Firefox' and 'Mozilla' are intentionally hardcoded.
+    %1$s is replaced by an active link, using nova_onboarding_tou_body_line_3_link_text as text (“Manage Settings”).
+  -->
+  <string name="nova_onboarding_tou_body_line_3" tools:ignore="BrandUsage">Per aiutà à amendà u navigatore, Firefox manda à Mozilla dati di diagnosticu è d’interazzione. %1$s</string>
+  <!-- Terms of use (ToU) onboarding body line three link text for nova_onboarding_tou_body_line_3. -->
+  <string name="nova_onboarding_tou_body_line_3_link_text">Amministrà i parametri</string>
+  <!-- "Set to default" onboarding title. -->
+  <string name="nova_onboarding_set_to_default_title" tools:ignore="UnusedResources">Dite addiu à i perseguitatori intrusivi</string>
+  <!-- "Set to default" onboarding subtitle. -->
+  <string name="nova_onboarding_set_to_default_subtitle">Prutigemu i vostri dati è impedimu autumaticamente l’imprese di spiunà i vostri clicchi.</string>
+  <!-- "Set to default" onboarding button. -->
+  <string name="nova_onboarding_set_to_default_button">Sceglie cum’è navigatore predefinitu</string>
+  <!-- Toolbar selection onboarding title. -->
+  <string name="nova_onboarding_toolbar_selection_title">Sciglite a vostra barra d’indirizzu</string>
+  <!-- Toolbar selection onboarding "top" option label. -->
+  <string name="nova_onboarding_toolbar_selection_top_label">Insù</string>
+  <!-- Toolbar selection onboarding "bottom" option label. -->
+  <string name="nova_onboarding_toolbar_selection_bottom_label">Inghjò</string>
+  <!-- Theme selection onboarding title. -->
+  <string name="nova_onboarding_theme_selection_title" tools:ignore="UnusedResources">Sciglite un tema</string>
+  <!-- Theme selection onboarding "automatic" option label. -->
+  <string name="nova_onboarding_theme_selection_automatic_label" tools:ignore="UnusedResources">Autumaticu</string>
+  <!-- Theme selection onboarding "light" option label. -->
+  <string name="nova_onboarding_theme_selection_light_label" tools:ignore="UnusedResources">Chjaru</string>
+  <!-- Theme selection onboarding "dark" option label. -->
+  <string name="nova_onboarding_theme_selection_dark_label" tools:ignore="UnusedResources">Scuru</string>
+  <!-- Sync onboarding title. -->
+  <string name="nova_onboarding_sync_title">Riprincipiate subitu induve vi site piantatu</string>
+  <!-- Sync onboarding subtitle. -->
+  <string name="nova_onboarding_sync_subtitle">Accidite in quattru è trè sette à e vostre indette, parolle d’intesa, è ancu di più, nant’à qualsiasi apparechju. I vostri dati persunali sò sicurizati grazia à a cifratura.</string>
+  <!-- Sync onboarding button. -->
+  <string name="nova_onboarding_sync_button">Lancià a sincrunizazione</string>
+  <!-- Marketing onboarding title. -->
+  <string name="nova_onboarding_marketing_title">Aiutateci à custruisce un Internet più bellu</string>
+  <!--
+    Marketing onboarding body. 'Firefox' and 'Mozilla' are intentionally hardcoded.
+    %1$s is replaced by an active link, using nova_onboarding_marketing_body_link_text as text (“How we use the data”).
+  -->
+  <string name="nova_onboarding_marketing_body" tools:ignore="BrandUsage">Spartite cumu vo avete scupertu Firefox, è perchè vo l’impiegate, cù i cumpagni cummerciali di Mozilla. Sti dati ùn sò mai vindute. %1$s</string>
+  <!-- Marketing onboarding body link text. -->
+  <string name="nova_onboarding_marketing_body_link_text">Cumu no impieghemu i dati</string>
+  <!-- Notifications onboarding title. 'Firefox' is intentionally hardcoded. -->
+  <string name="nova_onboarding_notifications_title" tools:ignore="BrandUsage,UnusedResources">E nutificazioni vi aiutanu à stà in sicurità cù Firefox</string>
+  <!-- Notifications onboarding subtitle. 'Firefox' is intentionally hardcoded. -->
+  <string name="nova_onboarding_notifications_subtitle" tools:ignore="BrandUsage,UnusedResources">Scuprite l’ultime funzioni di cunfidenzialità in Firefox per sapè cumu stà prutetti.</string>
+  <!-- Notifications onboarding button. -->
+  <string name="nova_onboarding_notifications_button">Attivà e nutificazioni</string>
+  <!-- "Add search widget" onboarding title. -->
+  <string name="nova_onboarding_add_search_widget_title">Rindite ogni ricerca ancu più privata</string>
+  <!-- "Add search widget" onboarding subtitle. 'Firefox' is intentionally hardcoded. -->
+  <string name="nova_onboarding_add_search_widget_subtitle" tools:ignore="BrandUsage">Principiate ogni ricerca da u screnu d’accolta di u vostru telefonu è siate assicurati chì e prutezzioni autumatiche di Firefox vi prutegenu.</string>
+  <!-- "Add search widget" onboarding button. 'Firefox' is intentionally hardcoded. -->
+  <string name="nova_onboarding_add_search_widget_button" tools:ignore="BrandUsage">Aghjunghje u widget di Firefox</string>
+  <!-- ==== End of Project "Nova" onboarding strings ==== -->
+
   <!-- Onboarding header for the toolbar selection card, used by Nimbus experiments. -->
   <string name="onboarding_customize_toolbar_title" tools:ignore="UnusedResources">Sciglite a piazza di a barra d’attrezzi</string>
   <!-- Onboarding sub header for toolbar selection card, used by Nimbus experiments. -->
@@ -733,7 +798,6 @@
   <string name="preferences_pbm_lock_screen_title">Impiegà l’ammarchjunata di u screnu per piattà l’unghjette in navigazione privata</string>
   <!-- Informs the user how to access the tabs when "Use screen lock to hide tabs in private browsing" is enabled -->
   <string name="preferences_pbm_lock_screen_summary_3">Affissà l’unghjette cù a vostra impronta digitale, un codice PIN o a ricunnuscenza faciale. L’attivazione di sta funzione impedisce dinù a cattura è a spartera di screnu.</string>
-  <string name="preferences_pbm_lock_screen_summary_2" tools:ignore="UnusedResources" moz:removedIn="144">Affissà l’unghjette cù a vostra impronta digitale, un codice PIN o a ricunnuscenza faciale.</string>
   <!-- Label for cookie banner section in quick settings panel. -->
   <string name="cookie_banner_blocker">Blucchime di e striscie di cannistrelli</string>
   <!-- Preference for removing cookie/consent banners from sites automatically in private mode. See reduce_cookie_banner_summary for additional context. -->
@@ -816,8 +880,6 @@
   <string name="preferences_gestures">Mosse</string>
   <!-- Preference for settings related to visual options -->
   <string name="preferences_customize">Persunalizà</string>
-  <!-- Preference description for banner about signing in -->
-  <string name="preferences_sign_in_description_2" tools:ignore="UnusedResources" moz:removedIn="145">Cunnittitevi per sincrunizà unghjette, indette, parolle d’intesa è ancu di più</string>
   <!-- Preference description shown in the banner prompting the user to sign in for sync features -->
   <string name="preferences_sign_in_description">Sincrunizate unghjette, indette, parolle d’intesa è ancu di più.</string>
   <!-- Preference shown instead of account display name while account profile information isn't available yet. -->
@@ -848,8 +910,6 @@
   <string name="preferences_search_browsing_history">Ricercà in a cronolugia di navigazione</string>
   <!-- Preference title for switch preference to suggest bookmarks when searching -->
   <string name="preferences_search_bookmarks">Ricercà in l’indette</string>
-  <!-- Preference title for switch preference to show shortcuts when searching -->
-  <string name="preferences_show_shortcuts">Affissà l’accurtatoghji</string>
   <!-- Preference title for switch preference to suggest synced tabs when searching -->
   <string name="preferences_search_synced_tabs">Ricercà in l’unghjette sincrunizate</string>
   <!-- Preference for account settings -->
@@ -975,10 +1035,6 @@
     Content description for various wallpapers. %1$s is the name of the wallpaper.
   -->
   <string name="wallpapers_item_name_content_description">Elementu di sfondulu di screnu : %1$s</string>
-  <!-- Snackbar message for when wallpaper is selected -->
-  <string name="wallpaper_updated_snackbar_message" tools:ignore="UnusedResources" moz:removedIn="144">Sfondulu di screnu mudificatu !</string>
-  <!-- Snackbar label for action to view selected wallpaper -->
-  <string name="wallpaper_updated_snackbar_action" tools:ignore="UnusedResources" moz:removedIn="144">Affissà</string>
   <!-- Snackbar message for when wallpaper couldn't be downloaded -->
   <string name="wallpaper_download_error_snackbar_message">Impussibule di scaricà u sfondulu di screnu</string>
   <!-- Snackbar label for action to retry downloading the wallpaper -->
@@ -1037,16 +1093,12 @@
   <string name="alternative_app_icon_option_gradient_northern_lights">Albore boreale</string>
   <!-- Title for the "Retro 2004" themed alternative app icon variant in the icon picker screen. This app icon uses the classic Firefox logo from 2004. -->
   <string name="alternative_app_icon_option_retro_2004">Retro 2004</string>
-  <!-- Title for the "Retro 2017" themed alternative app icon variant in the icon picker screen. This app icon uses the Firefox logo from 2017, with a more modernized design. -->
-  <string name="alternative_app_icon_option_retro_2017" tools:ignore="UnusedResources" moz:removedIn="144">Retro 2017</string>
   <!-- Title for the "Pixelated" themed alternative app icon variant in the icon picker screen. This app icon features a pixel-art style, resembling retro 8-bit graphics. -->
   <string name="alternative_app_icon_option_pixelated">Pizzelizatu</string>
   <!-- Title for the "Minimal" themed alternative app icon variant in the icon picker screen. The app icon presents a simplified, flat and monochrome version of the Firefox logo. -->
   <string name="alternative_app_icon_option_minimal">Minimale</string>
   <!-- Title for the "Pride" themed alternative app icon variant in the icon picker screen. The app icon incorporates a rainbow color scheme in support of the LGBTQ+ community. -->
   <string name="alternative_app_icon_option_pride">Fierezze</string>
-  <!-- Title for the "Cute" themed alternative app icon variant in the icon picker screen. The app icon features a playful design with an adorable aesthetic. -->
-  <string name="alternative_app_icon_option_cute" tools:ignore="UnusedResources" moz:removedIn="144">Bellucciu</string>
   <!-- Title for the "Momo" themed alternative app icon variant in the icon picker screen. The app icon was created by artist @heyheymomodraws and features a unique hand-drawn style with a friendly fox. -->
   <string name="alternative_app_icon_option_momo">Momo</string>
   <!-- Subtitle for the "Momo" themed alternative app icon variant in the icon picker screen. The app icon was created by artist @heyheymomodraws and features a unique hand-drawn style with a friendly fox. -->
@@ -1061,20 +1113,20 @@
   <string name="alternative_app_icon_group_solid_colors">Culori uniti</string>
   <!-- Title for the "Gradients" group of alternative app icon variants in the icon picker screen. This group contains icons with gradient backgrounds inspired by natural light conditions. -->
   <string name="alternative_app_icon_group_gradients">Sgradati</string>
-  <!-- Title for the "Other" group of alternative app icon variants in the icon picker screen. This group includes retro, pixel art, themed, and artist-created icons. -->
-  <string name="alternative_app_icon_group_other">Altru</string>
+  <!-- Title for the "Featured" group of alternative app icon variants in the icon picker screen. This group includes retro, pixel art, themed, and artist-created icons. -->
+  <string name="alternative_app_icon_group_featured">Cunsigliate</string>
   <!-- Title to show in alert when user selects an alternative app icon -->
   <string name="restart_warning_dialog_title">Cambià l’icona di l’appiecazione\u00a0?</string>
-  <!-- Message to warn users that applying an alternative app icon requires an app restart -->
-  <string name="restart_warning_dialog_body" tools:ignore="UnusedResources" moz:removedIn="144">U cambiamentu di l’icona richiede di rilancià l’appiecazione.</string>
   <!-- Message to warn users that applying an alternative app icon may require an app restart. Whether or not the app closes depends on what version of Android it is, so we use the word "may" instead of "will". %1$s is replaced by the brand name (e.g. Firefox). -->
   <string name="restart_warning_dialog_body_2">L’appiecazione puderia chjodesi. Picchichjate puru nant’à a vostra icona nova nova per riapre %1$s.</string>
-  <!-- Dialog button text for confirming the app restart to apply the selected icon -->
-  <string name="restart_warning_dialog_button_positive" tools:ignore="UnusedResources" moz:removedIn="144">Rilancià subitu</string>
+  <!-- Message to warn users that applying an alternative app icon may require an app restart and will remove existing shortcuts because of the OS limitations. Whether or not the app closes depends on what version of Android it is, so we use the word "may" instead of "will". %1$s is replaced by the brand name (e.g. Firefox). -->
+  <string name="restart_and_shortcuts_removal_warning_dialog_body">A mudificazione di l’icona caccierà tutti i siti è l’accurtatoghji chì sò arregistrati nant’à u vostru screnu d’accolta.\n\n%1$s puderia chjodesi. Picchichjate nant’à a vostra icona nova per riapre.</string>
   <!-- Dialog button text for confirming the possible app restart and new icon selection -->
   <string name="restart_warning_dialog_button_positive_2">Cambià l’icona</string>
   <!-- Dialog button text for cancelling app icon change -->
   <string name="restart_warning_dialog_button_negative">Abbandunà</string>
+  <!-- Error message snackbar shown after the user tried to apply the new icon but the Android OS threw an error while updating existing app shortcuts (e.g. private mode shortcut) -->
+  <string name="shortcuts_update_error">Fiascu per mudificà l’icona di l’appiecazione. Cacciate l’accurtatoghji chì esistenu è pruvate torna.</string>
   <!--
     Add-ons general availability nimbus message
 
@@ -1219,10 +1271,8 @@
   <!--
     Turn On Sync Preferences
 
-    Header of the Sync and save your data preference view
+    Header of the Sign in preference view
   -->
-  <string name="preferences_sync_2" tools:ignore="UnusedResources" moz:removedIn="145">Sincrunizà è arregistrà i vostri dati</string>
-  <!-- Header of the Sign in preference view -->
   <string name="preferences_sign_in">Cunnettesi</string>
   <!-- Preference for reconnecting to FxA sync -->
   <string name="preferences_sync_sign_in_to_reconnect">Autenticassi per ricunnettesi</string>
@@ -1429,9 +1479,9 @@
   <!-- Title of the active section on the studies list -->
   <string name="studies_active">Attivi</string>
   <!-- Description for studies -->
-  <string name="studies_description_3">Pruvate funzioni è idee prima ch’elle sianu dispunibule à tutti.</string>
+  <string name="studies_description_3" moz:removedIn="148" tools:ignore="UnusedResources">Pruvate funzioni è idee prima ch’elle sianu dispunibule à tutti.</string>
   <!-- Title of the Studies data preference -->
-  <string name="studies_title">Installà è lancià studii</string>
+  <string name="studies_title" moz:removedIn="148" tools:ignore="UnusedResources">Installà è lancià studii</string>
   <!-- Learn more link for studies, links to an article for more information about studies. -->
   <string name="studies_learn_more">Sapene di più</string>
   <!--
@@ -1468,27 +1518,37 @@
   <!-- Content description (not visible, for screen readers etc.): Add tab button. Adds a news tab when pressed -->
   <string name="add_private_tab">Apre una nova unghjetta privata</string>
   <!-- Text for the new tab button to indicate adding a new private tab in the tab -->
-  <string name="tab_drawer_fab_content">Unghjetta privata</string>
+  <string name="tab_drawer_fab_content" tools:ignore="UnusedResources" moz:removedIn="149">Unghjetta privata</string>
   <!-- Text for the new tab button to indicate syncing command on the synced tabs page -->
-  <string name="tab_drawer_fab_sync">Sincrunizazione</string>
+  <string name="tab_drawer_fab_sync" tools:ignore="UnusedResources" moz:removedIn="149">Sincrunizazione</string>
+  <!-- Text for the tab search bar placeholder -->
+  <string name="tab_manager_search_bar_placeholder">Ricercà trà e vostre unghjette</string>
   <!-- Text shown in the menu for sharing all tabs -->
-  <string name="tab_tray_menu_item_share">Sparte tutte l’unghjette</string>
+  <string name="tab_tray_menu_item_share" tools:ignore="UnusedResources" moz:removedIn="149">Sparte tutte l’unghjette</string>
   <!-- Text shown in the menu to view recently closed tabs -->
   <string name="tab_tray_menu_recently_closed">Unghjette chjose pocu fà</string>
   <!-- Text shown in the tabs tray inactive tabs section -->
-  <string name="tab_tray_inactive_recently_closed" tools:ignore="UnusedResources">Chjose pocu fà</string>
+  <string name="tab_tray_inactive_recently_closed" tools:ignore="UnusedResources" moz:removedIn="149">Chjose pocu fà</string>
   <!-- Text shown in the menu to view account settings -->
   <string name="tab_tray_menu_account_settings">Parametri di u contu</string>
   <!-- Text shown in the menu to view tab settings -->
   <string name="tab_tray_menu_tab_settings">Parametri di l’unghjette</string>
   <!-- Text shown in the menu for closing all tabs -->
   <string name="tab_tray_menu_item_close">Chjode tutte l’unghjette</string>
+  <!-- Text shown as the title of the Close all tabs confirmation dialog in Tab Manager -->
+  <string name="tab_manager_close_all_tabs_dialog_title">Chjode tutte l’unghjette\u00a0?</string>
+  <!-- Text shown in the body of the Close all tabs confirmation dialog in Tab Manager -->
+  <string name="tab_manager_close_all_tabs_dialog_body">St’azzione hà da chjode tutte l’unghjette aperte.</string>
+  <!-- Text shown on the confirm button in the Close all tabs confirmation dialog -->
+  <string name="tab_manager_close_all_tabs_dialog_confirm">Chjode l’unghjette</string>
+  <!-- Text shown on the cancel button in the Close all tabs confirmation dialog -->
+  <string name="tab_manager_close_all_tabs_dialog_cancel">Abbandunà</string>
   <!-- Text shown in the multiselect menu for bookmarking selected tabs. -->
-  <string name="tab_tray_multiselect_menu_item_bookmark">Marcà st’unghjette</string>
+  <string name="tab_tray_multiselect_menu_item_bookmark" tools:ignore="UnusedResources" moz:removedIn="149">Marcà st’unghjette</string>
   <!-- Content description (not visible, for screen readers etc.): Bookmarks selected tabs. -->
   <string name="tab_manager_multiselect_menu_item_bookmark_content_description">Aghjunghje l’unghjette selezziunate à l’indette</string>
   <!-- Text shown in the multiselect menu for closing selected tabs. -->
-  <string name="tab_tray_multiselect_menu_item_close">Chjode st’unghjette</string>
+  <string name="tab_tray_multiselect_menu_item_close" tools:ignore="UnusedResources" moz:removedIn="149">Chjode st’unghjette</string>
   <!-- Content description (not visible, for screen readers etc.): Closes selected tabs. -->
   <string name="tab_manager_multiselect_menu_item_close_content_description">Chjode l’unghjette selezziunate</string>
   <!-- Text shown in the multiselect menu for sharing selected tabs. -->
@@ -1496,23 +1556,27 @@
   <!-- Text shown in the multiselect menu for adding selected tabs to collections. -->
   <string name="tab_manager_multiselect_menu_item_add_to_collection">Aghjunghje à a cullezzione</string>
   <!-- Content description for tabs tray multiselect share button -->
-  <string name="tab_tray_multiselect_share_content_description">Sparte l’unghjette selezziunate</string>
+  <string name="tab_tray_multiselect_share_content_description" tools:ignore="UnusedResources" moz:removedIn="149">Sparte l’unghjette selezziunate</string>
   <!-- Content description for tabs tray multiselect menu -->
   <string name="tab_tray_multiselect_menu_content_description">Listinu di l’unghjette selezziunate</string>
   <!-- Title text displayed for a homepage tab in the tabs tray. -->
   <string name="tab_tray_homepage_tab">Pagina d’accolta</string>
-  <!-- Title text displayed for a homepage tab in the tabs tray. %s is a placeholder that will be replaced by app name. -->
-  <string name="tab_tray_homepage_tab_2" tools:ignore="UnusedResources" moz:removedIn="145">Pagina d’accolta di %s</string>
   <!-- Content description (not visible, for screen readers etc.): Removes tab from collection button. Removes the selected tab from collection when pressed -->
   <string name="remove_tab_from_collection">Caccià l’unghjetta da a cullezzione</string>
   <!-- Text for button to enter multiselect mode in tabs tray -->
   <string name="tabs_tray_select_tabs">Selezziunà unghjette</string>
+  <!-- Text for tab manager search page when there are no results. -->
+  <string name="tab_manager_no_search_results">Ùn si trova alcuna currispundenza.</string>
+  <!-- Additional text for tab manager search page when there are no results. -->
+  <string name="tab_manager_no_search_results_additional_text">Pruvate cù un’altra ricerca.</string>
   <!-- Content description (not visible, for screen readers etc.): Close tab button. Closes the current session when pressed -->
   <string name="close_tab">Chjode l’unghjetta</string>
   <!-- Content description (not visible, for screen readers etc.): Close tab <title> button. %s is the tab title -->
   <string name="close_tab_title">Chjode l’unghjetta %s</string>
   <!-- Content description (not visible, for screen readers etc.): Opens the open tabs menu when pressed -->
   <string name="open_tabs_menu">Apre u listinu di l’unghjette</string>
+  <!-- Content description (not visible, for screen readers etc.): Return to tab manager -->
+  <string name="tab_manager_search_bar_back_content_description">Rivene à u ghjestiunariu d’unghjette</string>
   <!-- Open tabs menu item to save tabs to collection -->
   <string name="tabs_menu_save_to_collection1">Arregistrà l’unghjette in una cullezzione</string>
   <!-- Text for the menu button to delete a collection -->
@@ -1529,6 +1593,8 @@
   <string name="delete_from_history">Squassà da a cronolugia</string>
   <!-- Postfix for private WebApp titles. %1$s is the name of the app (for example "Firefox"). -->
   <string name="pwa_site_controls_title_private">%1$s (navigazione privata)</string>
+  <!-- Content description (not visible, for screen readers etc.) for the button to open the Tab Search feature to search through tabs. -->
+  <string name="tab_manager_open_tab_search">Apre a ricerca d’unghjetta</string>
   <!--
     History
 
@@ -1728,25 +1794,25 @@
   <!-- The label/title of an optional field in the Web Compat Reporter feature for adding additional information. -->
   <string name="webcompat_reporter_label_description">Discrivite u prublema (ozzionale)</string>
   <!-- The button text for navigating away from the feature to provide more information on the broken site's bug report. -->
-  <string name="webcompat_reporter_send_more_info" moz:removedIn="144" tools:ignore="UnusedResources">Mandate altre infurmazioni</string>
-  <!-- The button text for navigating away from the feature to provide more information on the broken site's bug report. -->
   <string name="webcompat_reporter_add_more_info">Aghjunghje d’altre infurmazioni</string>
   <!-- The button text for the cancel button to leave the Web Compat Reporter feature. -->
   <string name="webcompat_reporter_cancel">Abbandunà</string>
   <!-- The button text for the send button to submit the provided form data. -->
   <string name="webcompat_reporter_send">Mandà</string>
   <!-- Text for a snackbar to confirm the successful submission of a WebCompat report. -->
-  <string name="webcompat_reporter_success_snackbar_text" moz:removedIn="144" tools:ignore="UnusedResources">U vostru raportu hè statu mandatu</string>
-  <!-- Text for a snackbar to confirm the successful submission of a WebCompat report. -->
   <string name="webcompat_reporter_success_snackbar_text_2">Raportu mandatu</string>
-  <!-- Button text for closing or dismissing the snackbar shown after successfully submitting a WebCompat report. -->
-  <string name="webcompat_reporter_dismiss_success_snackbar_text" moz:removedIn="144" tools:ignore="UnusedResources">Chjode</string>
   <!-- Placeholder text for the description field to prompt the user on what they should type. -->
   <string name="webcompat_reporter_problem_description_placeholder_text">Cosa hè accadutu\u00a0? Cosa seria duvutu à accade\u00a0?</string>
   <!-- Label of the checkbox on the “Report broken site” screen for sending URLS blocked by Enhanced Tracking Protection. -->
   <string name="webcompat_reporter_etp_checkbox_text">Mandà l’indirizzi web bluccate da a prutezzione contr’à u spiunagiu</string>
   <!-- Description text for the checkbox on the “Report broken site” screen for sending URLS blocked by Enhanced Tracking Protection. It informs the user when checked, the report will include the list of URLs that were blocked by Enhanced Tracking Protection on the current page. -->
   <string name="webcompat_reporter_etp_checkbox_description">A prutezzione rinfurzata contr’à u spiunagiu pò bluccà perseguitatori è scenarii chì certi siti web anu bisognu per funziunà currettamente.</string>
+  <!-- The button text for the preview report button to view a preview of the report. -->
+  <string name="webcompat_reporter_preview_report">Fighjulata di u signalamentu</string>
+  <!-- The title shown at the top of the WebCompat Report preview panel. This appears after the user taps the “Preview” button before sending a report. -->
+  <string name="webcompat_reporter_preview_bottom_sheet_header">Fighjulata di u signalamentu</string>
+  <!-- Label for the “Send” button shown in the WebCompat Report preview panel, which the user taps to submit the report. -->
+  <string name="webcompat_reporter_preview_bottom_sheet_send">Mandà</string>
   <!--
     These reason strings are dropdown options on a WebCompat reporter form, indicating what is broken on the site.
 
@@ -1902,6 +1968,8 @@
   <string name="bookmark_delete_folder_content_description">Squassà u cartulare</string>
   <!-- Content description for bookmark search floating action button -->
   <string name="bookmark_search_button_content_description">Ricercà in l’indette</string>
+  <!-- Content description for select folder screen search action button ("search" is a verb) -->
+  <string name="select_bookmark_search_button_content_description">Ricercà in i cartulari</string>
   <!-- Content description for the overflow menu for a bookmark item. %s is a folder name or bookmark title. -->
   <string name="bookmark_item_menu_button_content_description">Listinu d’indetta per %s</string>
   <!-- Content description for the "close" button in bookmarks screen. -->
@@ -1920,6 +1988,8 @@
   <string name="bookmark_empty_list_folder_description">Aghjunghjite indette durante a navigazione per ritruvà dopu i vostri siti preferiti.</string>
   <!-- Description for the add new folder button when selecting a folder. -->
   <string name="bookmark_select_folder_new_folder_button_title">Novu cartulare</string>
+  <!-- Bookmark snackbar message for moving a single item. %1$s is the title of the item being moved and %2$s is the new parent folder of the bookmark -->
+  <string name="bookmark_moved_single_item">Dispiazzamentu di %1$s versu %2$s</string>
   <!--
     Site Permissions
 
@@ -2055,11 +2125,7 @@
   -->
   <string name="create_collection_save_to_collection_tab_selected">%d unghjetta selezziunata</string>
   <!-- Text shown in snackbar when one or multiple tabs have been saved in a new collection -->
-  <string name="create_collection_tabs_saved_new_collection" tools:ignore="UnusedResources" moz:removedIn="144">Cullezzione arregistrata !</string>
-  <!-- Text shown in snackbar when one or multiple tabs have been saved in a new collection -->
   <string name="create_collection_tabs_saved_new_collection_2">Cullezzione arregistrata</string>
-  <!-- Text shown in snackbar when one tab has been saved in a collection -->
-  <string name="create_collection_tab_saved" tools:ignore="UnusedResources" moz:removedIn="144">Unghjetta arregistrata !</string>
   <!-- Text shown in snackbar when one tab has been saved in a collection -->
   <string name="create_collection_tab_saved_2">Unghjetta arregistrata</string>
   <!-- Content description (not visible, for screen readers etc.): button to close the collection creator -->
@@ -2107,10 +2173,8 @@
   <string name="toast_copy_link_to_clipboard">Cupiatu in u preme’papei</string>
   <!-- An option from the share dialog to sign into sync -->
   <string name="sync_sign_in">Cunnettesi à Sync</string>
-  <!-- An option from the three dot menu to sync and save data -->
-  <string name="sync_menu_sync_and_save_data" tools:ignore="UnusedResources" moz:removedIn="145">Sincrunizà è arregistrà i dati</string>
   <!-- An option from the three dot menu to sign in -->
-  <string name="sync_menu_sign_in">Cunnettesi</string>
+  <string name="sync_menu_sign_in" tools:ignore="UnusedResources" moz:removedIn="149">Cunnettesi</string>
   <!-- An option from the share dialog to send link to all other sync devices -->
   <string name="sync_send_to_all">Mandà à tutti l’apparechji</string>
   <!-- An option from the share dialog to reconnect to sync -->
@@ -2198,8 +2262,6 @@
   <!-- Text shown in snackbar when user closes multiple inactive tabs. %1$s will be replaced with the number of tabs closed. -->
   <string name="snackbar_num_tabs_closed">Unghjette chjose : %1$s</string>
   <!-- Text shown in snackbar when user bookmarks a list of tabs. %s is the name of the folder the bookmark was saved into. -->
-  <string name="snackbar_message_bookmarks_saved_in" tools:ignore="UnusedResources" moz:removedIn="144">Indette arregistrate in « %s ».</string>
-  <!-- Text shown in snackbar when user bookmarks a list of tabs. %s is the name of the folder the bookmark was saved into. -->
   <string name="snackbar_message_bookmarks_saved_in_2">Indette arregistrate in «\u00a0%s\u00a0»</string>
   <!-- Text shown in snackbar when user adds a site to shortcuts -->
   <string name="snackbar_added_to_shortcuts">Aghjuntu à l’accurtatoghji !</string>
@@ -2209,8 +2271,6 @@
   <string name="snackbar_private_data_deleted">I dati di navigazione privata sò stati squassati</string>
   <!-- Text shown in snackbar to undo deleting a tab, top site or collection -->
   <string name="snackbar_deleted_undo">ABBANDUNÀ</string>
-  <!-- Text shown in snackbar when user removes a top site -->
-  <string name="snackbar_top_site_removed" moz:removedIn="144" tools:ignore="UnusedResources">Situ cacciatu</string>
   <!--
     QR code scanner prompt which appears after scanning a code, but before navigating to it
     %1$s is the name of the app (for example "Firefox"), %2$s is the URL or text scanned
@@ -2233,7 +2293,7 @@
   <!-- Title for Accessibility Text Size Scaling Preference -->
   <string name="preference_accessibility_font_size_title">Dimensione di grafia</string>
   <!-- %d is the percentage of the slide bar for setting the text font size and %% will be announced as "percent". -->
-  <string name="a11y_preference_accessibility_font_size_percentage">%d\u00a0%%.</string>
+  <string name="a11y_preference_accessibility_font_size_percentage" tools:ignore="UnusedResources" moz:removedIn="148">%d\u00a0%%.</string>
   <!-- Title for Accessibility Text Automatic Size Scaling Preference -->
   <string name="preference_accessibility_auto_size_2">Dimensione autumatica di e grafie</string>
   <!-- Summary for Accessibility Text Automatic Size Scaling Preference -->
@@ -2274,7 +2334,7 @@
   <!-- Summary for the Delete browsing data on quit preference. "Quit" translation should match delete_browsing_data_on_quit_action translation. -->
   <string name="preference_summary_delete_browsing_data_on_quit_2">Squassa autumaticamente i dati di navigazione quandu vi selezziunate « Esce » in u listinu principale</string>
   <!-- Action item in menu for the Delete browsing data on quit feature -->
-  <string name="delete_browsing_data_on_quit_action">Esce</string>
+  <string name="delete_browsing_data_on_quit_action" tools:ignore="UnusedResources" moz:removedIn="149">Esce</string>
   <!-- Title text of a delete browsing data dialog. -->
   <string name="delete_history_prompt_title">Intervallu di tempu à squassà</string>
   <!-- Body text of a delete browsing data dialog. -->
@@ -2314,11 +2374,7 @@
 
     Text shown in snackbar when multiple tabs have been sent to device
   -->
-  <string name="sync_sent_tabs_snackbar" tools:ignore="UnusedResources" moz:removedIn="144">Unghjette mandate !</string>
-  <!-- Text shown in snackbar when multiple tabs have been sent to device -->
   <string name="sync_sent_tabs_snackbar_2">Unghjette mandate</string>
-  <!-- Text shown in snackbar when one tab has been sent to device -->
-  <string name="sync_sent_tab_snackbar" tools:ignore="UnusedResources" moz:removedIn="144">Unghjetta mandata !</string>
   <!-- Text shown in snackbar when one tab has been sent to device -->
   <string name="sync_sent_tab_snackbar_2">Unghjetta mandata</string>
   <!-- Text shown in snackbar when sharing tabs failed -->
@@ -2370,9 +2426,19 @@
   <!-- Preference description for enhanced tracking protection for the strict protection settings -->
   <string name="preference_enhanced_tracking_protection_strict_description_4">Una prutezzione più forte contr’à u spiunagiu è perfurmenze piu rapide, ma certi siti ponu ùn micca funziunà currettamente.</string>
   <!-- Preference description for the checkbox setting for "baseline" exceptions (a set of content blocking exceptions applied to fix major website breakage). %1$s is the name of the application (e.g. Fenix). -->
-  <string name="preference_enhanced_tracking_protection_allow_list_baseline">Permette à %1$s d’appiecà autumaticamente l’eccezzioni richieste per evità l’interruzzioni maiò di u situ web.</string>
+  <string name="preference_enhanced_tracking_protection_allow_list_baseline" tools:ignore="UnusedResources" moz:removedIn="144">Permette à %1$s d’appiecà autumaticamente l’eccezzioni richieste per evità l’interruzzioni maiò di u situ web.</string>
   <!-- Preference description for the checkbox setting for "convenience" exceptions (a set of content blocking exceptions applied to fix convenience site features). -->
-  <string name="preference_enhanced_tracking_protection_allow_list_convenience">Appiecà dinù autumaticamente l’eccezzioni chì sò solu richieste per currege i prublemi minò è rende dispunibule funzioni di cumudità.</string>
+  <string name="preference_enhanced_tracking_protection_allow_list_convenience" tools:ignore="UnusedResources" moz:removedIn="144">Appiecà dinù autumaticamente l’eccezzioni chì sò solu richieste per currege i prublemi minò è rende dispunibule funzioni di cumudità.</string>
+  <!-- Preference label for the enhanced tracking protection option to fix major site issues caused by tracker blocking -->
+  <string name="preference_enhanced_tracking_protection_allow_list_baseline_2">Currege i prublemi impurtanti di i siti (ricumandatu)</string>
+  <!-- Preference label for the enhanced tracking protection option to fix minor site issues caused by tracker blocking -->
+  <string name="preference_enhanced_tracking_protection_allow_list_convenience_label">Currege i prublemi secundarii di i siti</string>
+  <!-- Preference description for the enhanced tracking protection option to fix minor site issues caused by tracker blocking -->
+  <string name="preference_enhanced_tracking_protection_allow_list_convenience_description">Deve esse impiegatu cù e currezzioni per i prublemi impurtanti.</string>
+  <!-- Preference sub header for the enhanced tracking protection options to fix issues caused by tracker blocking -->
+  <string name="preference_enhanced_tracking_protection_allow_list_subheader">Currege i prublemi di i siti</string>
+  <!-- Learn more text for the enhanced tracking protection options to fix issues caused by tracker blocking -->
+  <string name="preference_enhanced_tracking_protection_allow_list_learn_more">Sapene di più</string>
   <!--
     Dialog that appears after user tries to uncheck the baseline exceptions preference under Strict or Custom tracking protection
 
@@ -2695,6 +2761,10 @@
   <string name="edit_login_navigate_back_button_content_description">Navigazione in daretu</string>
   <!-- Content description, used by tools like screenreaders, to press on the edit login button. -->
   <string name="edit_login_button_content_description">Mudificà l’identificazione di cunnessione</string>
+  <!-- Content description, used by tools like screenreaders, to press on the add new login button. -->
+  <string name="saved_logins_add_new_login_button_content_description">Aghjunghje una nova identificazione di cunnessione</string>
+  <!-- Content description, used by tools like screenreaders, to press on the clear search text button. -->
+  <string name="saved_logins_clear_search_text_button_content_description">Squassà u testu di ricerca</string>
   <!-- Content Description (for screenreaders etc) read for the button to open a site in logins -->
   <string name="saved_login_open_site">Apre u situ in u navigatore</string>
   <!-- Content Description (for screenreaders etc) read for the button to reveal a password in logins -->
@@ -2761,14 +2831,16 @@
   <string name="preferences_addresses_sync_addresses_across_devices">Sincrunizà l’indirizzi trà i vostri apparechji</string>
   <!-- Preference option for syncing addresses across devices. This is displayed when the user is signed into sync -->
   <string name="preferences_addresses_sync_addresses">Sincrunizà l’indirizzi</string>
+  <!-- Content description navigating back from autofill settings screen. -->
+  <string name="autofill_settings_navigate_back_button_content_description">Ritornu</string>
   <!-- Title of the "Add card" screen -->
   <string name="credit_cards_add_card">Aghjunghje una carta</string>
+  <!-- Content description for the "credit card feature" top bar back button -->
+  <string name="credit_cards_navigate_back_button_content_description">Navigazione in daretu</string>
   <!-- Title of the "Edit card" screen -->
   <string name="credit_cards_edit_card">Mudificà a carta</string>
   <!-- The header for the card number of a credit card -->
   <string name="credit_cards_card_number">Numeru di carta</string>
-  <!-- The header for the expiration date of a credit card -->
-  <string name="credit_cards_expiration_date">Data di scadenza</string>
   <!-- The label for the expiration date month of a credit card to be used by a11y services -->
   <string name="credit_cards_expiration_date_month">Mese di a data di scadenza</string>
   <!-- The label for the expiration date year of a credit card to be used by a11y services -->
@@ -2961,9 +3033,9 @@
   -->
   <string name="certificate_info_verified_by">Verificatu da : %1$s</string>
   <!-- Login overflow menu delete button -->
-  <string name="login_menu_delete_button">Squassà</string>
+  <string name="login_menu_delete_button" tools:ignore="UnusedResources" moz:removedIn="149">Squassà</string>
   <!-- Login overflow menu edit button -->
-  <string name="login_menu_edit_button">Mudificà</string>
+  <string name="login_menu_edit_button" tools:ignore="UnusedResources" moz:removedIn="149">Mudificà</string>
   <!-- Message in delete confirmation dialog for password -->
   <string name="login_deletion_confirmation_2">Vulete veramente squassà sta parolla d’intesa ?</string>
   <!-- Positive action of a dialog asking to delete -->
@@ -2971,15 +3043,15 @@
   <!-- Negative action of a dialog asking to delete login -->
   <string name="dialog_delete_negative">Abbandunà</string>
   <!-- The saved password options menu description. -->
-  <string name="login_options_menu_2">Ozzioni di parolla d’intesa</string>
+  <string name="login_options_menu_2" tools:ignore="UnusedResources" moz:removedIn="149">Ozzioni di parolla d’intesa</string>
   <!-- The editable text field for a website address. -->
-  <string name="saved_login_hostname_description_3">U campu di testu mudifichevule per l’indirizzu di u situ web.</string>
+  <string name="saved_login_hostname_description_3" tools:ignore="UnusedResources" moz:removedIn="149">U campu di testu mudifichevule per l’indirizzu di u situ web.</string>
   <!-- The editable text field for a username. -->
-  <string name="saved_login_username_description_3">U campu di testu mudifichevule per u nome d’utilizatore.</string>
+  <string name="saved_login_username_description_3" tools:ignore="UnusedResources" moz:removedIn="149">U campu di testu mudifichevule per u nome d’utilizatore.</string>
   <!-- The editable text field for a login's password. -->
-  <string name="saved_login_password_description_2">U campu di testu mudifichevule per a parolla d’intesa.</string>
+  <string name="saved_login_password_description_2" tools:ignore="UnusedResources" moz:removedIn="149">U campu di testu mudifichevule per a parolla d’intesa.</string>
   <!-- The button description to save changes to an edited password. -->
-  <string name="save_changes_to_login_2">Arregistrà i cambiamenti.</string>
+  <string name="save_changes_to_login_2" tools:ignore="UnusedResources" moz:removedIn="149">Arregistrà i cambiamenti.</string>
   <!-- The page title for editing a saved password. -->
   <string name="edit_2">Mudificà a parolla d’intesa</string>
   <!-- The page title for adding new password. -->
@@ -3483,8 +3555,6 @@
   <string name="clear_site_data_dialog_positive_button_text">Squassà</string>
   <!-- Button text on the clear site data dialog to allow users to cancel the action and not clear the site data. -->
   <string name="clear_site_data_dialog_negative_button_text">Abbandunà</string>
-  <!-- Snackbar title shown when the site data has been cleared. -->
-  <string name="clear_site_data_snackbar" moz:removedIn="144" tools:ignore="UnusedResources">Canistrelli è dati di siti sò stati squassati</string>
   <!-- Text for the connection security panel when the site is secure. -->
   <string name="connection_security_panel_secure">Cunnessione assicurizata</string>
   <!-- Text for the connection security panel when the site is not secure. -->
@@ -3610,6 +3680,8 @@
   <string name="microsurvey_close_handle_content_description">Chjode l’inchiesta</string>
   <!-- Content description for "X" button that is closing microsurvey. -->
   <string name="microsurvey_close_button_content_description">Chjode</string>
+  <!-- The title of the autofill tab in the Debug Drawer. -->
+  <string name="debug_drawer_autofill_title">Attrezzi di riempiimentu autumaticu</string>
   <!--
     Debug drawer logins
 
@@ -3883,10 +3955,28 @@
   <!-- Label for a button opening a feedback forum -->
   <string name="review_prompt_feedback_button">Dà u mo avisu</string>
   <!--
-    Terms of use pop up prompt
+    Settings Search Strings
 
-    Title for the pop up prompt
+    Title of Settings Search. "Search" is a verb here
   -->
+  <string name="settings_search_title">Parametri di ricerca</string>
+  <!-- Content description (not visible, for screen readers etc.) for the button to clear the search field for settings search -->
+  <string name="content_description_settings_search_clear_search">Squassà e ricerche</string>
+  <!-- Content description (not visible, for screen readers etc.) for the button to navigate back to the Settings page from the Settings Search screen. -->
+  <string name="content_description_settings_search_navigate_back">Navigazione in daretu</string>
+  <!-- Message displayed when the search field in the Settings Search screen is empty -->
+  <string name="settings_search_empty_query_placeholder">Nisuna ricerca recente</string>
+  <!-- Text of button allowing to clear history of recent searches done in the settings screen. -->
+  <string name="settings_search_clear_recent_searches_message">Tuttu squassà</string>
+  <!-- Section header for recent search results -->
+  <string name="settings_search_recent_searches_section_header">Risultati recenti di ricerca</string>
+  <!-- Message displayed when the search field is not empty but search results is empty. -->
+  <string name="settings_search_no_results_title">Nisunu risultatu</string>
+  <!-- Sub-message displayed when the search field is not empty but search results is empty. -->
+  <string name="settings_search_no_results_message">Pruvate forse una ricerca sfarente\u00a0?</string>
+  <!-- ==== Terms of use pop up prompt ==== -->
+
+  <!-- Title for the pop up prompt -->
   <string name="terms_of_use_prompt_title">Ci hè una nutizia</string>
   <!--
     Message for the terms of use pop up prompt
@@ -3910,4 +4000,34 @@
   <string name="terms_of_use_prompt_accept">Accettà</string>
   <!-- Label for a button to postpone accepting the terms of use -->
   <string name="terms_of_use_prompt_postpone">Rammintatemi un altra volta</string>
+  <!-- ==== Experiment strings. ==== -->
+
+  <!-- A title for the popup prompt. -->
+  <string name="terms_of_use_prompt_title_option_a" tools:ignore="UnusedResources">Cundizioni d’utilizazione</string>
+  <!--
+    A title for the popup prompt.
+    %1$s is the product name "Firefox"
+  -->
+  <string name="terms_of_use_prompt_title_option_b" tools:ignore="UnusedResources">Un messaghju da %1$s</string>
+  <!--
+    Copy for the Terms of Use popup prompt body line two.
+    %1$s is the string terms_of_use_prompt_body_line_two_alternative_link ("here") that is a link to the Terms of Use
+  -->
+  <string name="terms_of_use_prompt_body_line_two_alternative" tools:ignore="UnusedResources">Pudete sapene di più %1$s.</string>
+  <!-- Link text for terms_of_use_prompt_body_line_two_alternative that links to a site with more information about the Terms of Use -->
+  <string name="terms_of_use_prompt_body_line_two_alternative_link" tools:ignore="UnusedResources">quì</string>
+  <!-- ==== End of Terms of use popup prompt. ==== -->
+
+  <!--
+    Privacy notice homepage banner
+
+    A message we show the user on the homepage when there is a new version of the privacy notice. 'Firefox' is intentionally hardcoded.
+    %1$s is replaced by an active link using privacy_notice_updated_homepage_message_privacy_notice as text (Privacy Notice)
+    %2$s is replaced by an active link using privacy_notice_updated_homepage_message_learn_more as text (Learn more)
+  -->
+  <string name="privacy_notice_updated_homepage_message" tools:ignore="BrandUsage,UnusedResources">Avemu messu à livellu a nostra %1$s per piglià in contu l’ultime funzioni di Firefox. %2$s</string>
+  <!-- The first active link used in privacy_notice_updated_homepage_message -->
+  <string name="privacy_notice_updated_homepage_message_privacy_notice" tools:ignore="UnusedResources">Pulitica di cunfidenzialità</string>
+  <!-- The second active link used in privacy_notice_updated_homepage_message -->
+  <string name="privacy_notice_updated_homepage_message_learn_more" tools:ignore="UnusedResources">Sapene di più</string>
 </resources>

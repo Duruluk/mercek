@@ -13,6 +13,7 @@ In this document, we try to list these all tools.
   static-analysis/index.rst
   lint/index.rst
   coding-style/index.rst
+  typescript/index.md
 
 .. list-table:: C/C++
    :header-rows: 1
@@ -41,7 +42,7 @@ In this document, we try to list these all tools.
    * - cpp virtual final
      -
      -
-     - :ref:`cpp virtual final`
+     - :ref:`cpp virtual final <cpp virtual final>`
      -
    * - clang-format
      - Yes

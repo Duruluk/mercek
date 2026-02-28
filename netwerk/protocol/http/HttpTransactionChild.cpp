@@ -17,8 +17,10 @@
 #include "mozilla/ScopeExit.h"
 #include "mozilla/StaticPrefs_network.h"
 #include "nsInputStreamPump.h"
+#include "nsISocketTransport.h"
 #include "nsITransportSecurityInfo.h"
 #include "nsHttpHandler.h"
+#include "nsHttpTransaction.h"
 #include "nsNetUtil.h"
 #include "nsProxyInfo.h"
 #include "nsProxyRelease.h"
@@ -490,6 +492,7 @@ ResourceTimingStructArgs HttpTransactionChild::GetTimingAttributes() {
   args.responseEnd() = mTransaction->GetResponseEnd();
   args.transferSize() = mTransaction->GetTransferSize();
   args.encodedBodySize() = mLogicalOffset;
+  args.decodedBodySize() = 0;
   args.redirectStart() = mRedirectStart;
   args.redirectEnd() = mRedirectEnd;
   args.transferSize() = mTransaction->GetTransferSize();

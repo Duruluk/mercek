@@ -44,11 +44,8 @@ const HISTORY_RESULTS_LIMIT = 100;
 // The maximum number of links Links.getLinks will return.
 const LINKS_GET_LINKS_LIMIT = 100;
 
-// The gather telemetry topic.
-const TOPIC_GATHER_TELEMETRY = "gather-telemetry";
-
-// Some default frecency threshold for Activity Stream requests
-const ACTIVITY_STREAM_DEFAULT_FRECENCY = 150;
+// The idle-daily telemetry topic.
+const TOPIC_IDLE_DAILY = "idle-daily";
 
 // Some default query limit for Activity Stream requests
 const ACTIVITY_STREAM_DEFAULT_LIMIT = 12;
@@ -63,6 +60,7 @@ const DEFAULT_SMALL_FAVICON_WIDTH = 16;
 
 /**
  * Calculate the MD5 hash for a string.
+ *
  * @param aValue
  *        The string to convert.
  * @return The base64 representation of the MD5 hash.
@@ -76,6 +74,7 @@ function toHash(aValue) {
 
 /**
  * Properly convert internationalized domain names.
+ *
  * @param {string} host Domain hostname.
  * @returns {string} Hostname suitable to be displayed.
  */
@@ -163,6 +162,7 @@ LinksStorage.prototype = {
 
   /**
    * Gets the value for a given key from the storage.
+   *
    * @param aKey The storage key (a string).
    * @param aDefault A default value if the key doesn't exist.
    * @return The value for the given key.
@@ -178,6 +178,7 @@ LinksStorage.prototype = {
 
   /**
    * Sets the storage value for a given key.
+   *
    * @param aKey The storage key (a string).
    * @param aValue The value to set.
    */
@@ -188,6 +189,7 @@ LinksStorage.prototype = {
 
   /**
    * Removes the storage value for a given key.
+   *
    * @param aKey The storage key (a string).
    */
   remove: function Storage_remove(aKey) {
@@ -227,6 +229,7 @@ var PinnedLinks = {
 
   /**
    * Pins a link at the given position.
+   *
    * @param aLink The link to pin.
    * @param aIndex The grid index to pin the cell at.
    * @return true if link changes, false otherwise
@@ -244,6 +247,7 @@ var PinnedLinks = {
 
   /**
    * Unpins a given link.
+   *
    * @param aLink The link to unpin.
    */
   unpin: function PinnedLinks_unpin(aLink) {
@@ -271,7 +275,8 @@ var PinnedLinks = {
 
   /**
    * Checks whether a given link is pinned.
-   * @params aLink The link to check.
+   *
+   * @param aLink The link to check.
    * @return whether The link is pinned.
    */
   isPinned: function PinnedLinks_isPinned(aLink) {
@@ -287,6 +292,7 @@ var PinnedLinks = {
 
   /**
    * Finds the index of a given link in the list of pinned links.
+   *
    * @param aLink The link to find an index for.
    * @return The link's index.
    */
@@ -304,6 +310,7 @@ var PinnedLinks = {
 
   /**
    * Transforms link into a "history" link
+   *
    * @param aLink The link to change
    * @return true if link changes, false otherwise
    */
@@ -317,6 +324,7 @@ var PinnedLinks = {
 
   /**
    * Replaces existing link with another link.
+   *
    * @param aUrl The url of existing link
    * @param aLink The replacement link
    */
@@ -371,6 +379,7 @@ var BlockedLinks = {
 
   /**
    * Blocks a given link. Adjusts siteMap accordingly, and notifies listeners.
+   *
    * @param aLink The link to block.
    */
   block: function BlockedLinks_block(aLink) {
@@ -384,6 +393,7 @@ var BlockedLinks = {
 
   /**
    * Unblocks a given link. Adjusts siteMap accordingly, and notifies listeners.
+   *
    * @param aLink The link to unblock.
    */
   unblock: function BlockedLinks_unblock(aLink) {
@@ -403,6 +413,7 @@ var BlockedLinks = {
 
   /**
    * Returns whether a given link is blocked.
+   *
    * @param aLink The link to check.
    */
   isBlocked: function BlockedLinks_isBlocked(aLink) {
@@ -411,6 +422,7 @@ var BlockedLinks = {
 
   /**
    * Checks whether the list of blocked links is empty.
+   *
    * @return Whether the list is empty.
    */
   isEmpty: function BlockedLinks_isEmpty() {
@@ -462,6 +474,7 @@ var PlacesProvider = {
 
   /**
    * Gets the current set of links delivered by this provider.
+   *
    * @param aCallback The function that the array of links is passed to.
    */
   getLinks: function PlacesProvider_getLinks(aCallback) {
@@ -536,6 +549,7 @@ var PlacesProvider = {
 
   /**
    * Registers an object that will be notified when the provider's links change.
+   *
    * @param aObserver An object with the following optional properties:
    *        * onLinkChanged: A function that's called when a single link
    *          changes.  It's passed the provider and the link object.  Only the
@@ -839,7 +853,7 @@ var ActivityStreamProvider = {
   /**
    * Get most-recently-created visited bookmarks for Activity Stream.
    *
-   * @param {Object} aOptions
+   * @param {object} aOptions
    *   {num}  bookmarkSecondsAgo: Maximum age of added bookmark.
    *   {bool} ignoreBlocked: Do not filter out blocked links.
    *   {int}  numItems: Maximum number of items to return.
@@ -917,7 +931,7 @@ var ActivityStreamProvider = {
   /**
    * Get most-recently-visited history with metadata for Activity Stream.
    *
-   * @param {Object} aOptions
+   * @param {object} aOptions
    *   {bool} ignoreBlocked: Do not filter out blocked links.
    *   {int}  numItems: Maximum number of items to return.
    */
@@ -959,7 +973,7 @@ var ActivityStreamProvider = {
   /**
    * Gets the top frecent sites for Activity Stream.
    *
-   * @param {Object} aOptions
+   * @param {object} aOptions
    *   {bool} ignoreBlocked: Do not filter out blocked links.
    *   {int}  numItems: Maximum number of items to return.
    *   {int}  topsiteFrecency: Minimum amount of frecency for a site.
@@ -982,7 +996,14 @@ var ActivityStreamProvider = {
       {
         ignoreBlocked: false,
         numItems: ACTIVITY_STREAM_DEFAULT_LIMIT,
-        topsiteFrecency: ACTIVITY_STREAM_DEFAULT_FRECENCY,
+        // 30 days ago, 7 visits. The threshold avoids one non-typed visit from
+        // immediately being included in recent history and is slightly higher than
+        // Top Sites to mimic how this had a higher threshold.
+        topsiteFrecency: lazy.PlacesUtils.history.pageFrecencyThreshold(
+          30,
+          7,
+          false
+        ),
         onePerDomain: true,
         includeFavicon: true,
         hideWithSearchParam: Services.prefs.getCharPref(
@@ -1110,6 +1131,9 @@ var ActivityStreamProvider = {
           url => url.match(/:\/\/(?:www\.)?([^\/]+)/),
           // Combine frecencies when deduping these links
           (targetLink, otherLink) => {
+            // TODO: Experiment with max() vs sum() for frecency combination.
+            // Current additive approach may bias toward sites requiring
+            // deduplication.
             targetLink.frecency = link.frecency + otherLink.frecency;
           }
         );
@@ -1169,9 +1193,9 @@ var ActivityStreamProvider = {
   /**
    * Executes arbitrary query against places database
    *
-   * @param {String} aQuery
+   * @param {string} aQuery
    *        SQL query to execute
-   * @param {Object} [optional] aOptions
+   * @param {object} [optional] aOptions
    *          aOptions.columns - an array of column names. if supplied the return
    *          items will consists of objects keyed on column names. Otherwise
    *          array of raw values is returned in the select order
@@ -1220,7 +1244,7 @@ var ActivityStreamLinks = {
   /**
    * Block a url
    *
-   * @param {Object} aLink
+   * @param {object} aLink
    *          The link which contains a URL to add to the block list
    */
   blockURL(aLink) {
@@ -1235,7 +1259,7 @@ var ActivityStreamLinks = {
    * Adds a bookmark and opens up the Bookmark Dialog to show feedback that
    * the bookmarking action has been successful
    *
-   * @param {Object} aData
+   * @param {object} aData
    *          aData.url The url to bookmark
    *          aData.title The title of the page to bookmark
    * @param {Window} aBrowserWindow
@@ -1251,7 +1275,7 @@ var ActivityStreamLinks = {
   /**
    * Removes a bookmark
    *
-   * @param {String} aBookmarkGuid
+   * @param {string} aBookmarkGuid
    *          The bookmark guid associated with the bookmark to remove
    *
    * @returns {Promise} Returns a promise at completion.
@@ -1263,7 +1287,7 @@ var ActivityStreamLinks = {
   /**
    * Removes a history link and unpins the URL if previously pinned
    *
-   * @param {String} aUrl
+   * @param {string} aUrl
    *           The url to be removed from history
    *
    * @returns {Promise} Returns a promise set to true if link was removed
@@ -1277,7 +1301,7 @@ var ActivityStreamLinks = {
   /**
    * Get the Highlights links to show on Activity Stream
    *
-   * @param {Object} aOptions
+   * @param {object} aOptions
    *   {bool} excludeBookmarks: Don't add bookmark items.
    *   {bool} excludeHistory: Don't add history items.
    *   {bool} withFavicons: Add favicon data: URIs, when possible.
@@ -1386,6 +1410,7 @@ var Links = {
 
   /**
    * Adds a link provider.
+   *
    * @param aProvider The link provider.
    */
   addProvider: function Links_addProvider(aProvider) {
@@ -1395,6 +1420,7 @@ var Links = {
 
   /**
    * Removes a link provider.
+   *
    * @param aProvider The link provider.
    */
   removeProvider: function Links_removeProvider(aProvider) {
@@ -1405,6 +1431,7 @@ var Links = {
 
   /**
    * Populates the cache with fresh links from the providers.
+   *
    * @param aCallback The callback to call when finished (optional).
    * @param aForce When true, populates the cache even when it's already filled.
    */
@@ -1451,6 +1478,7 @@ var Links = {
 
   /**
    * Gets the current set of links contained in the grid.
+   *
    * @return The links in the grid.
    */
   getLinks: function Links_getLinks() {
@@ -1506,13 +1534,14 @@ var Links = {
 
   /**
    * Compares two links.
+   *
    * @param aLink1 The first link.
    * @param aLink2 The second link.
    * @return A negative number if aLink1 is ordered before aLink2, zero if
    *         aLink1 and aLink2 have the same ordering, or a positive number if
    *         aLink1 is ordered after aLink2.
    *
-   * @note compareLinks's this object is bound to Links below.
+   * Note: compareLinks's this object is bound to Links below.
    */
   compareLinks: function Links_compareLinks(aLink1, aLink2) {
     for (let prop of this._sortProperties) {
@@ -1593,6 +1622,7 @@ var Links = {
 
   /**
    * Calls getLinks on the given provider and populates our cache for it.
+   *
    * @param aProvider The provider whose cache will be populated.
    * @param aCallback The callback to call when finished.
    * @param aForce When true, populates the provider's cache even when it's
@@ -1638,6 +1668,7 @@ var Links = {
 
   /**
    * Merges the cached lists of links from all providers whose lists are cached.
+   *
    * @return The merged list.
    */
   _getMergedProviderLinks: function Links__getMergedProviderLinks() {
@@ -1685,6 +1716,7 @@ var Links = {
 
   /**
    * Called by a provider to notify us when a single link changes.
+   *
    * @param aProvider The provider whose link changed.
    * @param aLink The link that changed.  If the link is new, it must have all
    *              of the _sortProperties.  Otherwise, it may have as few or as
@@ -1838,11 +1870,11 @@ var Telemetry = {
    * Initializes object.
    */
   init: function Telemetry_init() {
-    Services.obs.addObserver(this, TOPIC_GATHER_TELEMETRY);
+    Services.obs.addObserver(this, TOPIC_IDLE_DAILY);
   },
 
   uninit: function Telemetry_uninit() {
-    Services.obs.removeObserver(this, TOPIC_GATHER_TELEMETRY);
+    Services.obs.removeObserver(this, TOPIC_IDLE_DAILY);
   },
 
   /**
@@ -1858,7 +1890,7 @@ var Telemetry = {
   },
 
   /**
-   * Listens for gather telemetry topic.
+   * Listens for idle-daily telemetry trigger.
    */
   observe: function Telemetry_observe() {
     this._collect();
@@ -1938,6 +1970,7 @@ export var NewTabUtils = {
   /**
    * Extract a "site" from a url in a way that multiple urls of a "site" returns
    * the same "site."
+   *
    * @param aUrl Url spec string
    * @return The "site" string or null
    */
@@ -2012,6 +2045,7 @@ export var NewTabUtils = {
   /**
    * Undoes all sites that have been removed from the grid and keep the pinned
    * tabs.
+   *
    * @param aCallback the callback method.
    */
   undoAll: function NewTabUtils_undoAll(aCallback) {
@@ -2023,6 +2057,7 @@ export var NewTabUtils = {
 
   /**
    * Get the effective top level domain of a host.
+   *
    * @param {string} host The host to be analyzed.
    * @return {str} The suffix or empty string if there's no suffix.
    */
@@ -2087,8 +2122,9 @@ export var NewTabUtils = {
   /**
    * retrieves positive UTC offset, rounded to the nearest integer number greater than 0.
    * (If less than 0, then add 24.)
+   *
    * @param {str} [surfaceID] Optional surface ID to constrain time zone to reduce identifying telemetry.
-   * @returns {Number} utc_offset. Output is clamped if surfaceID is specified, and 0 if surfaceID present and not supported.
+   * @returns {number} utc_offset. Output is clamped if surfaceID is specified, and 0 if surfaceID present and not supported.
    */
   getUtcOffset(surfaceID) {
     const surfaceRestrictions = { NEW_TAB_EN_US: { min: 24 - 8, max: 24 - 4 } }; // Inclusive hour ranges UTC-8 (PST), UTC-4 (EDT)
@@ -2117,10 +2153,11 @@ export var NewTabUtils = {
   },
 
   /**
-   *  Returns a normalized OS string used in the newtab-content ping
+   * Returns a normalized OS string used in the newtab-content ping
    * Borrowed from https://github.com/mozilla/gcp-ingestion/ingestion-beam/
    * src/main/java/com/mozilla/telemetry/transforms/NormalizeAttributes.java
-   * @returns {String} Normalized OS string mac|win|linux|android|ios|other
+   *
+   * @returns {string} Normalized OS string mac|win|linux|android|ios|other
    */
   normalizeOs() {
     const osString = Services.appinfo.OS;

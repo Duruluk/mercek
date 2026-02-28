@@ -16,7 +16,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <new>
-#include <tuple>
 #include <type_traits>
 #include <utility>
 
@@ -37,7 +36,6 @@
 #include "mozilla/DebugOnly.h"
 #include "mozilla/GeckoTrace.h"
 #include "mozilla/Logging.h"
-#include "mozilla/MacroForEach.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/Monitor.h"
 #include "mozilla/Mutex.h"
@@ -2835,7 +2833,7 @@ using PrivateDatastoreHashtable =
 // event of an (unlikely) race where the private browsing windows are still
 // being torn down, will cause the Datastore to be discarded when the last
 // window actually goes away.
-MOZ_RUNINIT UniquePtr<PrivateDatastoreHashtable> gPrivateDatastores;
+constinit UniquePtr<PrivateDatastoreHashtable> gPrivateDatastores;
 
 using DatabaseArray = nsTArray<Database*>;
 

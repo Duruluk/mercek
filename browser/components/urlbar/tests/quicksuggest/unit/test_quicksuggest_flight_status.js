@@ -38,7 +38,7 @@ const TEST_MERINO_SINGLE = [
 
 add_setup(async function init() {
   // Disable search suggestions so we don't hit the network.
-  await Services.search.init();
+  await SearchService.init();
   Services.prefs.setBoolPref("browser.search.suggest.enabled", false);
 
   await QuickSuggestTestUtils.ensureQuickSuggestInit({
@@ -216,30 +216,27 @@ function merinoResult() {
     type: UrlbarUtils.RESULT_TYPE.DYNAMIC,
     source: UrlbarUtils.RESULT_SOURCE.SEARCH,
     isBestMatch: true,
-    hideRowLabel: true,
     heuristic: false,
     payload: {
       source: "merino",
       provider: "flightaware",
-      dynamicType: "flightStatus",
+      dynamicType: "realtime-flightStatus",
       telemetryType: "flights",
       isSponsored: false,
-      flightaware: {
-        values: [
-          {
-            flight_number: "flight",
-            origin: {
-              city: "Origin",
-              code: "O",
-            },
-            destination: { city: "Destination", code: "D" },
-            departure_scheduled_time: "2025-09-17T14:05:00Z",
-            arrival_scheduled_time: "2025-09-17T18:30:00Z",
-            status: "Scheduled",
-            url: "https://example.com/A1",
+      items: [
+        {
+          flight_number: "flight",
+          origin: {
+            city: "Origin",
+            code: "O",
           },
-        ],
-      },
+          destination: { city: "Destination", code: "D" },
+          departure_scheduled_time: "2025-09-17T14:05:00Z",
+          arrival_scheduled_time: "2025-09-17T18:30:00Z",
+          status: "Scheduled",
+          url: "https://example.com/A1",
+        },
+      ],
     },
   };
 }

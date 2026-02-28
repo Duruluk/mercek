@@ -60,7 +60,6 @@ class WallpaperSettingsFragment : Fragment() {
 
                     WallpaperSettings(
                         wallpaperGroups = wallpapers.groupByDisplayableCollection(),
-                        defaultWallpaper = Wallpaper.Default,
                         selectedWallpaper = currentWallpaper,
                         loadWallpaperResource = {
                             wallpaperUseCases.loadThumbnail(it)
@@ -74,6 +73,7 @@ class WallpaperSettingsFragment : Fragment() {
                             }
                         },
                         onLearnMoreClick = { url, collectionName ->
+                            @Suppress("DEPRECATION")
                             (activity as HomeActivity).openToBrowserAndLoad(
                                 searchTermOrURL = url,
                                 newTab = true,

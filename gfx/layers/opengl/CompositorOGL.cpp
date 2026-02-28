@@ -744,11 +744,8 @@ Maybe<IntRect> CompositorOGL::BeginFrame(const nsIntRegion& aInvalidRegion,
     mWidgetSize = LayoutDeviceIntSize::FromUnknownSize(rect.Size());
 #ifdef MOZ_WAYLAND
     if (mWidget && mWidget->AsGTK()) {
-      // Wayland only check we have correct window size to avoid
-      // rendering artifacts.
-      if (!mWidget->AsGTK()->SetEGLNativeWindowSize(mWidgetSize)) {
-        return Nothing();
-      }
+      // Set correct window size to avoid rendering artifacts.
+      mWidget->AsGTK()->SetEGLNativeWindowSize(mWidgetSize);
     }
 #endif
   } else {
@@ -1500,7 +1497,7 @@ void CompositorOGL::InsertFrameDoneSync() {
   const auto& egl = gle->mEgl;
 
   EGLSync sync = nullptr;
-  if (AndroidHardwareBufferApi::Get()) {
+  if (AndroidHardwareBufferManager::Get()) {
     sync = egl->fCreateSync(LOCAL_EGL_SYNC_NATIVE_FENCE_ANDROID, nullptr);
   }
   if (sync) {

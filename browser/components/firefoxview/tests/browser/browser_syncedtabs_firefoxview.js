@@ -2,11 +2,9 @@
  * http://creativecommons.org/publicdomain/zero/1.0/ */
 
 add_setup(async function () {
-  Services.prefs.setBoolPref("identity.fxaccounts.oauth.enabled", false);
   registerCleanupFunction(() => {
     // reset internal state so it doesn't affect the next tests
     TabsSetupFlowManager.resetInternalState();
-    Services.prefs.clearUserPref("identity.fxaccounts.oauth.enabled");
   });
 
   // gSync.init() is called in a requestIdleCallback. Force its initialization.
@@ -561,13 +559,9 @@ add_task(async function search_synced_tabs() {
     );
 
     info("Clear the search query.");
-    let inputChildren = SpecialPowers.InspectorUtils.getChildrenForNode(
-      syncedTabsComponent.searchTextbox.inputEl,
-      true,
-      false
-    );
-    info(`INPUT CHILDREN: ${inputChildren}`);
-    let clearButton = inputChildren.find(e => e.localName == "button");
+    let clearButton = SpecialPowers.wrap(
+      syncedTabsComponent.searchTextbox.inputEl
+    ).openOrClosedShadowRoot.querySelector("button");
     info(`CLEAR BUTTON: ${clearButton}`);
     EventUtils.synthesizeMouseAtCenter(clearButton, {}, content);
     await TestUtils.waitForCondition(
@@ -631,12 +625,9 @@ add_task(async function search_synced_tabs() {
     );
 
     info("Clear the search query.");
-    inputChildren = SpecialPowers.InspectorUtils.getChildrenForNode(
-      syncedTabsComponent.searchTextbox.inputEl,
-      true,
-      false
-    );
-    clearButton = inputChildren.find(e => e.localName == "button");
+    clearButton = SpecialPowers.wrap(
+      syncedTabsComponent.searchTextbox.inputEl
+    ).openOrClosedShadowRoot.querySelector("button");
     EventUtils.synthesizeMouseAtCenter(clearButton, {}, content);
     await TestUtils.waitForCondition(
       () => syncedTabsComponent.fullyUpdated,
@@ -880,7 +871,7 @@ add_task(async function view_all_synced_tabs_recent_browsing() {
     is(gBrowser.tabs.length, openTabsCount, "No new tabs were opened");
     Assert.ok(
       FirefoxViewHandler.tab.selected,
-      "Firefox View tab is still selected selected"
+      "Firefox View tab is still selected"
     );
     Assert.equal(
       pagesDeck.selectedViewName,

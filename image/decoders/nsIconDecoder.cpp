@@ -32,7 +32,7 @@ LexerResult nsIconDecoder::DoDecode(SourceBufferIterator& aIterator,
   MOZ_ASSERT(!HasError(), "Shouldn't call DoDecode after error!");
 
   return mLexer.Lex(aIterator, aOnResume,
-                    [=](State aState, const char* aData, size_t aLength) {
+                    [this](State aState, const char* aData, size_t aLength) {
                       switch (aState) {
                         case State::HEADER:
                           return ReadHeader(aData);
@@ -56,7 +56,7 @@ LexerTransition<nsIconDecoder::State> nsIconDecoder::ReadHeader(
 
   if (format != SurfaceFormat::B8G8R8A8 && format != SurfaceFormat::B8G8R8X8 &&
       format != SurfaceFormat::R8G8B8A8 && format != SurfaceFormat::R8G8B8X8 &&
-      format != SurfaceFormat::A8R8G8B8 && format != SurfaceFormat::X8R8G8B8) {
+      format != SurfaceFormat::OS_RGBA && format != SurfaceFormat::OS_RGBX) {
     return Transition::TerminateFailure();
   }
 

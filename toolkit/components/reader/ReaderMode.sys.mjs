@@ -210,8 +210,9 @@ export var ReaderMode = {
    * to parse certain URIs (e.g. about: URIs).
    *
    * @param doc A document to parse.
-   * @return {Promise}
-   * @resolves JS object representing the article, or null if no article is found.
+   * @returns {Promise}
+   *   Resolves to a JS object representing the article, or null if no article is
+   *   found.
    */
   parseDocument(doc) {
     if (
@@ -230,8 +231,9 @@ export var ReaderMode = {
    *
    * @param url URL to download and parse.
    * @param attrs OriginAttributes to use for the request.
-   * @return {Promise}
-   * @resolves JS object representing the article, or null if no article is found.
+   * @returns {Promise}
+   *   Resolves to a JS object representing the article, or null if no article is
+   *   found.
    */
   async downloadAndParseDocument(url, attrs = {}, docContentType = "document") {
     let result = await this._downloadDocument(url, attrs, docContentType);
@@ -353,8 +355,9 @@ export var ReaderMode = {
    * in Reader.worker.js.
    *
    * @param doc The document to parse.
-   * @return {Promise}
-   * @resolves JS object representing the article, or null if no article is found.
+   * @returns {Promise}
+   *   Resolves to a JS object representing the article, or null if no article is
+   *   found.
    */
   async _readerParse(doc) {
     if (this.parseNodeLimit) {
@@ -460,8 +463,8 @@ export var ReaderMode = {
   /**
    * Sets a global language string value if the result is confident
    *
-   * @return Promise
-   * @resolves when the language is detected
+   * @returns {Promise<void>}
+   *   Resolves when the language is detected
    */
   _assignLanguage(article) {
     return lazy.LanguageDetector.detectLanguage(article.textContent).then(
@@ -531,21 +534,19 @@ export var ReaderMode = {
     return readingSpeed.get(lang) || readingSpeed.get("en");
   },
   /**
-   *
    * Check if the document to be parsed is text document.
+   *
    * @param doc the doc object to be parsed.
    * @return boolean
-   *
    */
   _isDocumentPlainText(doc) {
     return doc.contentType == "text/plain";
   },
   /**
-   *
    * The document to be parsed is text document and is converted to HTML format.
+   *
    * @param doc the doc object to be parsed.
    * @return doc
-   *
    */
   _convertPlainTextDocument(doc) {
     let preTag = doc.querySelector("pre");

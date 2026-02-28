@@ -368,6 +368,12 @@ struct ReflowInput : public SizeComputationInput {
   // unconstrained dimensions replaced by zero.
   nsSize ComputedSizeAsContainerIfConstrained() const;
 
+  // Return the physical content box relative to the frame itself.
+  nsRect ComputedPhysicalContentBoxRelativeToSelf() const {
+    auto bp = ComputedPhysicalBorderPadding();
+    return nsRect(nsPoint(bp.left, bp.top), ComputedPhysicalSize());
+  }
+
   // Get the writing mode of the containing block, to resolve float/clear
   // logical sides appropriately.
   WritingMode GetCBWritingMode() const;
@@ -464,6 +470,15 @@ struct ReflowInput : public SizeComputationInput {
     // unconstrained.
     bool mIsInLastColumnBalancingReflow : 1;
 
+    // We have an ancestor nsColumnSetFrame performing a measuring reflow. The
+    // available block-size becomes unconstrained.
+    //
+    // Note: only the top-level fragmentainer (multicol or print page sequence)
+    // can initiate a measuring reflow, so nested fragmentainers will do a
+    // measuring reflow only when the top-level one is doing it. See
+    // nsColumnSetFrame::Reflow() and nsPageSequenceFrame::Reflow() for details.
+    bool mIsInFragmentainerMeasuringReflow : 1;
+
     // True if ColumnSetWrapperFrame has a constrained block-size, and is going
     // to consume all of its block-size in this fragment. This bit is passed to
     // nsColumnSetFrame to determine whether to give up balancing and create
@@ -527,14 +542,6 @@ struct ReflowInput : public SizeComputationInput {
     // If true, then children of this frame can generate class A breakpoints
     // for paginated reflow.
     bool mCanHaveClassABreakpoints : 1;
-
-    // If set:
-    // (1) This frame is absolutely-positioned,
-    // (2) Inset in that axis are non-auto, and
-    // (3) Size in that axis is `auto` & resolved as fit-content size.
-    // Automatic margin computation in this case requires waiting until
-    // the frame reflows to compute the fit-content size.
-    bool mDeferAutoMarginComputation : 1;
   };
   Flags mFlags;
 
@@ -827,8 +834,7 @@ struct ReflowInput : public SizeComputationInput {
                                            WritingMode aContainingBlockWM,
                                            bool aIsMarginBStartAuto,
                                            bool aIsMarginBEndAuto,
-                                           LogicalMargin& aMargin,
-                                           LogicalMargin& aOffsets);
+                                           LogicalMargin& aMargin);
 
   // Resolve any inline-axis 'auto' margins (if any) for an absolutely
   // positioned frame. aMargin and aOffsets are both outparams (though we only
@@ -837,8 +843,7 @@ struct ReflowInput : public SizeComputationInput {
                                             WritingMode aContainingBlockWM,
                                             bool aIsMarginIStartAuto,
                                             bool aIsMarginIEndAuto,
-                                            LogicalMargin& aMargin,
-                                            LogicalMargin& aOffsets);
+                                            LogicalMargin& aMargin);
 
  protected:
   void InitCBReflowInput();
@@ -978,14 +983,5 @@ struct ReflowInput : public SizeComputationInput {
 };
 
 }  // namespace mozilla
-
-inline AnchorPosResolutionParams AnchorPosResolutionParams::From(
-    const mozilla::ReflowInput* aRI, bool aIgnorePositionArea) {
-  const mozilla::StylePositionArea posArea =
-      aIgnorePositionArea ? mozilla::StylePositionArea{}
-                          : aRI->mStylePosition->mPositionArea;
-  return {aRI->mFrame, aRI->mStyleDisplay->mPosition, posArea,
-          aRI->mAnchorPosResolutionCache};
-}
 
 #endif  // mozilla_ReflowInput_h

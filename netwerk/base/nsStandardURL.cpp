@@ -23,7 +23,6 @@
 #include "mozilla/ScopeExit.h"
 #include "mozilla/StaticPrefs_network.h"
 #include "mozilla/TextUtils.h"
-#include <algorithm>
 #include "nsContentUtils.h"
 #include "prprf.h"
 #include "nsReadableUtils.h"
@@ -201,7 +200,7 @@ const nsACString& nsStandardURL::nsSegmentEncoder::EncodeSegment(
 
 #ifdef DEBUG_DUMP_URLS_AT_SHUTDOWN
 static StaticMutex gAllURLsMutex MOZ_UNANNOTATED;
-MOZ_RUNINIT static LinkedList<nsStandardURL> gAllURLs;
+constinit static LinkedList<nsStandardURL> gAllURLs;
 #endif
 
 nsStandardURL::nsStandardURL(bool aSupportsFileURL, bool aTrackURL)
@@ -1142,7 +1141,6 @@ NS_INTERFACE_MAP_BEGIN(nsStandardURL)
   if (aIID.Equals(kThisImplCID)) {
     foundInterface = static_cast<nsIURI*>(this);
   } else
-    NS_INTERFACE_MAP_ENTRY(nsISizeOf)
 NS_INTERFACE_MAP_END
 
 //----------------------------------------------------------------------------
@@ -2889,6 +2887,12 @@ nsresult nsStandardURL::SetQueryWithEncoding(const nsACString& input,
     queryLen = buf.Length();
   }
 
+  // Check the final length after encoding
+  if (mSpec.Length() - mQuery.mLen + queryLen >
+      StaticPrefs::network_standard_url_max_length()) {
+    return NS_ERROR_MALFORMED_URI;
+  }
+
   int32_t shift = ReplaceSegment(mQuery.mPos, mQuery.mLen, query, queryLen);
 
   if (shift) {
@@ -2957,6 +2961,12 @@ nsresult nsStandardURL::SetRef(const nsACString& input) {
   if (encoded) {
     ref = buf.get();
     refLen = buf.Length();
+  }
+
+  // Check the final length after encoding
+  if (mSpec.Length() - mRef.mLen + refLen >
+      StaticPrefs::network_standard_url_max_length()) {
+    return NS_ERROR_MALFORMED_URI;
   }
 
   int32_t shift = ReplaceSegment(mRef.mPos, mRef.mLen, ref, refLen);
@@ -3688,22 +3698,15 @@ bool nsStandardURL::Deserialize(const URIParams& aParams) {
   return true;
 }
 
-//----------------------------------------------------------------------------
-// nsStandardURL::nsISizeOf
-//----------------------------------------------------------------------------
-
-size_t nsStandardURL::SizeOfExcludingThis(MallocSizeOf aMallocSizeOf) const {
-  return mSpec.SizeOfExcludingThisIfUnshared(aMallocSizeOf) +
+size_t nsStandardURL::SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) {
+  return aMallocSizeOf(this) +
+         mSpec.SizeOfExcludingThisIfUnshared(aMallocSizeOf) +
          mDisplayHost.SizeOfExcludingThisIfUnshared(aMallocSizeOf);
 
-  // Measurement of the following members may be added later if DMD finds it is
-  // worthwhile:
+  // Measurement of the following members may be added later if DMD finds it
+  // is worthwhile:
   // - mParser
   // - mFile
-}
-
-size_t nsStandardURL::SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const {
-  return aMallocSizeOf(this) + SizeOfExcludingThis(aMallocSizeOf);
 }
 
 }  // namespace net

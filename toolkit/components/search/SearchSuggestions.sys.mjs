@@ -5,7 +5,10 @@
 import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 
 const lazy = XPCOMUtils.declareLazy({
+  DEFAULT_FORM_HISTORY_PARAM:
+    "moz-src:///toolkit/components/search/SearchSuggestionController.sys.mjs",
   FormHistory: "resource://gre/modules/FormHistory.sys.mjs",
+  SearchService: "moz-src:///toolkit/components/search/SearchService.sys.mjs",
   SearchSuggestionController:
     "moz-src:///toolkit/components/search/SearchSuggestionController.sys.mjs",
 });
@@ -296,7 +299,6 @@ class SearchHistoryResult {
 class SuggestAutoComplete {
   constructor() {
     this.#suggestionController = new lazy.SearchSuggestionController();
-    this.#suggestionController.maxLocalResults = this.#historyLimit;
   }
 
   /**
@@ -346,7 +348,7 @@ class SuggestAutoComplete {
 
     // Start search immediately if possible, otherwise once the search
     // service is initialized
-    if (Services.search.isInitialized) {
+    if (lazy.SearchService.isInitialized) {
       this.#triggerSearch(
         searchString,
         formHistorySearchParam,
@@ -356,8 +358,7 @@ class SuggestAutoComplete {
       return;
     }
 
-    Services.search
-      .init()
+    lazy.SearchService.init()
       .then(() => {
         this.#triggerSearch(
           searchString,
@@ -382,13 +383,6 @@ class SuggestAutoComplete {
     // Prevent reporting results of stopped search
     this.#listener = null;
     this.#suggestionController.stop();
-  }
-
-  /**
-   * Handles the session being reset.
-   */
-  resetSession() {
-    this.#suggestionController?.resetSession();
   }
 
   #suggestionController;
@@ -429,7 +423,8 @@ class SuggestAutoComplete {
     let results = await this.#suggestionController.fetch({
       searchString,
       inPrivateBrowsing,
-      engine: Services.search.defaultEngine,
+      engine: lazy.SearchService.defaultEngine,
+      maxLocalResults: this.#historyLimit,
     });
 
     let formHistoryEntries = (results?.formHistoryResults ?? []).map(
@@ -442,7 +437,7 @@ class SuggestAutoComplete {
       })
     );
     let autoCompleteResult = new SearchHistoryResult(
-      this.#suggestionController.formHistoryParam,
+      lazy.DEFAULT_FORM_HISTORY_PARAM,
       searchString,
       formHistoryEntries
     );

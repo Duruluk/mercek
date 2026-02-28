@@ -12,7 +12,7 @@ import taskgraph
 from taskgraph.transforms.base import TransformSequence
 from taskgraph.util import json
 from taskgraph.util.docker import create_context_tar, generate_context_hash
-from taskgraph.util.schema import Schema
+from taskgraph.util.schema import LegacySchema
 from voluptuous import Optional, Required
 
 from gecko_taskgraph.util.docker import (
@@ -36,35 +36,34 @@ IMAGE_BUILDER_IMAGE = (
 
 transforms = TransformSequence()
 
-docker_image_schema = Schema(
-    {
-        # Name of the docker image.
-        Required("name"): str,
-        # Name of the parent docker image.
-        Optional("parent"): str,
-        # Treeherder symbol.
-        Required("symbol"): str,
-        # relative path (from config.path) to the file the docker image was defined
-        # in.
-        Optional("task-from"): str,
-        # Arguments to use for the Dockerfile.
-        Optional("args"): {str: str},
-        # Name of the docker image definition under taskcluster/docker, when
-        # different from the docker image name.
-        Optional("definition"): str,
-        # List of package tasks this docker image depends on.
-        Optional("packages"): [str],
-        Optional("arch"): str,
-        Optional(
-            "index",
-            description="information for indexing this build so its artifacts can be discovered",
-        ): task_description_schema["index"],
-        Optional(
-            "cache",
-            description="Whether this image should be cached based on inputs.",
-        ): bool,
-    }
-)
+docker_image_schema = LegacySchema({
+    # Name of the docker image.
+    Required("name"): str,
+    # Name of the parent docker image.
+    Optional("parent"): str,
+    # Treeherder symbol.
+    Required("symbol"): str,
+    # relative path (from config.path) to the file the docker image was defined
+    # in.
+    Optional("task-from"): str,
+    # Arguments to use for the Dockerfile.
+    Optional("args"): {str: str},
+    # Name of the docker image definition under taskcluster/docker, when
+    # different from the docker image name.
+    Optional("definition"): str,
+    # List of package tasks this docker image depends on.
+    Optional("packages"): [str],
+    Optional("arch"): str,
+    Optional(
+        "index",
+        description="information for indexing this build so its artifacts can be discovered",
+    ): task_description_schema["index"],
+    Optional(
+        "cache",
+        description="Whether this image should be cached based on inputs.",
+    ): bool,
+    Optional("run-on-repo-type"): task_description_schema["run-on-repo-type"],
+})
 
 
 transforms.add_validate(docker_image_schema)
@@ -118,9 +117,9 @@ def fill_template(config, tasks):
         zstd_level = "3" if int(config.params["level"]) == 1 else "10"
 
         if task.get("arch", "") == "arm64":
-            worker_type = "images-gcp-aarch64"
+            worker_type = "images-aarch64"
         else:
-            worker_type = "images-gcp"
+            worker_type = "images"
 
         # include some information that is useful in reconstructing this task
         # from JSON
@@ -141,6 +140,7 @@ def fill_template(config, tasks):
                 "tier": 1,
             },
             "run-on-projects": [],
+            "run-on-repo-type": task.get("run-on-repo-type", ["git", "hg"]),
             "worker-type": worker_type,
             "worker": {
                 "implementation": "docker-worker",
@@ -169,9 +169,6 @@ def fill_template(config, tasks):
                 # FIXME: We aren't currently propagating the exit code
             },
         }
-        # Retry for 'funsize-update-generator' if exit status code is -1
-        if image_name in ["funsize-update-generator"]:
-            taskdesc["worker"]["retry-exit-status"] = [-1]
 
         worker = taskdesc["worker"]
 

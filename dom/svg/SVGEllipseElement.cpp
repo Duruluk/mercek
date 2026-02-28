@@ -26,13 +26,13 @@ JSObject* SVGEllipseElement::WrapNode(JSContext* aCx,
 
 SVGElement::LengthInfo SVGEllipseElement::sLengthInfo[4] = {
     {nsGkAtoms::cx, 0, SVGLength_Binding::SVG_LENGTHTYPE_NUMBER,
-     SVGContentUtils::X},
+     SVGLength::Axis::X},
     {nsGkAtoms::cy, 0, SVGLength_Binding::SVG_LENGTHTYPE_NUMBER,
-     SVGContentUtils::Y},
+     SVGLength::Axis::Y},
     {nsGkAtoms::rx, 0, SVGLength_Binding::SVG_LENGTHTYPE_NUMBER,
-     SVGContentUtils::X},
+     SVGLength::Axis::X},
     {nsGkAtoms::ry, 0, SVGLength_Binding::SVG_LENGTHTYPE_NUMBER,
-     SVGContentUtils::Y},
+     SVGLength::Axis::Y},
 };
 
 //----------------------------------------------------------------------
@@ -173,7 +173,7 @@ bool SVGEllipseElement::IsLengthChangedViaCSS(const ComputedStyle& aNewStyle,
          newSVGReset.mRy != oldSVGReset.mRy;
 }
 
-nsCSSPropertyID SVGEllipseElement::GetCSSPropertyIdForAttrEnum(
+NonCustomCSSPropertyId SVGEllipseElement::GetCSSPropertyIdForAttrEnum(
     uint8_t aAttrEnum) {
   switch (aAttrEnum) {
     case CX:

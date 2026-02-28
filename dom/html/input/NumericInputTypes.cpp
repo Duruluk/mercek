@@ -69,7 +69,8 @@ nsresult NumericInputTypeBase::GetRangeUnderflowMessage(nsAString& aMessage) {
       "FormValidationNumberRangeUnderflow", mInputElement->OwnerDoc(), minStr);
 }
 
-auto NumericInputTypeBase::ConvertStringToNumber(const nsAString& aValue) const
+auto NumericInputTypeBase::ConvertStringToNumber(const nsAString& aValue,
+                                                 Localized) const
     -> StringToNumberResult {
   return {HTMLInputElement::StringToDecimal(aValue)};
 }
@@ -102,10 +103,12 @@ bool NumberInputType::HasBadInput() const {
   return !value.IsEmpty() && mInputElement->GetValueAsDecimal().isNaN();
 }
 
-auto NumberInputType::ConvertStringToNumber(const nsAString& aValue) const
+auto NumberInputType::ConvertStringToNumber(const nsAString& aValue,
+                                            Localized aLocalized) const
     -> StringToNumberResult {
-  auto result = NumericInputTypeBase::ConvertStringToNumber(aValue);
-  if (result.mResult.isFinite()) {
+  auto result =
+      NumericInputTypeBase::ConvertStringToNumber(aValue, Localized::No);
+  if (result.mResult.isFinite() || aLocalized == Localized::No) {
     return result;
   }
   // Try to read the localized value from the user.

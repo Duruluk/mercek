@@ -225,6 +225,9 @@ class TextControlState final : public SupportsWeakPtr {
   nsFrameSelection* GetIndependentFrameSelection() const;
   nsresult BindToFrame(nsTextControlFrame* aFrame);
   MOZ_CAN_RUN_SCRIPT void UnbindFromFrame(nsTextControlFrame* aFrame);
+  [[nodiscard]] nsTextControlFrame* GetBoundFrame() const {
+    return mBoundFrame;
+  }
   MOZ_CAN_RUN_SCRIPT nsresult PrepareEditor(const nsAString* aValue = nullptr);
   void InitializeKeyboardEventListeners();
 
@@ -335,10 +338,6 @@ class TextControlState final : public SupportsWeakPtr {
     return wrapCols;
   }
   int32_t GetRows() { return mTextCtrlElement->GetRows(); }
-
-  // preview methods
-  void SetPreviewText(const nsAString& aValue, bool aNotify);
-  void GetPreviewText(nsAString& aValue);
 
   struct SelectionProperties {
    public:
@@ -522,8 +521,6 @@ class TextControlState final : public SupportsWeakPtr {
    */
   MOZ_CAN_RUN_SCRIPT bool SetValueWithoutTextEditor(
       AutoTextControlHandlingState& aHandlingSetValue);
-
-  IMEContentObserver* GetIMEContentObserver() const;
 
   // When this class handles something which may run script, this should be
   // set to non-nullptr.  If so, this class claims that it's busy and that

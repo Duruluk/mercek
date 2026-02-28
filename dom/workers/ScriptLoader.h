@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef mozilla_dom_workers_scriptloader_h__
-#define mozilla_dom_workers_scriptloader_h__
+#ifndef mozilla_dom_workers_scriptloader_h_
+#define mozilla_dom_workers_scriptloader_h_
 
 #include "js/loader/ModuleLoaderBase.h"
 #include "js/loader/ScriptLoadRequest.h"
@@ -13,6 +13,7 @@
 #include "mozilla/Maybe.h"
 #include "mozilla/dom/WorkerBinding.h"
 #include "mozilla/dom/WorkerCommon.h"
+#include "mozilla/dom/WorkerLoadContext.h"
 #include "mozilla/dom/WorkerRef.h"
 #include "mozilla/dom/workerinternals/WorkerModuleLoader.h"
 #include "nsIContentPolicy.h"
@@ -34,7 +35,6 @@ namespace dom {
 
 class ClientInfo;
 class Document;
-class ThreadSafeRequestHandle;
 struct WorkerLoadInfo;
 class WorkerPrivate;
 class SerializedStackHolder;
@@ -378,4 +378,4 @@ void Load(WorkerPrivate* aWorkerPrivate,
 }  // namespace dom
 }  // namespace mozilla
 
-#endif /* mozilla_dom_workers_scriptloader_h__ */
+#endif /* mozilla_dom_workers_scriptloader_h_ */

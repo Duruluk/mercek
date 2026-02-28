@@ -9,8 +9,9 @@ import android.content.Intent
 import androidx.appcompat.app.AlertDialog
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.runTest
 import mozilla.appservices.places.BookmarkRoot
-import mozilla.components.browser.state.state.ReaderState
 import mozilla.components.browser.state.state.createTab
 import mozilla.components.concept.engine.webextension.InstallationMethod
 import mozilla.components.feature.addons.Addon
@@ -18,18 +19,14 @@ import mozilla.components.feature.addons.AddonManager
 import mozilla.components.feature.app.links.AppLinkRedirect
 import mozilla.components.feature.app.links.AppLinksUseCases
 import mozilla.components.feature.session.SessionUseCases
-import mozilla.components.feature.tabs.TabsUseCases
 import mozilla.components.feature.top.sites.PinnedSiteStorage
 import mozilla.components.feature.top.sites.TopSite
 import mozilla.components.feature.top.sites.TopSitesUseCases
 import mozilla.components.support.test.any
 import mozilla.components.support.test.eq
-import mozilla.components.support.test.libstate.ext.waitUntilIdle
 import mozilla.components.support.test.middleware.CaptureActionsMiddleware
 import mozilla.components.support.test.mock
 import mozilla.components.support.test.robolectric.testContext
-import mozilla.components.support.test.rule.MainCoroutineRule
-import mozilla.components.support.test.rule.runTestOnMain
 import mozilla.components.support.test.whenever
 import mozilla.components.ui.widgets.withCenterAlignedButtons
 import org.junit.Assert.assertEquals
@@ -38,7 +35,6 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mockito.Mockito.never
@@ -58,6 +54,7 @@ import org.mozilla.fenix.components.menu.store.BrowserMenuState
 import org.mozilla.fenix.components.menu.store.MenuAction
 import org.mozilla.fenix.components.menu.store.MenuState
 import org.mozilla.fenix.components.menu.store.MenuStore
+import org.mozilla.fenix.settings.summarize.FakeSummarizeFeatureDiscoverySettings
 import org.mozilla.fenix.utils.LastSavedFolderCache
 import org.mozilla.fenix.utils.Settings
 import org.robolectric.RobolectricTestRunner
@@ -65,9 +62,7 @@ import org.robolectric.RobolectricTestRunner
 @RunWith(RobolectricTestRunner::class)
 class MenuDialogMiddlewareTest {
 
-    @get:Rule
-    val coroutinesTestRule = MainCoroutineRule()
-    private val scope = coroutinesTestRule.scope
+    private val testDispatcher = StandardTestDispatcher()
 
     private val bookmarksStorage = FakeBookmarksStorage()
     private val addBookmarkUseCase: AddBookmarksUseCase =
@@ -82,9 +77,9 @@ class MenuDialogMiddlewareTest {
     private lateinit var removePinnedSiteUseCase: TopSitesUseCases.RemoveTopSiteUseCase
     private lateinit var appLinksUseCases: AppLinksUseCases
     private lateinit var requestDesktopSiteUseCase: SessionUseCases.RequestDesktopSiteUseCase
-    private lateinit var tabsUseCases: TabsUseCases
-    private lateinit var migratePrivateTabUseCase: TabsUseCases.MigratePrivateTabUseCase
     private lateinit var settings: Settings
+
+    private val summarizeFeatureSettings = FakeSummarizeFeatureDiscoverySettings()
     private lateinit var lastSavedFolderCache: LastSavedFolderCache
 
     companion object {
@@ -99,28 +94,30 @@ class MenuDialogMiddlewareTest {
         removePinnedSiteUseCase = mock()
         appLinksUseCases = mock()
         requestDesktopSiteUseCase = mock()
-        tabsUseCases = mock()
-        migratePrivateTabUseCase = mock()
         lastSavedFolderCache = mock()
 
         settings = Settings(testContext)
 
         runBlocking {
-            whenever(tabsUseCases.migratePrivateTabUseCase).thenReturn(migratePrivateTabUseCase)
             whenever(pinnedSiteStorage.getPinnedSites()).thenReturn(emptyList())
             whenever(addonManager.getAddons()).thenReturn(emptyList())
         }
     }
 
     @Test
-    fun `GIVEN no selected tab WHEN init action is dispatched THEN browser state is not updated`() {
-        val store = createStore()
+    fun `GIVEN no selected tab WHEN init action is dispatched THEN browser state is not updated`() = runTest(testDispatcher) {
+        val store = createStore(
+            menuState = MenuState(
+                browserMenuState = null,
+            ),
+        )
+        testScheduler.advanceUntilIdle()
 
         assertNull(store.state.browserMenuState)
     }
 
     @Test
-    fun `GIVEN selected tab is bookmarked WHEN init action is dispatched THEN initial bookmark state is updated`() = runTestOnMain {
+    fun `GIVEN selected tab is bookmarked WHEN init action is dispatched THEN initial bookmark state is updated`() = runTest(testDispatcher) {
         val url = "https://www.mozilla.org"
         val title = "Mozilla"
 
@@ -142,13 +139,14 @@ class MenuDialogMiddlewareTest {
                 browserMenuState = browserMenuState,
             ),
         )
+        testScheduler.advanceUntilIdle()
 
         assertEquals(guid.getOrNull()!!, store.state.browserMenuState!!.bookmarkState.guid)
         assertTrue(store.state.browserMenuState!!.bookmarkState.isBookmarked)
     }
 
     @Test
-    fun `GIVEN selected tab is not bookmarked WHEN init action is dispatched THEN initial bookmark state is not updated`() {
+    fun `GIVEN selected tab is not bookmarked WHEN init action is dispatched THEN initial bookmark state is not updated`() = runTest(testDispatcher) {
         val url = "https://www.mozilla.org"
         val title = "Mozilla"
         val browserMenuState = BrowserMenuState(
@@ -162,26 +160,27 @@ class MenuDialogMiddlewareTest {
                 browserMenuState = browserMenuState,
             ),
         )
+        testScheduler.advanceUntilIdle()
 
         assertNull(store.state.browserMenuState!!.bookmarkState.guid)
         assertFalse(store.state.browserMenuState!!.bookmarkState.isBookmarked)
     }
 
     @Test
-    fun `GIVEN recommended addons are available WHEN init action is dispatched THEN initial extension state is updated`() = runTestOnMain {
+    fun `GIVEN recommended addons are available WHEN init action is dispatched THEN initial extension state is updated`() = runTest(testDispatcher) {
         val addon = Addon(id = "ext1")
         whenever(addonManager.getAddons()).thenReturn(listOf(addon))
 
         val store = createStore()
+        testScheduler.advanceUntilIdle()
 
         assertTrue(store.state.extensionMenuState.availableAddons.isEmpty())
         assertEquals(1, store.state.extensionMenuState.recommendedAddons.size)
         assertEquals(addon, store.state.extensionMenuState.recommendedAddons.first())
-        assertTrue(store.state.extensionMenuState.showExtensionsOnboarding)
     }
 
     @Test
-    fun `GIVEN recommended addons are available WHEN init action is dispatched THEN initial extension state is updated and shows maximum three recommended addons`() = runTestOnMain {
+    fun `GIVEN recommended addons are available WHEN init action is dispatched THEN initial extension state is updated and shows maximum three recommended addons`() = runTest(testDispatcher) {
         val addon = Addon(id = "ext1")
         val addonTwo = Addon(id = "ext2")
         val addonThree = Addon(id = "ext3")
@@ -190,6 +189,7 @@ class MenuDialogMiddlewareTest {
         whenever(addonManager.getAddons()).thenReturn(listOf(addon, addonTwo, addonThree, addonFour, addonFive))
 
         val store = createStore()
+        testScheduler.advanceUntilIdle()
 
         assertTrue(store.state.extensionMenuState.availableAddons.isEmpty())
         assertEquals(3, store.state.extensionMenuState.recommendedAddons.size)
@@ -197,7 +197,7 @@ class MenuDialogMiddlewareTest {
 
     @Test
     fun `GIVEN at least one addon is installed WHEN init action is dispatched THEN initial extension state is updated`() =
-        runTestOnMain {
+        runTest(testDispatcher) {
             val addon = Addon(id = "ext1")
             val addonTwo = Addon(
                 id = "ext2",
@@ -212,16 +212,15 @@ class MenuDialogMiddlewareTest {
             whenever(addonManager.getAddons()).thenReturn(listOf(addon, addonTwo, addonThree))
 
             val store = createStore()
+            testScheduler.advanceUntilIdle()
 
             assertEquals(1, store.state.extensionMenuState.availableAddons.size)
             assertTrue(store.state.extensionMenuState.recommendedAddons.isEmpty())
-            assertFalse(store.state.extensionMenuState.showExtensionsOnboarding)
-            assertTrue(store.state.extensionMenuState.shouldShowManageExtensionsMenuItem)
         }
 
     @Test
     fun `GIVEN at least one addon is installed and not enabled WHEN init action is dispatched THEN initial extension state is updated`() =
-        runTestOnMain {
+        runTest(testDispatcher) {
             val addon = Addon(
                 id = "ext",
                 installedState = Addon.InstalledState(
@@ -235,15 +234,14 @@ class MenuDialogMiddlewareTest {
             whenever(addonManager.getAddons()).thenReturn(listOf(addon))
 
             val store = createStore()
+            testScheduler.advanceUntilIdle()
 
             assertTrue(store.state.extensionMenuState.availableAddons.isEmpty())
             assertTrue(store.state.extensionMenuState.recommendedAddons.isEmpty())
-            assertFalse(store.state.extensionMenuState.showExtensionsOnboarding)
-            assertTrue(store.state.extensionMenuState.shouldShowManageExtensionsMenuItem)
         }
 
     @Test
-    fun `GIVEN last save folder cache is empty WHEN add bookmark action is dispatched for a selected tab THEN bookmark is added with Mobile root as the parent`() = runTestOnMain {
+    fun `GIVEN last save folder cache is empty WHEN add bookmark action is dispatched for a selected tab THEN bookmark is added with Mobile root as the parent`() = runTest(testDispatcher) {
         val url = "https://www.mozilla.org"
         val title = "Mozilla"
         var dismissWasCalled = false
@@ -263,10 +261,12 @@ class MenuDialogMiddlewareTest {
             ),
             onDismiss = { dismissWasCalled = true },
         )
+        testScheduler.advanceUntilIdle()
 
         `when`(lastSavedFolderCache.getGuid()).thenReturn(null)
 
         store.dispatch(MenuAction.AddBookmark)
+        testScheduler.advanceUntilIdle()
 
         verify(addBookmarkUseCase).invoke(url = url, title = title, parentGuid = BookmarkRoot.Mobile.id)
 
@@ -277,7 +277,11 @@ class MenuDialogMiddlewareTest {
     }
 
     @Test
-    fun `GIVEN last save folder cache has a value WHEN add bookmark action is dispatched for a selected tab THEN bookmark is added with the caches value as its parent`() = runTestOnMain {
+    fun `GIVEN last save folder cache has a value WHEN add bookmark action is dispatched for a selected tab THEN bookmark is added with the cached value as its parent`() = runTest(testDispatcher) {
+        // given that the last saved folder actually exists
+        val lastSavedFolderId = bookmarksStorage.addFolder(BookmarkRoot.Mobile.id, "last-folder")
+            .getOrThrow()
+        `when`(lastSavedFolderCache.getGuid()).thenReturn(lastSavedFolderId)
         val url = "https://www.mozilla.org"
         val title = "Mozilla"
         var dismissWasCalled = false
@@ -297,12 +301,12 @@ class MenuDialogMiddlewareTest {
             ),
             onDismiss = { dismissWasCalled = true },
         )
-
-        `when`(lastSavedFolderCache.getGuid()).thenReturn("cached-value")
+        testScheduler.advanceUntilIdle()
 
         store.dispatch(MenuAction.AddBookmark)
+        testScheduler.advanceUntilIdle()
 
-        verify(addBookmarkUseCase).invoke(url = url, title = title, parentGuid = "cached-value")
+        verify(addBookmarkUseCase).invoke(url = url, title = title, parentGuid = lastSavedFolderId)
 
         captureMiddleware.assertLastAction(BookmarkAction.BookmarkAdded::class) { action: BookmarkAction.BookmarkAdded ->
             assertNotNull(action.guidToEdit)
@@ -311,7 +315,40 @@ class MenuDialogMiddlewareTest {
     }
 
     @Test
-    fun `GIVEN the last added bookmark does not belong to a folder WHEN bookmark is added THEN bookmark is added to mobile root`() = runTestOnMain {
+    fun `GIVEN last save folder cache has a value that is no longer available THEN a new bookmark is added to the mobile root`() =
+        runTest(testDispatcher) {
+        val url = "https://www.mozilla.org"
+        val title = "Mozilla"
+
+        val browserMenuState = BrowserMenuState(
+            selectedTab = createTab(
+                url = url,
+                title = title,
+            ),
+        )
+        val captureMiddleware = CaptureActionsMiddleware<AppState, AppAction>()
+        val appStore = AppStore(middlewares = listOf(captureMiddleware))
+        val store = createStore(
+            appStore = appStore,
+            menuState = MenuState(
+                browserMenuState = browserMenuState,
+            ),
+            onDismiss = { },
+        )
+        testScheduler.advanceUntilIdle()
+
+        `when`(lastSavedFolderCache.getGuid()).thenReturn("cached-value")
+
+        store.dispatch(MenuAction.AddBookmark)
+
+        testScheduler.advanceUntilIdle()
+
+        // we fallback to the mobile root
+        verify(addBookmarkUseCase).invoke(url = url, title = title, parentGuid = BookmarkRoot.Mobile.id)
+    }
+
+    @Test
+    fun `GIVEN the last added bookmark does not belong to a folder WHEN bookmark is added THEN bookmark is added to mobile root`() = runTest(testDispatcher) {
         val url = "https://www.mozilla.org"
         val title = "Mozilla"
 
@@ -335,14 +372,16 @@ class MenuDialogMiddlewareTest {
             ),
             onDismiss = { },
         )
+        testScheduler.advanceUntilIdle()
 
         store.dispatch(MenuAction.AddBookmark)
+        testScheduler.advanceUntilIdle()
 
         verify(addBookmarkUseCase).invoke(url = url, title = title, parentGuid = BookmarkRoot.Mobile.id)
     }
 
     @Test
-    fun `GIVEN selected tab is bookmarked WHEN add bookmark action is dispatched THEN add bookmark use case is never called`() = runTestOnMain {
+    fun `GIVEN selected tab is bookmarked WHEN add bookmark action is dispatched THEN add bookmark use case is never called`() = runTest(testDispatcher) {
         val url = "https://www.mozilla.org"
         val title = "Mozilla"
         var dismissWasCalled = false
@@ -369,12 +408,13 @@ class MenuDialogMiddlewareTest {
             ),
             onDismiss = { dismissWasCalled = true },
         )
+        testScheduler.advanceUntilIdle()
 
         assertEquals(guid.getOrNull()!!, store.state.browserMenuState!!.bookmarkState.guid)
         assertTrue(store.state.browserMenuState!!.bookmarkState.isBookmarked)
 
         store.dispatch(MenuAction.AddBookmark)
-        store.waitUntilIdle()
+        testScheduler.advanceUntilIdle()
 
         verify(addBookmarkUseCase, never()).invoke(url = url, title = title)
         captureMiddleware.assertNotDispatched(BookmarkAction.BookmarkAdded::class)
@@ -382,7 +422,7 @@ class MenuDialogMiddlewareTest {
     }
 
     @Test
-    fun `GIVEN selected tab is pinned WHEN init action is dispatched THEN initial pinned state is updated`() = runTestOnMain {
+    fun `GIVEN selected tab is pinned WHEN init action is dispatched THEN initial pinned state is updated`() = runTest(testDispatcher) {
         val url = "https://www.mozilla.org"
         val title = "Mozilla"
 
@@ -408,12 +448,13 @@ class MenuDialogMiddlewareTest {
                 browserMenuState = browserMenuState,
             ),
         )
+        testScheduler.advanceUntilIdle()
 
         assertTrue(store.state.browserMenuState!!.isPinned)
     }
 
     @Test
-    fun `GIVEN selected tab is not pinned WHEN init action is dispatched THEN initial pinned state is not updated`() {
+    fun `GIVEN selected tab is not pinned WHEN init action is dispatched THEN initial pinned state is not updated`() = runTest(testDispatcher) {
         val url = "https://www.mozilla.org"
         val title = "Mozilla"
 
@@ -428,12 +469,13 @@ class MenuDialogMiddlewareTest {
                 browserMenuState = browserMenuState,
             ),
         )
+        testScheduler.advanceUntilIdle()
 
         assertFalse(store.state.browserMenuState!!.isPinned)
     }
 
     @Test
-    fun `WHEN add to shortcuts action is dispatched for a selected tab THEN the site is pinned`() {
+    fun `WHEN add to shortcuts action is dispatched for a selected tab THEN the site is pinned`() = runTest(testDispatcher) {
         val url = "https://www.mozilla.org"
         val title = "Mozilla"
         var dismissedWasCalled = false
@@ -452,8 +494,10 @@ class MenuDialogMiddlewareTest {
             ),
             onDismiss = { dismissedWasCalled = true },
         )
+        testScheduler.advanceUntilIdle()
 
         store.dispatch(MenuAction.AddShortcut)
+        testScheduler.advanceUntilIdle()
 
         verify(addPinnedSiteUseCase).invoke(url = url, title = title)
         verify(appStore).dispatch(
@@ -463,7 +507,7 @@ class MenuDialogMiddlewareTest {
     }
 
     @Test
-    fun `GIVEN selected tab is pinned WHEN add to shortcuts action is dispatched THEN add pinned site use case is never called`() = runTestOnMain {
+    fun `GIVEN selected tab is pinned WHEN add to shortcuts action is dispatched THEN add pinned site use case is never called`() = runTest(testDispatcher) {
         val url = "https://www.mozilla.org"
         val title = "Mozilla"
         var dismissedWasCalled = false
@@ -498,11 +542,12 @@ class MenuDialogMiddlewareTest {
             ),
             onDismiss = { dismissedWasCalled = true },
         )
+        testScheduler.advanceUntilIdle()
 
         assertTrue(store.state.browserMenuState!!.isPinned)
 
         store.dispatch(MenuAction.AddShortcut)
-        store.waitUntilIdle()
+        testScheduler.advanceUntilIdle()
 
         verify(addPinnedSiteUseCase, never()).invoke(url = url, title = title)
         verify(appStore, never()).dispatch(
@@ -512,7 +557,7 @@ class MenuDialogMiddlewareTest {
     }
 
     @Test
-    fun `WHEN remove from shortcuts action is dispatched for a selected tab THEN remove pinned site use case is never called`() = runTestOnMain {
+    fun `WHEN remove from shortcuts action is dispatched for a selected tab THEN remove pinned site use case is never called`() = runTest(testDispatcher) {
         val url = "https://www.mozilla.org"
         val title = "Mozilla"
         var dismissedWasCalled = false
@@ -537,17 +582,19 @@ class MenuDialogMiddlewareTest {
             ),
             onDismiss = { dismissedWasCalled = true },
         )
+        testScheduler.advanceUntilIdle()
 
         assertFalse(store.state.browserMenuState!!.isPinned)
 
         store.dispatch(MenuAction.RemoveShortcut)
+        testScheduler.advanceUntilIdle()
 
         verify(removePinnedSiteUseCase, never()).invoke(topSite = topSite)
         assertFalse(dismissedWasCalled)
     }
 
     @Test
-    fun `GIVEN selected tab is pinned WHEN remove from shortcuts action is dispatched THEN pinned state is updated`() = runTestOnMain {
+    fun `GIVEN selected tab is pinned WHEN remove from shortcuts action is dispatched THEN pinned state is updated`() = runTest(testDispatcher) {
         val url = "https://www.mozilla.org"
         val title = "Mozilla"
         val topSite = TopSite.Pinned(
@@ -574,17 +621,19 @@ class MenuDialogMiddlewareTest {
             ),
             onDismiss = { dismissedWasCalled = true },
         )
+        testScheduler.advanceUntilIdle()
 
         assertTrue(store.state.browserMenuState!!.isPinned)
 
         store.dispatch(MenuAction.RemoveShortcut)
+        testScheduler.advanceUntilIdle()
 
         verify(removePinnedSiteUseCase).invoke(topSite = topSite)
         assertTrue(dismissedWasCalled)
     }
 
     @Test
-    fun `GIVEN maximum number of top sites is reached WHEN add to shortcuts action is dispatched THEN add pinned site use case is never called`() = runTestOnMain {
+    fun `GIVEN maximum number of top sites is reached WHEN add to shortcuts action is dispatched THEN add pinned site use case is never called`() = runTest(testDispatcher) {
         val url = "https://www.mozilla.org"
         val title = "Mozilla"
         var dismissedWasCalled = false
@@ -622,10 +671,12 @@ class MenuDialogMiddlewareTest {
             ),
             onDismiss = { dismissedWasCalled = true },
         )
+        testScheduler.advanceUntilIdle()
 
         assertFalse(store.state.browserMenuState!!.isPinned)
 
         store.dispatch(MenuAction.AddShortcut)
+        testScheduler.advanceUntilIdle()
 
         verify(addPinnedSiteUseCase, never()).invoke(url = url, title = title)
         verify(appStore, never()).dispatch(
@@ -635,7 +686,7 @@ class MenuDialogMiddlewareTest {
     }
 
     @Test
-    fun `GIVEN selected tab has external app WHEN open in app action is dispatched THEN the site is opened in app`() {
+    fun `GIVEN selected tab has external app WHEN open in app action is dispatched THEN the site is opened in app`() = runTest(testDispatcher) {
         val url = "https://www.mozilla.org"
         val title = "Mozilla"
         var dismissWasCalled = false
@@ -652,6 +703,7 @@ class MenuDialogMiddlewareTest {
             ),
             onDismiss = { dismissWasCalled = true },
         )
+        testScheduler.advanceUntilIdle()
 
         val getRedirect: AppLinksUseCases.GetAppLinkRedirect = mock()
         whenever(appLinksUseCases.appLinkRedirect).thenReturn(getRedirect)
@@ -667,13 +719,14 @@ class MenuDialogMiddlewareTest {
         whenever(appLinksUseCases.openAppLink).thenReturn(openAppLinkRedirect)
 
         store.dispatch(MenuAction.OpenInApp)
+        testScheduler.advanceUntilIdle()
 
         verify(openAppLinkRedirect).invoke(appIntent = intent)
         assertTrue(dismissWasCalled)
     }
 
     @Test
-    fun `GIVEN selected tab does not have external app WHEN open in app action is dispatched THEN the site is not opened in app`() {
+    fun `GIVEN selected tab does not have external app WHEN open in app action is dispatched THEN the site is not opened in app`() = runTest(testDispatcher) {
         val url = "https://www.mozilla.org"
         val title = "Mozilla"
         var dismissWasCalled = false
@@ -690,6 +743,7 @@ class MenuDialogMiddlewareTest {
             ),
             onDismiss = { dismissWasCalled = true },
         )
+        testScheduler.advanceUntilIdle()
 
         val getRedirect: AppLinksUseCases.GetAppLinkRedirect = mock()
         whenever(appLinksUseCases.appLinkRedirect).thenReturn(getRedirect)
@@ -702,17 +756,20 @@ class MenuDialogMiddlewareTest {
         val openAppLinkRedirect: AppLinksUseCases.OpenAppLinkRedirect = mock()
 
         store.dispatch(MenuAction.OpenInApp)
+        testScheduler.advanceUntilIdle()
 
         verify(openAppLinkRedirect, never()).invoke(appIntent = intent)
         assertFalse(dismissWasCalled)
     }
 
     @Test
-    fun `WHEN install addon action is dispatched THEN addon is installed`() {
+    fun `WHEN install addon action is dispatched THEN addon is installed`() = runTest(testDispatcher) {
         val addon = Addon(id = "ext1", downloadUrl = "downloadUrl")
         val store = createStore()
+        testScheduler.advanceUntilIdle()
 
         store.dispatch(MenuAction.InstallAddon(addon))
+        testScheduler.advanceUntilIdle()
 
         verify(addonManager).installAddon(
             url = eq(addon.downloadUrl),
@@ -725,102 +782,7 @@ class MenuDialogMiddlewareTest {
     }
 
     @Test
-    fun `GIVEN selected tab is readerable and reader view is off WHEN toggle reader view action is dispatched THEN reader view state is updated`() {
-        val url = "https://www.mozilla.org"
-        val title = "Mozilla"
-        var dismissWasCalled = false
-
-        val readerState = ReaderState(
-            readerable = true,
-            active = false,
-        )
-        val browserMenuState = BrowserMenuState(
-            selectedTab = createTab(
-                url = url,
-                title = title,
-                readerState = readerState,
-            ),
-        )
-        val appStore = spy(AppStore())
-        val store = createStore(
-            appStore = appStore,
-            menuState = MenuState(
-                browserMenuState = browserMenuState,
-            ),
-            onDismiss = { dismissWasCalled = true },
-        )
-
-        store.dispatch(MenuAction.ToggleReaderView)
-
-        verify(appStore).dispatch(ReaderViewAction.ReaderViewStarted)
-        assertTrue(dismissWasCalled)
-    }
-
-    @Test
-    fun `GIVEN selected tab is readerable and reader view is on WHEN toggle reader view action is dispatched THEN reader view state is updated`() {
-        val url = "https://www.mozilla.org"
-        val title = "Mozilla"
-        var dismissWasCalled = false
-
-        val readerState = ReaderState(
-            readerable = true,
-            active = true,
-        )
-        val browserMenuState = BrowserMenuState(
-            selectedTab = createTab(
-                url = url,
-                title = title,
-                readerState = readerState,
-            ),
-        )
-        val appStore = spy(AppStore())
-        val store = createStore(
-            appStore = appStore,
-            menuState = MenuState(
-                browserMenuState = browserMenuState,
-            ),
-            onDismiss = { dismissWasCalled = true },
-        )
-
-        store.dispatch(MenuAction.ToggleReaderView)
-
-        verify(appStore).dispatch(ReaderViewAction.ReaderViewDismissed)
-        assertTrue(dismissWasCalled)
-    }
-
-    @Test
-    fun `GIVEN selected tab is not readerable WHEN toggle reader view action is dispatched THEN reader view state is not updated`() {
-        val url = "https://www.mozilla.org"
-        val title = "Mozilla"
-        var dismissWasCalled = false
-
-        val readerState = ReaderState(
-            readerable = false,
-        )
-        val browserMenuState = BrowserMenuState(
-            selectedTab = createTab(
-                url = url,
-                title = title,
-                readerState = readerState,
-            ),
-        )
-        val appStore = spy(AppStore())
-        val store = createStore(
-            appStore = appStore,
-            menuState = MenuState(
-                browserMenuState = browserMenuState,
-            ),
-            onDismiss = { dismissWasCalled = true },
-        )
-
-        store.dispatch(MenuAction.ToggleReaderView)
-
-        verify(appStore, never()).dispatch(ReaderViewAction.ReaderViewStarted)
-        assertFalse(dismissWasCalled)
-    }
-
-    @Test
-    fun `WHEN customize reader view action is dispatched THEN reader view action is dispatched`() {
+    fun `WHEN customize reader view action is dispatched THEN reader view action is dispatched`() = runTest(testDispatcher) {
         var dismissWasCalled = false
 
         val appStore = spy(AppStore())
@@ -829,15 +791,17 @@ class MenuDialogMiddlewareTest {
             menuState = MenuState(),
             onDismiss = { dismissWasCalled = true },
         )
+        testScheduler.advanceUntilIdle()
 
         store.dispatch(MenuAction.CustomizeReaderView)
+        testScheduler.advanceUntilIdle()
 
         verify(appStore).dispatch(ReaderViewAction.ReaderViewControlsShown)
         assertTrue(dismissWasCalled)
     }
 
     @Test
-    fun `WHEN open in Firefox action is dispatched for a custom tab THEN the tab is opened in the browser`() {
+    fun `WHEN open in Firefox action is dispatched for a custom tab THEN the tab is opened in the browser`() = runTest(testDispatcher) {
         val url = "https://www.mozilla.org"
         val title = "Mozilla"
         var dismissedWasCalled = false
@@ -856,8 +820,10 @@ class MenuDialogMiddlewareTest {
             ),
             onDismiss = { dismissedWasCalled = true },
         )
+        testScheduler.advanceUntilIdle()
 
         store.dispatch(MenuAction.OpenInFirefox)
+        testScheduler.advanceUntilIdle()
 
         verify(appStore).dispatch(
             AppAction.OpenInFirefoxStarted,
@@ -866,7 +832,7 @@ class MenuDialogMiddlewareTest {
     }
 
     @Test
-    fun `WHEN find in page action is dispatched THEN find in page app action is dispatched`() {
+    fun `WHEN find in page action is dispatched THEN find in page app action is dispatched`() = runTest(testDispatcher) {
         val url = "https://www.mozilla.org"
         val title = "Mozilla"
         var dismissWasCalled = false
@@ -887,15 +853,17 @@ class MenuDialogMiddlewareTest {
                 onDismiss = { dismissWasCalled = true },
             ),
         )
+        testScheduler.advanceUntilIdle()
 
         store.dispatch(MenuAction.FindInPage)
+        testScheduler.advanceUntilIdle()
 
         verify(appStore).dispatch(FindInPageAction.FindInPageStarted)
         assertTrue(dismissWasCalled)
     }
 
     @Test
-    fun `WHEN custom menu item action is dispatched THEN pending intent is sent with url`() {
+    fun `WHEN custom menu item action is dispatched THEN pending intent is sent with url`() = runTest(testDispatcher) {
         val url = "https://www.mozilla.org"
         val mockIntent: PendingIntent = mock()
         var dismissWasCalled = false
@@ -911,6 +879,7 @@ class MenuDialogMiddlewareTest {
                 },
             ),
         )
+        testScheduler.advanceUntilIdle()
 
         assertNull(sentIntent)
         assertNull(sentUrl)
@@ -921,6 +890,7 @@ class MenuDialogMiddlewareTest {
                 url = url,
             ),
         )
+        testScheduler.advanceUntilIdle()
 
         assertEquals(sentIntent, mockIntent)
         assertEquals(sentUrl, url)
@@ -928,7 +898,7 @@ class MenuDialogMiddlewareTest {
     }
 
     @Test
-    fun `GIVEN menu is accessed from the browser WHEN request desktop mode action is dispatched THEN request desktop site use case is invoked`() {
+    fun `GIVEN menu is accessed from the browser WHEN request desktop mode action is dispatched THEN request desktop site use case is invoked`() = runTest(testDispatcher) {
         val url = "https://www.mozilla.org"
         val title = "Mozilla"
         val selectedTab = createTab(
@@ -946,8 +916,10 @@ class MenuDialogMiddlewareTest {
             ),
             onDismiss = { dismissWasCalled = true },
         )
+        testScheduler.advanceUntilIdle()
 
         store.dispatch(MenuAction.RequestDesktopSite)
+        testScheduler.advanceUntilIdle()
 
         verify(requestDesktopSiteUseCase).invoke(
             enable = eq(true),
@@ -957,7 +929,7 @@ class MenuDialogMiddlewareTest {
     }
 
     @Test
-    fun `GIVEN menu is accessed from the browser and desktop mode is enabled WHEN request mobile mode action is dispatched THEN request desktop site use case is invoked`() {
+    fun `GIVEN menu is accessed from the browser and desktop mode is enabled WHEN request mobile mode action is dispatched THEN request desktop site use case is invoked`() = runTest(testDispatcher) {
         val url = "https://www.mozilla.org"
         val title = "Mozilla"
         val isDesktopMode = true
@@ -977,8 +949,10 @@ class MenuDialogMiddlewareTest {
             ),
             onDismiss = { dismissWasCalled = true },
         )
+        testScheduler.advanceUntilIdle()
 
         store.dispatch(MenuAction.RequestMobileSite)
+        testScheduler.advanceUntilIdle()
 
         verify(requestDesktopSiteUseCase).invoke(
             enable = eq(false),
@@ -988,7 +962,7 @@ class MenuDialogMiddlewareTest {
     }
 
     @Test
-    fun `WHEN CFR is shown THEN on CFR shown action is dispatched`() {
+    fun `WHEN CFR is shown THEN on CFR shown action is dispatched`() = runTest(testDispatcher) {
         var shownWasCalled = false
 
         val appStore = spy(AppStore())
@@ -999,45 +973,192 @@ class MenuDialogMiddlewareTest {
             ),
             onDismiss = { shownWasCalled = true },
         )
+        testScheduler.advanceUntilIdle()
 
         store.dispatch(MenuAction.OnCFRShown)
+        testScheduler.advanceUntilIdle()
 
         assertFalse(settings.shouldShowMenuCFR)
         assertFalse(shownWasCalled)
     }
 
     @Test
-    fun `WHEN open in regular tab action is dispatched THEN private tab should be open in regular tab`() {
-        val url = "https://www.mozilla.org"
-        val title = "Mozilla"
-        var dismissWasCalled = false
+    fun `GIVEN summarization feature setting indicates the menu item is not visible, WHEN menu is initialized, THEN the menu item is not visible`() =
+        runTest(testDispatcher) {
+            summarizeFeatureSettings.showMenuItem = false
 
-        val browserMenuState = BrowserMenuState(
-            selectedTab = createTab(
-                id = "id",
-                url = url,
-                title = title,
-            ),
-        )
-        val store = spy(
-            createStore(
+            val store = createStore()
+            store.dispatch(MenuAction.InitAction)
+
+            testScheduler.advanceUntilIdle()
+
+            assertFalse(
+                "Expected the menu item is not visible because the feature settings indicate that it should not be visible",
+                store.state.summarizationMenuState.visible,
+            )
+        }
+
+    @Test
+    fun `GIVEN summarization feature setting indicates the menu item should be visible, WHEN menu is initialized, THEN the menu item is visible`() =
+        runTest(testDispatcher) {
+            summarizeFeatureSettings.showMenuItem = true
+
+            val store = createStore()
+            store.dispatch(MenuAction.InitAction)
+
+            testScheduler.advanceUntilIdle()
+
+            assertTrue(
+                "Expected the menu item to be visible because the feature settings indicate that it should be visible",
+                store.state.summarizationMenuState.visible,
+            )
+        }
+
+    @Test
+    fun `GIVEN summarization feature setting indicates that menu item is not highlighted, WHEN menu is initialized, THEN the menu item is not highlighted`() =
+        runTest(testDispatcher) {
+            summarizeFeatureSettings.shouldHighlightMenuItem = false
+
+            val store = createStore()
+            store.dispatch(MenuAction.InitAction)
+
+            testScheduler.advanceUntilIdle()
+
+            assertFalse(
+                "Expected the menu item to be highlighted because the feature settings indicate that it should not be highlighted",
+                store.state.summarizationMenuState.highlighted,
+            )
+        }
+
+    @Test
+    fun `GIVEN summarization feature setting indicates that menu item should be highlighted, WHEN menu is initialized, THEN the menu item is highlighted`() =
+        runTest(testDispatcher) {
+            summarizeFeatureSettings.shouldHighlightMenuItem = true
+
+            val store = createStore()
+            store.dispatch(MenuAction.InitAction)
+
+            testScheduler.advanceUntilIdle()
+
+            assertTrue(
+                "Expected the menu item to be highlighted because the feature settings indicate that it should be highlighted",
+                store.state.summarizationMenuState.highlighted,
+            )
+        }
+
+    @Test
+    fun `WHEN summarization menu is exposed to the user, THEN we cache that exposure in the settings`() =
+        runTest(testDispatcher) {
+            val store = createStore()
+            store.dispatch(MenuAction.InitAction)
+
+            testScheduler.advanceUntilIdle()
+            store.dispatch(MenuAction.OnSummarizationMenuExposed)
+            testScheduler.advanceUntilIdle()
+
+            assertEquals(
+                "Expected the feature settings now indicates that the user has been exposed",
+                1,
+                summarizeFeatureSettings.menuItemExposureCount,
+            )
+        }
+
+    @Test
+    fun `GIVEN selected tab is private, WHEN init action is dispatched, THEN the summarize page menu item is not enabled`() =
+        runTest(testDispatcher) {
+            val store = createStore(
                 menuState = MenuState(
-                    browserMenuState = browserMenuState,
+                    browserMenuState = BrowserMenuState(
+                        selectedTab = createTab(url = "https://mozilla.org", private = true),
+                    ),
                 ),
-                onDismiss = { dismissWasCalled = true },
-            ),
-        )
+            )
+            store.dispatch(MenuAction.InitAction)
 
-        store.dispatch(MenuAction.OpenInRegularTab)
+            testScheduler.advanceUntilIdle()
+            assertFalse(
+                "Expected the summarize page menu item to be disabled",
+                store.state.summarizationMenuState.enabled,
+            )
+        }
 
-        verify(migratePrivateTabUseCase).invoke(tabId = "id", alternativeUrl = url)
+    @Test
+    fun `GIVEN no selected tab, WHEN init action is dispatched, THEN the summarize page menu item is not enabled`() =
+        runTest(testDispatcher) {
+            val store = createStore(
+                menuState = MenuState(
+                    browserMenuState = null,
+                ),
+            )
+            store.dispatch(MenuAction.InitAction)
 
-        assertTrue(dismissWasCalled)
-    }
+            testScheduler.advanceUntilIdle()
+            assertFalse(
+                "Expected the summarize page menu item to be disabled",
+                store.state.summarizationMenuState.enabled,
+            )
+        }
+
+    @Test
+    fun `GIVEN selected tab is normal, WHEN init action is dispatched, THEN a toolbar highlight interaction is cached`() =
+        runTest(testDispatcher) {
+            val store = createStore(
+                menuState = MenuState(
+                    browserMenuState = BrowserMenuState(
+                        selectedTab = createTab(url = "https://mozilla.org"),
+                    ),
+                ),
+            )
+            store.dispatch(MenuAction.InitAction)
+
+            testScheduler.advanceUntilIdle()
+            assertTrue(
+                "Expected the toolbar highlight interaction to be cached",
+                summarizeFeatureSettings.toolbarOverflowMenuInteractionCount > 0,
+            )
+        }
+
+    @Test
+    fun `WHEN more menu is clicked, THEN we cache that interaction in the summarization menu settings`() =
+        runTest(testDispatcher) {
+            val store = createStore()
+            store.dispatch(MenuAction.InitAction)
+            store.dispatch(MenuAction.OnMoreMenuClicked)
+            testScheduler.advanceUntilIdle()
+
+            assertEquals(
+                "Expected the more menu clicked to be cached in the summarization menu settings",
+                1,
+                summarizeFeatureSettings.menuOverflowInteractionCount,
+            )
+        }
+
+    @Test
+    fun `GIVEN more menu is not highlighted by summarize feature, WHEN more menu is clicked, THEN the interaction is not cached`() =
+        runTest(testDispatcher) {
+            summarizeFeatureSettings.shouldHighlightOverflowMenuItem = false
+
+            val store = createStore()
+            store.dispatch(MenuAction.InitAction)
+            store.dispatch(MenuAction.OnMoreMenuClicked)
+            testScheduler.advanceUntilIdle()
+
+            assertEquals(
+                "Expected the more menu click is not cached in the summarization menu settings",
+                0,
+                summarizeFeatureSettings.menuOverflowInteractionCount,
+            )
+        }
 
     private fun createStore(
         appStore: AppStore = AppStore(),
-        menuState: MenuState = MenuState(),
+        menuState: MenuState = MenuState(
+            browserMenuState = BrowserMenuState(
+                selectedTab = createTab(
+                    url = "https://mozilla.org",
+                ),
+            ),
+        ),
         onDismiss: suspend () -> Unit = {},
         onSendPendingIntentWithUrl: (intent: PendingIntent, url: String?) -> Unit = { _: PendingIntent, _: String? -> },
     ) = MenuStore(
@@ -1047,6 +1168,7 @@ class MenuDialogMiddlewareTest {
                 appStore = appStore,
                 addonManager = addonManager,
                 settings = settings,
+                summarizeMenuSettings = summarizeFeatureSettings,
                 bookmarksStorage = bookmarksStorage,
                 pinnedSiteStorage = pinnedSiteStorage,
                 appLinksUseCases = appLinksUseCases,
@@ -1054,13 +1176,12 @@ class MenuDialogMiddlewareTest {
                 addPinnedSiteUseCase = addPinnedSiteUseCase,
                 removePinnedSitesUseCase = removePinnedSiteUseCase,
                 requestDesktopSiteUseCase = requestDesktopSiteUseCase,
-                tabsUseCases = tabsUseCases,
                 materialAlertDialogBuilder = alertDialogBuilder,
                 topSitesMaxLimit = TOP_SITES_MAX_COUNT,
                 onDeleteAndQuit = onDeleteAndQuit,
                 onDismiss = onDismiss,
                 onSendPendingIntentWithUrl = onSendPendingIntentWithUrl,
-                scope = scope,
+                mainDispatcher = testDispatcher,
                 lastSavedFolderCache = lastSavedFolderCache,
             ),
         ),

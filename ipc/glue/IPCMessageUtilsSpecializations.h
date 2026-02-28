@@ -4,14 +4,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef __IPC_GLUE_IPCMESSAGEUTILSSPECIALIZATIONS_H__
-#define __IPC_GLUE_IPCMESSAGEUTILSSPECIALIZATIONS_H__
+#ifndef IPC_GLUE_IPCMESSAGEUTILSSPECIALIZATIONS_H_
+#define IPC_GLUE_IPCMESSAGEUTILSSPECIALIZATIONS_H_
 
 #include <cstdint>
-#include <cstdlib>
 #include <limits>
 #include <set>
-#include <string>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
@@ -27,16 +25,13 @@
 #include "mozilla/IntegerRange.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/TimeStamp.h"
-#ifdef XP_WIN
-#  include "mozilla/TimeStamp_windows.h"
-#endif
 
 #include "mozilla/UniquePtr.h"
 #include "mozilla/Vector.h"
 #include "mozilla/dom/ipc/StructuredCloneData.h"
 #include "mozilla/dom/UserActivation.h"
 #include "gfxPlatform.h"
-#include "nsCSSPropertyID.h"
+#include "NonCustomCSSPropertyId.h"
 #include "nsContentPermissionHelper.h"
 #include "nsDebug.h"
 #include "nsIContentPolicy.h"
@@ -377,9 +372,9 @@ struct ParamTraits<float> {
 };
 
 template <>
-struct ParamTraits<nsCSSPropertyID>
-    : public ContiguousEnumSerializer<nsCSSPropertyID, eCSSProperty_UNKNOWN,
-                                      eCSSProperty_COUNT> {};
+struct ParamTraits<NonCustomCSSPropertyId>
+    : public ContiguousEnumSerializer<
+          NonCustomCSSPropertyId, eCSSProperty_FIRST, eCSSProperty_INVALID> {};
 
 template <>
 struct ParamTraits<nsID> {
@@ -433,40 +428,6 @@ struct ParamTraits<mozilla::TimeStamp> {
   static bool Read(MessageReader* aReader, paramType* aResult) {
     return ReadParam(aReader, &aResult->mValue);
   };
-};
-
-#ifdef XP_WIN
-
-template <>
-struct ParamTraits<mozilla::TimeStampValue> {
-  typedef mozilla::TimeStampValue paramType;
-  static void Write(MessageWriter* aWriter, const paramType& aParam) {
-    WriteParam(aWriter, aParam.mGTC);
-    WriteParam(aWriter, aParam.mQPC);
-    WriteParam(aWriter, aParam.mIsNull);
-    WriteParam(aWriter, aParam.mHasQPC);
-  }
-  static bool Read(MessageReader* aReader, paramType* aResult) {
-    return (ReadParam(aReader, &aResult->mGTC) &&
-            ReadParam(aReader, &aResult->mQPC) &&
-            ReadParam(aReader, &aResult->mIsNull) &&
-            ReadParam(aReader, &aResult->mHasQPC));
-  }
-};
-
-#endif
-
-template <>
-struct ParamTraits<mozilla::dom::ipc::StructuredCloneData> {
-  typedef mozilla::dom::ipc::StructuredCloneData paramType;
-
-  static void Write(MessageWriter* aWriter, const paramType& aParam) {
-    aParam.WriteIPCParams(aWriter);
-  }
-
-  static bool Read(MessageReader* aReader, paramType* aResult) {
-    return aResult->ReadIPCParams(aReader);
-  }
 };
 
 template <class T>
@@ -812,8 +773,6 @@ struct ParamTraits<mozilla::net::LinkHeader> {
   static void Write(MessageWriter* aWriter, const paramType& aParam) {
     static_assert(sizeof(paramType) == kExpectedSizeOfParamType,
                   "All members of should be written below.");
-    // Bug 1860565: `aParam.mAnchor` is not written.
-
     WriteParam(aWriter, aParam.mHref);
     WriteParam(aWriter, aParam.mRel);
     WriteParam(aWriter, aParam.mTitle);
@@ -832,8 +791,6 @@ struct ParamTraits<mozilla::net::LinkHeader> {
   static bool Read(MessageReader* aReader, paramType* aResult) {
     static_assert(sizeof(paramType) == kExpectedSizeOfParamType,
                   "All members of should be handled below.");
-    // Bug 1860565: `aParam.mAnchor` is not handled.
-
     if (!ReadParam(aReader, &aResult->mHref)) {
       return false;
     }
@@ -931,4 +888,4 @@ struct ParamTraits<PromptResult>
 
 } /* namespace IPC */
 
-#endif /* __IPC_GLUE_IPCMESSAGEUTILSSPECIALIZATIONS_H__ */
+#endif /* IPC_GLUE_IPCMESSAGEUTILSSPECIALIZATIONS_H_ */

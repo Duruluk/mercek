@@ -4,139 +4,124 @@
 
 package org.mozilla.fenix.tabstray.binding
 
-import androidx.fragment.app.Fragment
-import io.mockk.Runs
+import android.view.Window
+import android.view.WindowManager
 import io.mockk.every
-import io.mockk.just
 import io.mockk.mockk
 import io.mockk.verify
-import mozilla.components.support.test.libstate.ext.waitUntilIdle
-import mozilla.components.support.test.rule.MainCoroutineRule
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.runTest
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
-import org.mozilla.fenix.ext.removeSecure
-import org.mozilla.fenix.ext.secure
-import org.mozilla.fenix.tabstray.Page
-import org.mozilla.fenix.tabstray.TabsTrayAction
-import org.mozilla.fenix.tabstray.TabsTrayState
-import org.mozilla.fenix.tabstray.TabsTrayStore
+import org.mozilla.fenix.tabstray.redux.action.TabsTrayAction
+import org.mozilla.fenix.tabstray.redux.state.Page
+import org.mozilla.fenix.tabstray.redux.state.TabsTrayState
+import org.mozilla.fenix.tabstray.redux.store.TabsTrayStore
 import org.mozilla.fenix.utils.Settings
 
 class SecureTabManagerBindingTest {
 
-    @get:Rule
-    val coroutinesTestRule = MainCoroutineRule()
+    private val testDispatcher = StandardTestDispatcher()
 
+    private val window: Window = mockk(relaxed = true)
     private val settings: Settings = mockk(relaxed = true)
-    private val fragment: Fragment = mockk(relaxed = true)
+
+    private lateinit var secureTabManagerBinding: SecureTabManagerBinding
+    private lateinit var tabsTrayStore: TabsTrayStore
 
     @Before
     fun setup() {
-        every { fragment.secure() } just Runs
-        every { fragment.removeSecure() } just Runs
+        tabsTrayStore = TabsTrayStore(TabsTrayState())
+
+        secureTabManagerBinding = SecureTabManagerBinding(
+            store = tabsTrayStore,
+            settings = settings,
+            window = window,
+            mainDispatcher = testDispatcher,
+        )
     }
 
     @Test
-    fun `WHEN tab selected page switches to private THEN set fragment to secure`() {
-        val tabsTrayStore = TabsTrayStore(TabsTrayState())
-        val secureTabManagerBinding = SecureTabManagerBinding(
-            store = tabsTrayStore,
-            settings = settings,
-            fragment = fragment,
-        )
+    fun `WHEN tab selected page switches to private THEN set window to secure`() = runTest(testDispatcher) {
+        every { settings.shouldSecureModeBeOverridden } returns false
+        every { settings.lastKnownMode.isPrivate } returns false
 
         secureTabManagerBinding.start()
-        tabsTrayStore.dispatch(TabsTrayAction.PageSelected(Page.PrivateTabs))
-        tabsTrayStore.waitUntilIdle()
+        testDispatcher.scheduler.advanceUntilIdle()
 
-        verify { fragment.secure() }
+        tabsTrayStore.dispatch(TabsTrayAction.PageSelected(Page.PrivateTabs))
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        verify { window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) }
     }
 
     @Test
-    fun `WHEN tab selected page switches to private and allowScreenshotsInPrivateMode true THEN set fragment to un-secure`() {
-        val tabsTrayStore = TabsTrayStore(TabsTrayState())
-        val secureTabManagerBinding = SecureTabManagerBinding(
-            store = tabsTrayStore,
-            settings = settings,
-            fragment = fragment,
-        )
-        every { settings.allowScreenshotsInPrivateMode } returns true
-
-        secureTabManagerBinding.start()
-        tabsTrayStore.dispatch(TabsTrayAction.PageSelected(Page.PrivateTabs))
-        tabsTrayStore.waitUntilIdle()
-
-        verify { fragment.removeSecure() }
-    }
-
-    @Test
-    fun `WHEN tab selected page switches to private and allowScreenshotsInPrivateMode false and shouldSecureModeBeOverridden true THEN set fragment to un-secure`() {
-        val tabsTrayStore = TabsTrayStore(TabsTrayState())
-        val secureTabManagerBinding = SecureTabManagerBinding(
-            store = tabsTrayStore,
-            settings = settings,
-            fragment = fragment,
-        )
-        every { settings.allowScreenshotsInPrivateMode } returns false
+    fun `WHEN tab selected page switches to private and allowScreenshotsInPrivateMode true THEN set window to un-secure`() = runTest(testDispatcher) {
         every { settings.shouldSecureModeBeOverridden } returns true
+        every { settings.lastKnownMode.isPrivate } returns false
 
         secureTabManagerBinding.start()
+        testDispatcher.scheduler.advanceUntilIdle()
+
         tabsTrayStore.dispatch(TabsTrayAction.PageSelected(Page.PrivateTabs))
-        tabsTrayStore.waitUntilIdle()
+        testDispatcher.scheduler.advanceUntilIdle()
 
-        verify { fragment.removeSecure() }
+        verify { window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
     }
 
     @Test
-    fun `GIVEN not in private mode WHEN tab selected page switches to normal tabs from private THEN set fragment to un-secure`() {
+    fun `WHEN tab selected page switches to private and allowScreenshotsInPrivateMode false and shouldSecureModeBeOverridden true THEN set window to un-secure`() = runTest(testDispatcher) {
+        every { settings.shouldSecureModeBeOverridden } returns true
         every { settings.lastKnownMode.isPrivate } returns false
-        val tabsTrayStore = TabsTrayStore(TabsTrayState())
-        val secureTabManagerBinding = SecureTabManagerBinding(
-            store = tabsTrayStore,
-            settings = settings,
-            fragment = fragment,
-        )
 
         secureTabManagerBinding.start()
-        tabsTrayStore.dispatch(TabsTrayAction.PageSelected(Page.NormalTabs))
-        tabsTrayStore.waitUntilIdle()
+        testDispatcher.scheduler.advanceUntilIdle()
 
-        verify { fragment.removeSecure() }
+        tabsTrayStore.dispatch(TabsTrayAction.PageSelected(Page.PrivateTabs))
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        verify { window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
     }
 
     @Test
-    fun `GIVEN private mode WHEN tab selected page switches to normal tabs from private THEN do nothing`() {
+    fun `GIVEN not in private mode WHEN tab selected page switches to normal tabs from private THEN set window to un-secure`() = runTest(testDispatcher) {
+        every { settings.lastKnownMode.isPrivate } returns false
+
+        secureTabManagerBinding.start()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        tabsTrayStore.dispatch(TabsTrayAction.PageSelected(Page.NormalTabs))
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        verify { window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
+    }
+
+    @Test
+    fun `GIVEN private mode WHEN tab selected page switches to normal tabs from private THEN do nothing`() = runTest(testDispatcher) {
         every { settings.lastKnownMode.isPrivate } returns true
-        val tabsTrayStore = TabsTrayStore(TabsTrayState())
-        val secureTabManagerBinding = SecureTabManagerBinding(
-            store = tabsTrayStore,
-            settings = settings,
-            fragment = fragment,
-        )
 
         secureTabManagerBinding.start()
-        tabsTrayStore.dispatch(TabsTrayAction.PageSelected(Page.NormalTabs))
-        tabsTrayStore.waitUntilIdle()
+        testDispatcher.scheduler.advanceUntilIdle()
 
-        verify(exactly = 0) { fragment.removeSecure() }
+        tabsTrayStore.dispatch(TabsTrayAction.PageSelected(Page.NormalTabs))
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        verify(exactly = 0) { window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
     }
 
     @Test
-    fun `GIVEN in Normal browsing mode WHEN fragment is stopped THEN set fragment to un-secure`() {
+    fun `GIVEN in Normal browsing mode WHEN fragment is stopped THEN set window to un-secure`() = runTest(testDispatcher) {
         every { settings.lastKnownMode.isPrivate } returns false
-        val tabsTrayStore = TabsTrayStore(TabsTrayState())
-        val secureTabManagerBinding = SecureTabManagerBinding(
-            store = tabsTrayStore,
-            settings = settings,
-            fragment = fragment,
-        )
 
         secureTabManagerBinding.start()
-        tabsTrayStore.dispatch(TabsTrayAction.PageSelected(Page.NormalTabs))
-        tabsTrayStore.waitUntilIdle()
-        secureTabManagerBinding.stop()
+        testDispatcher.scheduler.advanceUntilIdle()
 
-        verify { fragment.removeSecure() }
+        tabsTrayStore.dispatch(TabsTrayAction.PageSelected(Page.NormalTabs))
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        secureTabManagerBinding.stop()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        verify { window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
     }
 }

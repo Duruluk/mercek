@@ -57,10 +57,6 @@ nsCaret::~nsCaret() { StopBlinking(); }
 nsresult nsCaret::Init(PresShell* aPresShell) {
   NS_ENSURE_ARG(aPresShell);
 
-  mPresShell =
-      do_GetWeakReference(aPresShell);  // the presshell owns us, so no addref
-  NS_ASSERTION(mPresShell, "Hey, pres shell should support weak refs");
-
   RefPtr<Selection> selection =
       aPresShell->GetSelection(nsISelectionController::SELECTION_NORMAL);
   if (!selection) {
@@ -69,6 +65,7 @@ nsresult nsCaret::Init(PresShell* aPresShell) {
 
   selection->AddSelectionListener(this);
   mDomSelectionWeak = selection;
+  UpdateHiddenDuringSelection();
   UpdateCaretPositionFromSelectionIfNeeded();
 
   return NS_OK;
@@ -127,7 +124,6 @@ void nsCaret::Terminate() {
     mDomSelectionWeak->RemoveSelectionListener(this);
   }
   mDomSelectionWeak = nullptr;
-  mPresShell = nullptr;
   mCaretPosition = {};
 }
 
@@ -138,6 +134,7 @@ Selection* nsCaret::GetSelection() { return mDomSelectionWeak; }
 void nsCaret::SetSelection(Selection* aDOMSel) {
   MOZ_ASSERT(aDOMSel);
   mDomSelectionWeak = aDOMSel;
+  UpdateHiddenDuringSelection();
   UpdateCaretPositionFromSelectionIfNeeded();
   ResetBlinking();
   SchedulePaint();
@@ -384,10 +381,7 @@ void nsCaret::SetVisibilityDuringSelection(bool aVisibility) {
     return;
   }
   mShowDuringSelection = aVisibility;
-  if (mHiddenDuringSelection && aVisibility) {
-    RemoveForceHide();
-    mHiddenDuringSelection = false;
-  }
+  UpdateHiddenDuringSelection();
   SchedulePaint();
 }
 
@@ -399,7 +393,7 @@ void nsCaret::UpdateCaretPositionFromSelectionIfNeeded() {
   if (newPos == mCaretPosition) {
     return;
   }
-  mCaretPosition = newPos;
+  mCaretPosition = std::move(newPos);
   SchedulePaint();
 }
 
@@ -560,15 +554,7 @@ nsCaret::NotifySelectionChanged(Document*, Selection* aDomSel, int16_t aReason,
 
   // Check if we need to hide / un-hide the caret due to the selection being
   // collapsed.
-  if (!mShowDuringSelection &&
-      !aDomSel->IsCollapsed() != mHiddenDuringSelection) {
-    if (mHiddenDuringSelection) {
-      RemoveForceHide();
-    } else {
-      AddForceHide();
-    }
-    mHiddenDuringSelection = !mHiddenDuringSelection;
-  }
+  UpdateHiddenDuringSelection();
 
   // We don't bother computing the caret position when invisible. We'll do it if
   // we become visible in CaretVisibilityMaybeChanged().
@@ -578,6 +564,20 @@ nsCaret::NotifySelectionChanged(Document*, Selection* aDomSel, int16_t aReason,
   }
 
   return NS_OK;
+}
+
+void nsCaret::UpdateHiddenDuringSelection() {
+  const bool shouldShowCaret = mShowDuringSelection || !mDomSelectionWeak ||
+                               mDomSelectionWeak->IsCollapsed();
+  if (!shouldShowCaret == mHiddenDuringSelection) {
+    return;
+  }
+  if (shouldShowCaret) {
+    RemoveForceHide();
+  } else {
+    AddForceHide();
+  }
+  mHiddenDuringSelection = !shouldShowCaret;
 }
 
 void nsCaret::ResetBlinking() {
@@ -632,11 +632,6 @@ void nsCaret::StopBlinking() {
 
 size_t nsCaret::SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const {
   size_t total = aMallocSizeOf(this);
-  if (mPresShell) {
-    // We only want the size of the nsWeakReference object, not the PresShell
-    // (since we don't own the PresShell).
-    total += mPresShell->SizeOfOnlyThis(aMallocSizeOf);
-  }
   if (mBlinkTimer) {
     total += mBlinkTimer->SizeOfIncludingThis(aMallocSizeOf);
   }

@@ -8,7 +8,6 @@
 #define DOM_NAVIGATIONPRECOMMITCONTROLLER_H_
 
 #include "js/TypeDecls.h"
-#include "mozilla/Attributes.h"
 #include "mozilla/ErrorResult.h"
 #include "mozilla/dom/BindingDeclarations.h"
 #include "nsCycleCollectionParticipant.h"
@@ -18,6 +17,7 @@ namespace mozilla::dom {
 
 struct NavigationNavigateOptions;
 class NavigateEvent;
+class NavigationInterceptHandler;
 }  // namespace mozilla::dom
 
 class nsIGlobalObject;
@@ -43,9 +43,10 @@ class NavigationPrecommitController final : public nsISupports,
   JSObject* WrapObject(JSContext* aCx,
                        JS::Handle<JSObject*> aGivenProto) override;
 
-  // https://html.spec.whatwg.org/#dom-navigationprecommitcontroller-redirect
   void Redirect(JSContext* aCx, const nsAString& aUrl,
                 const NavigationNavigateOptions& aOptions, ErrorResult& aRv);
+
+  void AddHandler(NavigationInterceptHandler& aHandler, ErrorResult& aRv);
 
  private:
   nsCOMPtr<nsIGlobalObject> mGlobalObject;

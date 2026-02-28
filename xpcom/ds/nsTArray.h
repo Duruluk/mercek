@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsTArray_h__
-#define nsTArray_h__
+#ifndef nsTArray_h_
+#define nsTArray_h_
 
 #include <string.h>
 
@@ -68,15 +68,8 @@ template <typename, typename>
 class RecordEntry;
 }
 
-namespace mozilla::dom::ipc {
-class StructuredCloneData;
-}  // namespace mozilla::dom::ipc
-
 namespace mozilla::dom {
-class ClonedMessageData;
-class MessageData;
 class MessagePortIdentifier;
-struct MozPluginParameter;
 template <typename T>
 struct Nullable;
 class OwningFileOrDirectory;
@@ -509,7 +502,7 @@ class nsTArray_base {
 
   Header* Hdr() const MOZ_NONNULL_RETURN { return mHdr; }
   Header** PtrToHdr() MOZ_NONNULL_RETURN { return &mHdr; }
-  static Header* EmptyHdr() MOZ_NONNULL_RETURN {
+  static constexpr Header* EmptyHdr() MOZ_NONNULL_RETURN {
     return const_cast<Header*>(&sEmptyTArrayHeader);
   }
 
@@ -747,17 +740,12 @@ MOZ_DECLARE_RELOCATE_USING_MOVE_CONSTRUCTOR(mozilla::layers::TileClient)
 MOZ_DECLARE_RELOCATE_USING_MOVE_CONSTRUCTOR(
     mozilla::SerializedStructuredCloneBuffer)
 MOZ_DECLARE_RELOCATE_USING_MOVE_CONSTRUCTOR(
-    mozilla::dom::ipc::StructuredCloneData)
-MOZ_DECLARE_RELOCATE_USING_MOVE_CONSTRUCTOR(mozilla::dom::ClonedMessageData)
-MOZ_DECLARE_RELOCATE_USING_MOVE_CONSTRUCTOR(
     mozilla::dom::indexedDB::ObjectStoreCursorResponse)
 MOZ_DECLARE_RELOCATE_USING_MOVE_CONSTRUCTOR(
     mozilla::dom::indexedDB::IndexCursorResponse)
 MOZ_DECLARE_RELOCATE_USING_MOVE_CONSTRUCTOR(
     mozilla::dom::indexedDB::SerializedStructuredCloneReadInfo);
 MOZ_DECLARE_RELOCATE_USING_MOVE_CONSTRUCTOR(JSStructuredCloneData)
-MOZ_DECLARE_RELOCATE_USING_MOVE_CONSTRUCTOR(mozilla::dom::MessageData)
-MOZ_DECLARE_RELOCATE_USING_MOVE_CONSTRUCTOR(mozilla::dom::RefMessageData)
 MOZ_DECLARE_RELOCATE_USING_MOVE_CONSTRUCTOR(mozilla::SourceBufferTask)
 
 namespace detail {
@@ -767,17 +755,17 @@ namespace detail {
 // called as a function with two instances of our element type, returns an int,
 // we treat it as a tri-state comparator.
 //
-// T is the type of the comparator object we want to check. U is the array
-// element type that we'll be comparing.
+// T is the type of the comparator object we want to check. L and R are the
+// types that we'll be comparing.
 //
 // V is never passed, and is only used to allow us to specialize on the return
 // value of the comparator function.
-template <typename T, typename U, typename V = int>
+template <typename T, typename L, typename R, typename V = int>
 struct IsCompareMethod : std::false_type {};
 
-template <typename T, typename U>
+template <typename T, typename L, typename R>
 struct IsCompareMethod<
-    T, U, decltype(std::declval<T>()(std::declval<U>(), std::declval<U>()))>
+    T, L, R, decltype(std::declval<T>()(std::declval<L>(), std::declval<R>()))>
     : std::true_type {};
 
 // These two wrappers allow us to use either a tri-state comparator, or an
@@ -792,7 +780,8 @@ struct IsCompareMethod<
 // purpose.
 
 // Comparator wrapper for a tri-state comparator function
-template <typename T, typename U, bool IsCompare = IsCompareMethod<T, U>::value>
+template <typename T, typename L, typename R,
+          bool IsCompare = IsCompareMethod<T, L, R>::value>
 struct CompareWrapper {
 #ifdef _MSC_VER
 #  pragma warning(push)
@@ -824,8 +813,8 @@ struct CompareWrapper {
 };
 
 // Comparator wrapper for a class with Equals() and LessThan() methods.
-template <typename T, typename U>
-struct CompareWrapper<T, U, false> {
+template <typename T, typename L, typename R>
+struct CompareWrapper<T, L, R, false> {
   MOZ_IMPLICIT CompareWrapper(const T& aComparator)
       : mComparator(aComparator) {}
 
@@ -854,6 +843,8 @@ struct CompareWrapper<T, U, false> {
 };
 
 }  // namespace detail
+
+enum class SortBoundsCheck { Enable, Disable };
 
 //
 // nsTArray_Impl contains most of the guts supporting nsTArray, FallibleTArray,
@@ -1221,7 +1212,7 @@ class nsTArray_Impl
   template <class Item, class Comparator>
   [[nodiscard]] index_type IndexOf(const Item& aItem, index_type aStart,
                                    const Comparator& aComp) const {
-    ::detail::CompareWrapper<Comparator, Item> comp(aComp);
+    ::detail::CompareWrapper<Comparator, value_type, Item> comp(aComp);
 
     const value_type* iter = Elements() + aStart;
     const value_type* iend = Elements() + Length();
@@ -1255,7 +1246,7 @@ class nsTArray_Impl
   template <class Item, class Comparator>
   [[nodiscard]] index_type LastIndexOf(const Item& aItem, index_type aStart,
                                        const Comparator& aComp) const {
-    ::detail::CompareWrapper<Comparator, Item> comp(aComp);
+    ::detail::CompareWrapper<Comparator, value_type, Item> comp(aComp);
 
     size_type endOffset = aStart >= Length() ? Length() : aStart + 1;
     const value_type* iend = Elements() - 1;
@@ -1292,7 +1283,7 @@ class nsTArray_Impl
   [[nodiscard]] index_type BinaryIndexOf(const Item& aItem,
                                          const Comparator& aComp) const {
     using mozilla::BinarySearchIf;
-    ::detail::CompareWrapper<Comparator, Item> comp(aComp);
+    ::detail::CompareWrapper<Comparator, value_type, Item> comp(aComp);
 
     size_t index;
     bool found = BinarySearchIf(
@@ -1537,7 +1528,7 @@ class nsTArray_Impl
   [[nodiscard]] index_type IndexOfFirstElementGt(
       const Item& aItem, const Comparator& aComp) const {
     using mozilla::BinarySearchIf;
-    ::detail::CompareWrapper<Comparator, Item> comp(aComp);
+    ::detail::CompareWrapper<Comparator, value_type, Item> comp(aComp);
 
     size_t index;
     BinarySearchIf(
@@ -1844,7 +1835,6 @@ class nsTArray_Impl
     if (i == NoIndex) {
       return false;
     }
-
     RemoveElementsAtUnsafe(i, 1);
     return true;
   }
@@ -1854,6 +1844,23 @@ class nsTArray_Impl
   template <class Item>
   bool RemoveElement(const Item& aItem) {
     return RemoveElement(aItem, nsDefaultComparator<value_type, Item>());
+  }
+
+  // Variations for RemoveElement that uses unordered removal.
+  template <class Item, class Comparator>
+  bool UnorderedRemoveElement(const Item& aItem, const Comparator& aComp) {
+    index_type i = IndexOf(aItem, 0, aComp);
+    if (i == NoIndex) {
+      return false;
+    }
+    UnorderedRemoveElementAt(i);
+    return true;
+  }
+
+  template <class Item>
+  bool UnorderedRemoveElement(const Item& aItem) {
+    return UnorderedRemoveElement(aItem,
+                                  nsDefaultComparator<value_type, Item>());
   }
 
   // This helper function combines IndexOfFirstElementGt with
@@ -2014,7 +2021,7 @@ class nsTArray_Impl
             typename mozilla::FunctionTypeTraits<FunctionElse>::ReturnType>,
         "ApplyIf's `Function` and `FunctionElse` must return the same type.");
 
-    ::detail::CompareWrapper<Comparator, Item> comp(aComp);
+    ::detail::CompareWrapper<Comparator, value_type, Item> comp(aComp);
 
     const value_type* const elements = Elements();
     const value_type* const iend = elements + Length();
@@ -2035,7 +2042,7 @@ class nsTArray_Impl
             typename mozilla::FunctionTypeTraits<FunctionElse>::ReturnType>,
         "ApplyIf's `Function` and `FunctionElse` must return the same type.");
 
-    ::detail::CompareWrapper<Comparator, Item> comp(aComp);
+    ::detail::CompareWrapper<Comparator, value_type, Item> comp(aComp);
 
     value_type* const elements = Elements();
     value_type* const iend = elements + Length();
@@ -2240,22 +2247,29 @@ class nsTArray_Impl
   // nsTArray_RelocationStrategy.
   //
   // @param aComp The Comparator used to collate elements.
-  template <class Comparator>
+  template <SortBoundsCheck Check = SortBoundsCheck::Enable, class Comparator>
   void Sort(const Comparator& aComp) {
     static_assert(std::is_move_assignable_v<value_type>);
     static_assert(std::is_move_constructible_v<value_type>);
 
-    ::detail::CompareWrapper<Comparator, value_type> comp(aComp);
+    ::detail::CompareWrapper<Comparator, value_type, value_type> comp(aComp);
     auto compFn = [&comp](const auto& left, const auto& right) {
       return comp.LessThan(left, right);
     };
-    std::sort(Elements(), Elements() + Length(), compFn);
+    if constexpr (Check == SortBoundsCheck::Enable) {
+      std::sort(begin(), end(), compFn);
+    } else {
+      std::sort(Elements(), Elements() + Length(), compFn);
+    }
     ::detail::AssertStrictWeakOrder(Elements(), Elements() + Length(), compFn);
   }
 
   // A variation on the Sort method defined above that assumes that
   // 'operator<' is defined for 'value_type'.
-  void Sort() { Sort(nsDefaultComparator<value_type, value_type>()); }
+  template <SortBoundsCheck Check = SortBoundsCheck::Enable>
+  void Sort() {
+    Sort(nsDefaultComparator<value_type, value_type>());
+  }
 
   // This method sorts the elements of the array in a stable way (i.e. not
   // changing the relative order of elements considered equal by the
@@ -2266,21 +2280,27 @@ class nsTArray_Impl
   // nsTArray_RelocationStrategy.
   //
   // @param aComp The Comparator used to collate elements.
-  template <class Comparator>
+  template <SortBoundsCheck Check = SortBoundsCheck::Enable, class Comparator>
   void StableSort(const Comparator& aComp) {
     static_assert(std::is_move_assignable_v<value_type>);
     static_assert(std::is_move_constructible_v<value_type>);
 
-    const ::detail::CompareWrapper<Comparator, value_type> comp(aComp);
+    const ::detail::CompareWrapper<Comparator, value_type, value_type> comp(
+        aComp);
     auto compFn = [&comp](const auto& lhs, const auto& rhs) {
       return comp.LessThan(lhs, rhs);
     };
-    std::stable_sort(Elements(), Elements() + Length(), compFn);
+    if constexpr (Check == SortBoundsCheck::Enable) {
+      std::stable_sort(begin(), end(), compFn);
+    } else {
+      std::stable_sort(Elements(), Elements() + Length(), compFn);
+    }
     ::detail::AssertStrictWeakOrder(Elements(), Elements() + Length(), compFn);
   }
 
   // A variation on the StableSort method defined above that assumes that
   // 'operator<' is defined for 'value_type'.
+  template <SortBoundsCheck Check = SortBoundsCheck::Enable>
   void StableSort() {
     StableSort(nsDefaultComparator<value_type, value_type>());
   }
@@ -2613,7 +2633,7 @@ class MOZ_GSL_OWNER nsTArray
   using typename base_type::size_type;
   using typename base_type::value_type;
 
-  nsTArray() {}
+  constexpr nsTArray() {}
   explicit nsTArray(size_type aCapacity) : base_type(aCapacity) {}
   MOZ_IMPLICIT nsTArray(std::initializer_list<E> aIL) {
     AppendElements(aIL.begin(), aIL.size());
@@ -3737,4 +3757,4 @@ std::ostream& operator<<(std::ostream& aOut,
   return aOut << mozilla::Span(aTArray);
 }
 
-#endif  // nsTArray_h__
+#endif  // nsTArray_h_

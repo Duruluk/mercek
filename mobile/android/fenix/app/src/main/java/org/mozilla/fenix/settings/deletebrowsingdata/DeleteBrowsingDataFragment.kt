@@ -12,6 +12,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Dispatchers.IO
 import kotlinx.coroutines.Dispatchers.Main
 import kotlinx.coroutines.cancel
@@ -48,12 +49,21 @@ class DeleteBrowsingDataFragment : Fragment(R.layout.fragment_delete_browsing_da
 
         _binding = FragmentDeleteBrowsingDataBinding.bind(view)
         controller = DefaultDeleteBrowsingDataController(
-            tabsUseCases.removeAllTabs,
-            downloadUseCases.removeAllDownloads,
-            requireComponents.core.historyStorage,
-            requireComponents.core.permissionStorage,
-            requireComponents.core.store,
-            requireComponents.core.engine,
+            deleteDataUseCases = DefaultDeleteBrowsingDataController.DeleteDataUseCases(
+                removeAllTabs = tabsUseCases.removeAllTabs,
+                removeAllDownloads = downloadUseCases.removeAllDownloads,
+            ),
+            dataStorage = DefaultDeleteBrowsingDataController.DataStorage(
+                history = requireComponents.core.historyStorage,
+                permissions = requireComponents.core.permissionStorage,
+            ),
+            stores = DefaultDeleteBrowsingDataController.Stores(
+                appStore = requireComponents.appStore,
+                browserStore = requireComponents.core.store,
+            ),
+            engine = requireComponents.core.engine,
+            settings = requireComponents.settings,
+            coroutineContext = requireActivity().lifecycleScope.coroutineContext,
         )
         settings = requireContext().settings()
 
@@ -97,7 +107,7 @@ class DeleteBrowsingDataFragment : Fragment(R.layout.fragment_delete_browsing_da
     override fun onStart() {
         super.onStart()
 
-        scope = requireComponents.core.store.flowScoped(viewLifecycleOwner) { flow ->
+        scope = requireComponents.core.store.flowScoped(viewLifecycleOwner, Dispatchers.Main) { flow ->
             flow.map { state -> state.tabs.size }
                 .distinctUntilChanged()
                 .collect { openTabs -> updateTabCount(openTabs) }

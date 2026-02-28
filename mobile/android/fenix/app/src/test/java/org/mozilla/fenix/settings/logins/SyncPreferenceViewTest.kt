@@ -23,7 +23,6 @@ import mozilla.components.concept.sync.AccountObserver
 import mozilla.components.service.fxa.SyncEngine
 import mozilla.components.service.fxa.manager.FxaAccountManager
 import mozilla.components.service.fxa.manager.SyncEnginesStorage
-import mozilla.components.support.test.any
 import org.junit.After
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -96,7 +95,9 @@ class SyncPreferenceViewTest {
 
         verify { syncPreference.isSwitchWidgetVisible = false }
         verify { syncPreference.title = NOT_LOGGED_IN_TITLE }
-        assertFalse(preferenceChangeListener.captured.onPreferenceChange(syncPreference, any()))
+        assertFalse(preferenceChangeListener.captured.onPreferenceChange(syncPreference, true))
+        assertFalse(preferenceChangeListener.captured.onPreferenceChange(syncPreference, false))
+
         verify {
             navController.navigate(
                 SavedLoginsAuthFragmentDirections.actionGlobalAccountProblemFragment(entrypoint = FenixFxAEntryPoint.SavedLogins),
@@ -113,7 +114,9 @@ class SyncPreferenceViewTest {
 
         verify { syncPreference.isSwitchWidgetVisible = false }
         verify { syncPreference.title = NOT_LOGGED_IN_TITLE }
-        assertFalse(preferenceChangeListener.captured.onPreferenceChange(syncPreference, any()))
+        assertFalse(preferenceChangeListener.captured.onPreferenceChange(syncPreference, true))
+        assertFalse(preferenceChangeListener.captured.onPreferenceChange(syncPreference, false))
+
         verify {
             navController.navigate(
                 SavedLoginsAuthFragmentDirections.actionGlobalAccountProblemFragment(
@@ -132,7 +135,9 @@ class SyncPreferenceViewTest {
 
         verify { syncPreference.isSwitchWidgetVisible = false }
         verify { syncPreference.title = NOT_LOGGED_IN_TITLE }
-        assertFalse(preferenceChangeListener.captured.onPreferenceChange(syncPreference, any()))
+        assertFalse(preferenceChangeListener.captured.onPreferenceChange(syncPreference, true))
+        assertFalse(preferenceChangeListener.captured.onPreferenceChange(syncPreference, false))
+
         verify {
             navController.navigate(
                 SavedLoginsAuthFragmentDirections.actionSavedLoginsAuthFragmentToTurnOnSyncFragment(

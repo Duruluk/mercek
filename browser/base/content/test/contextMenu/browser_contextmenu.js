@@ -1,5 +1,9 @@
 "use strict";
 
+const { SearchService } = ChromeUtils.importESModule(
+  "moz-src:///toolkit/components/search/SearchService.sys.mjs"
+);
+
 let contextMenu;
 let LOGIN_FILL_ITEMS = ["---", null, "manage-saved-logins", true];
 let NAVIGATION_ITEMS =
@@ -47,6 +51,10 @@ let hasStripOnShare = Services.prefs.getBoolPref(
 let hasContainers =
   Services.prefs.getBoolPref("privacy.userContext.enabled") &&
   ContextualIdentityService.getPublicIdentities().length;
+let hasSplitViews = Services.prefs.getBoolPref(
+  "browser.tabs.splitView.enabled",
+  false
+);
 
 const hasSelectTranslations =
   Services.prefs.getBoolPref("browser.translations.enable") &&
@@ -80,7 +88,6 @@ add_setup(async function () {
     set: [
       ["test.wait300msAfterTabSwitch", true],
       ["browser.search.separatePrivateDefault.ui.enabled", true],
-      ["dom.text_fragments.create_text_fragment.enabled", true],
     ],
   });
 });
@@ -101,6 +108,7 @@ add_task(async function test_xul_text_link_label() {
     [
       "context-openlinkintab",
       true,
+      ...(hasSplitViews ? ["context-openlinkinsplitview", true] : []),
       ...(hasContainers ? ["context-openlinkinusercontext-menu", true] : []),
       // We need a blank entry here because the containers submenu is
       // dynamically generated with no ids.
@@ -203,6 +211,7 @@ add_task(async function test_plaintext() {
 const kLinkItems = [
   "context-openlinkintab",
   true,
+  ...(hasSplitViews ? ["context-openlinkinsplitview", true] : []),
   ...(hasContainers ? ["context-openlinkinusercontext-menu", true] : []),
   // We need a blank entry here because the containers submenu is
   // dynamically generated with no ids.
@@ -276,6 +285,7 @@ add_task(async function test_linkpreviewcommand() {
     [
       "context-openlinkintab",
       true,
+      ...(hasSplitViews ? ["context-openlinkinsplitview", true] : []),
       ...(hasContainers ? ["context-openlinkinusercontext-menu", true] : []),
       // We need a blank entry here because the containers submenu is
       // dynamically generated with no ids.
@@ -323,6 +333,7 @@ add_task(async function test_linkpreviewcommand_disabled() {
     [
       "context-openlinkintab",
       true,
+      ...(hasSplitViews ? ["context-openlinkinsplitview", true] : []),
       ...(hasContainers ? ["context-openlinkinusercontext-menu", true] : []),
       // We need a blank entry here because the containers submenu is
       // dynamically generated with no ids.
@@ -1665,6 +1676,9 @@ add_task(async function test_dom_full_screen() {
         gBrowser.selectedBrowser,
         [],
         async function () {
+          if (!content.document.fullscreenElement) {
+            return;
+          }
           let win = content.document.defaultView;
           let awaitFullScreenChange = ContentTaskUtils.waitForEvent(
             win,
@@ -1779,7 +1793,7 @@ add_task(async function test_select_text() {
 add_task(async function test_select_text_search_service_not_initialized() {
   let statuses = ["not initialized", "failed", "started"];
   for (let status of statuses) {
-    Services.search.wrappedJSObject.forceInitializationStatusForTests(status);
+    SearchService.forceInitializationStatusForTests(status);
     await test_contextmenu(
       "#test-select-text",
       [
@@ -1821,7 +1835,7 @@ add_task(async function test_select_text_search_service_not_initialized() {
     );
   }
   // Restore the search service initialization status
-  Services.search.wrappedJSObject.forceInitializationStatusForTests("success");
+  SearchService.forceInitializationStatusForTests("success");
 });
 
 add_task(async function test_select_text_link() {
@@ -1832,6 +1846,7 @@ add_task(async function test_select_text_link() {
       true,
       "context-openlinkintab",
       true,
+      ...(hasSplitViews ? ["context-openlinkinsplitview", true] : []),
       ...(hasContainers ? ["context-openlinkinusercontext-menu", true] : []),
       // We need a blank entry here because the containers submenu is
       // dynamically generated with no ids.
@@ -1905,6 +1920,7 @@ add_task(async function test_imagelink() {
     [
       "context-openlinkintab",
       true,
+      ...(hasSplitViews ? ["context-openlinkinsplitview", true] : []),
       ...(hasContainers ? ["context-openlinkinusercontext-menu", true] : []),
       // We need a blank entry here because the containers submenu is
       // dynamically generated with no ids.
@@ -2152,6 +2168,7 @@ add_task(async function test_svg_link() {
     [
       "context-openlinkintab",
       true,
+      ...(hasSplitViews ? ["context-openlinkinsplitview", true] : []),
       ...(hasContainers ? ["context-openlinkinusercontext-menu", true] : []),
       // We need a blank entry here because the containers submenu is
       // dynamically generated with no ids.
@@ -2191,6 +2208,7 @@ add_task(async function test_svg_link() {
     [
       "context-openlinkintab",
       true,
+      ...(hasSplitViews ? ["context-openlinkinsplitview", true] : []),
       ...(hasContainers ? ["context-openlinkinusercontext-menu", true] : []),
       // We need a blank entry here because the containers submenu is
       // dynamically generated with no ids.
@@ -2230,6 +2248,7 @@ add_task(async function test_svg_link() {
     [
       "context-openlinkintab",
       true,
+      ...(hasSplitViews ? ["context-openlinkinsplitview", true] : []),
       ...(hasContainers ? ["context-openlinkinusercontext-menu", true] : []),
       // We need a blank entry here because the containers submenu is
       // dynamically generated with no ids.
@@ -2271,6 +2290,7 @@ add_task(async function test_svg_relative_link() {
     [
       "context-openlinkintab",
       true,
+      ...(hasSplitViews ? ["context-openlinkinsplitview", true] : []),
       ...(hasContainers ? ["context-openlinkinusercontext-menu", true] : []),
       // We need a blank entry here because the containers submenu is
       // dynamically generated with no ids.
@@ -2310,6 +2330,7 @@ add_task(async function test_svg_relative_link() {
     [
       "context-openlinkintab",
       true,
+      ...(hasSplitViews ? ["context-openlinkinsplitview", true] : []),
       ...(hasContainers ? ["context-openlinkinusercontext-menu", true] : []),
       // We need a blank entry here because the containers submenu is
       // dynamically generated with no ids.
@@ -2349,6 +2370,7 @@ add_task(async function test_svg_relative_link() {
     [
       "context-openlinkintab",
       true,
+      ...(hasSplitViews ? ["context-openlinkinsplitview", true] : []),
       ...(hasContainers ? ["context-openlinkinusercontext-menu", true] : []),
       // We need a blank entry here because the containers submenu is
       // dynamically generated with no ids.
@@ -2435,6 +2457,7 @@ add_task(async function test_background_image() {
     [
       "context-openlinkintab",
       true,
+      ...(hasSplitViews ? ["context-openlinkinsplitview", true] : []),
       ...(hasContainers ? ["context-openlinkinusercontext-menu", true] : []),
       // We need a blank entry here because the containers submenu is
       // dynamically generated with no ids.
@@ -2549,6 +2572,7 @@ add_task(async function test_strip_on_share_on_secure_about_page() {
     [
       "context-openlinkintab",
       true,
+      ...(hasSplitViews ? ["context-openlinkinsplitview", true] : []),
       ...(hasContainers ? ["context-openlinkinusercontext-menu", true] : []),
       // We need a blank entry here because the containers submenu is
       // dynamically generated with no ids.
@@ -2591,7 +2615,7 @@ add_task(async function test_strip_on_share_on_secure_about_page() {
 /**
  * Selects the text of the element that matches the provided `selector`
  *
- * @param {String} selector
+ * @param {string} selector
  *        A selector passed to querySelector to find
  *        the element that will be referenced.
  */
@@ -2616,6 +2640,7 @@ async function selectText(selector) {
 
 /**
  * Not all platforms support text recognition.
+ *
  * @returns {string[]}
  */
 function getTextRecognitionItems() {

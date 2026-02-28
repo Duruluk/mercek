@@ -371,7 +371,8 @@ namespace JS {
 //   compartments. If an object needs to point to a JSObject in a different
 //   compartment, regardless of zone, it must go through a cross-compartment
 //   wrapper. Each compartment keeps track of its outgoing wrappers in a table.
-//   JSObjects find their compartment via their ObjectGroup.
+//   JSObjects find their compartment via their Realm, which is found by
+//   following their shape and base shape pointers.
 //
 // - JSStrings do not belong to any particular compartment, but they do belong
 //   to a zone. Thus, two different compartments in the same zone can point to a
@@ -387,9 +388,8 @@ namespace JS {
 // - Scripts are also compartment-local and cannot be shared. A script points to
 //   its compartment.
 //
-// - ObjectGroup and JitCode objects belong to a compartment and cannot be
-//   shared. There is no mechanism to obtain the compartment from a JitCode
-//   object.
+// - JitCode objects belong to a compartment and cannot be shared. There is no
+//   mechanism to obtain the compartment from a JitCode object.
 //
 // A zone remains alive as long as any GC things in the zone are alive. A
 // compartment remains alive as long as any JSObjects, scripts, shapes, or base
@@ -451,10 +451,6 @@ class Zone : public js::ZoneAllocator, public js::gc::GraphNodeBase<JS::Zone> {
   js::MainThreadData<js::StringStats> previousGCStringStats;
   js::MainThreadData<js::StringStats> stringStats;
 
-#ifdef DEBUG
-  js::MainThreadData<unsigned> gcSweepGroupIndex;
-#endif
-
   js::gc::PretenuringZone pretenuring;
 
  private:
@@ -464,9 +460,12 @@ class Zone : public js::ZoneAllocator, public js::gc::GraphNodeBase<JS::Zone> {
   // Number of allocations since the most recent minor GC for this thread.
   uint32_t tenuredAllocsSinceMinorGC_ = 0;
 
-  // Live weakmaps in this zone.
+  // Live weakmaps in this zone, used internally by the JS engine and used to
+  // implement JS WeakMap objects respectively.
   js::MainThreadOrGCTaskData<mozilla::LinkedList<js::WeakMapBase>>
-      gcWeakMapList_;
+      gcSystemWeakMaps_;
+  js::MainThreadOrGCTaskData<mozilla::LinkedList<js::WeakMapBase>>
+      gcUserWeakMaps_;
 
   // The set of compartments in this zone.
   using CompartmentVector =
@@ -482,11 +481,8 @@ class Zone : public js::ZoneAllocator, public js::gc::GraphNodeBase<JS::Zone> {
       weakCaches_;
 
   // Mapping from not yet marked keys to a vector of all values that the key
-  // maps to in any live weak map. Separate tables for nursery and tenured
-  // keys.
+  // maps to in any live weak map.
   js::MainThreadOrGCTaskData<js::gc::EphemeronEdgeTable> gcEphemeronEdges_;
-  js::MainThreadOrGCTaskData<js::gc::EphemeronEdgeTable>
-      gcNurseryEphemeronEdges_;
 
   js::MainThreadData<js::UniquePtr<js::RegExpZone>> regExps_;
 
@@ -532,6 +528,11 @@ class Zone : public js::ZoneAllocator, public js::gc::GraphNodeBase<JS::Zone> {
   js::MainThreadData<bool> keepPropMapTables_;
   js::MainThreadData<bool> wasCollected_;
 
+  // Cached information about weak maps in the zone, to speed up finding sweep
+  // group edges.
+  js::MainThreadOrGCTaskData<bool> gcUserWeakMapsMayHaveKeyDelegates_;
+  js::MainThreadOrGCTaskData<bool> gcWeakMapsMayHaveSymbolKeys_;
+
   js::MainThreadOrIonCompileData<JSObject**> preservedWrappers_;
   js::MainThreadOrIonCompileData<size_t> preservedWrappersCount_;
   js::MainThreadOrIonCompileData<size_t> preservedWrappersCapacity_;
@@ -553,6 +554,16 @@ class Zone : public js::ZoneAllocator, public js::gc::GraphNodeBase<JS::Zone> {
   // objects.
   using ObjectVector = js::GCVector<JSObject*, 0, js::SystemAllocPolicy>;
   js::MainThreadOrGCTaskData<ObjectVector> objectsWithWeakPointers;
+
+#ifdef DEBUG
+  js::MainThreadData<unsigned> gcSweepGroupIndex;
+
+  // During gray marking, delay AssertCellIsNotGray checks by
+  // recording the cell pointers here and checking after marking has
+  // finished.
+  js::MainThreadData<js::Vector<const js::gc::Cell*, 0, js::SystemAllocPolicy>>
+      cellsToAssertNotGray_;
+#endif
 
  public:
 #ifdef JS_GC_ZEAL
@@ -637,7 +648,7 @@ class Zone : public js::ZoneAllocator, public js::gc::GraphNodeBase<JS::Zone> {
     return lastDiscardedCodeTime_;
   }
 
-  void changeGCState(GCState prev, GCState next);
+  void changeGCState(js::gc::GCRuntime* gc, GCState prev, GCState next);
 
   bool isCollecting() const {
     MOZ_ASSERT(js::CurrentThreadCanAccessRuntime(runtimeFromMainThread()));
@@ -645,7 +656,7 @@ class Zone : public js::ZoneAllocator, public js::gc::GraphNodeBase<JS::Zone> {
   }
 
   inline bool isCollectingFromAnyThread() const {
-    return needsIncrementalBarrier() || wasGCStarted();
+    return needsMarkingBarrier() || wasGCStarted();
   }
 
   GCState initialMarkingState() const;
@@ -666,13 +677,13 @@ class Zone : public js::ZoneAllocator, public js::gc::GraphNodeBase<JS::Zone> {
   bool wasCollected() const { return wasCollected_; }
   void setWasCollected(bool v) { wasCollected_ = v; }
 
-  void setNeedsIncrementalBarrier(bool needs);
-  const BarrierState* addressOfNeedsIncrementalBarrier() const {
-    return &needsIncrementalBarrier_;
+  void setNeedsMarkingBarrier(js::gc::GCRuntime* gc, bool needs);
+  const BarrierState* addressOfNeedsMarkingBarrier() const {
+    return &needsMarkingBarrier_;
   }
 
-  static constexpr size_t offsetOfNeedsIncrementalBarrier() {
-    return offsetof(Zone, needsIncrementalBarrier_);
+  static constexpr size_t offsetOfNeedsMarkingBarrier() {
+    return offsetof(Zone, needsMarkingBarrier_);
   }
   static constexpr size_t offsetOfJitZone() { return offsetof(Zone, jitZone_); }
 
@@ -770,8 +781,26 @@ class Zone : public js::ZoneAllocator, public js::gc::GraphNodeBase<JS::Zone> {
     return res;
   }
 
-  mozilla::LinkedList<js::WeakMapBase>& gcWeakMapList() {
-    return gcWeakMapList_.ref();
+  mozilla::LinkedList<js::WeakMapBase>& gcSystemWeakMaps() {
+    return gcSystemWeakMaps_.ref();
+  }
+  mozilla::LinkedList<js::WeakMapBase>& gcUserWeakMaps() {
+    return gcUserWeakMaps_.ref();
+  }
+
+  bool gcUserWeakMapsMayHaveKeyDelegates() const {
+    return gcUserWeakMapsMayHaveKeyDelegates_;
+  }
+  void setGCWeakMapsMayHaveKeyDelegates() {
+    gcUserWeakMapsMayHaveKeyDelegates_ = true;
+  }
+  bool gcWeakMapsMayHaveSymbolKeys() const {
+    return gcWeakMapsMayHaveSymbolKeys_;
+  }
+  void setGCWeakMapsMayHaveSymbolKeys() { gcWeakMapsMayHaveSymbolKeys_ = true; }
+  void clearGCCachedWeakMapKeyData() {
+    gcUserWeakMapsMayHaveKeyDelegates_ = false;
+    gcWeakMapsMayHaveSymbolKeys_ = false;
   }
 
   CompartmentVector& compartments() { return compartments_.ref(); }
@@ -843,7 +872,7 @@ class Zone : public js::ZoneAllocator, public js::gc::GraphNodeBase<JS::Zone> {
   }
 
   void beforeClearDelegate(JSObject* wrapper, JSObject* delegate) {
-    if (needsIncrementalBarrier()) {
+    if (needsMarkingBarrier()) {
       beforeClearDelegateInternal(wrapper, delegate);
     }
   }
@@ -851,13 +880,6 @@ class Zone : public js::ZoneAllocator, public js::gc::GraphNodeBase<JS::Zone> {
   void beforeClearDelegateInternal(JSObject* wrapper, JSObject* delegate);
   js::gc::EphemeronEdgeTable& gcEphemeronEdges() {
     return gcEphemeronEdges_.ref();
-  }
-  js::gc::EphemeronEdgeTable& gcNurseryEphemeronEdges() {
-    return gcNurseryEphemeronEdges_.ref();
-  }
-
-  js::gc::EphemeronEdgeTable& gcEphemeronEdges(const js::gc::Cell* cell) {
-    return cell->isTenured() ? gcEphemeronEdges() : gcNurseryEphemeronEdges();
   }
 
   // Perform all pending weakmap entry marking for this zone after
@@ -956,6 +978,8 @@ class Zone : public js::ZoneAllocator, public js::gc::GraphNodeBase<JS::Zone> {
   // For testing purposes, return the index of the sweep group which this zone
   // was swept in in the last GC.
   unsigned lastSweepGroupIndex() { return gcSweepGroupIndex; }
+
+  auto& cellsToAssertNotGray() { return cellsToAssertNotGray_.ref(); }
 #endif
 
   // Support for invalidating fuses
@@ -968,8 +992,6 @@ class Zone : public js::ZoneAllocator, public js::gc::GraphNodeBase<JS::Zone> {
   js::jit::JitZone* createJitZone(JSContext* cx);
 
   bool isQueuedForBackgroundSweep() { return isOnList(); }
-
-  void sweepEphemeronTablesAfterMinorGC();
 
   js::gc::FinalizationObservers* finalizationObservers() {
     return finalizationObservers_.ref().get();

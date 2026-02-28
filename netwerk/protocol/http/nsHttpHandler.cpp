@@ -13,6 +13,7 @@
 #include "nsCORSListenerProxy.h"
 #include "nsError.h"
 #include "nsHttp.h"
+#include "nsHttpConnectionMgr.h"
 #include "nsHttpHandler.h"
 #include "nsHttpChannel.h"
 #include "nsHTTPCompressConv.h"
@@ -37,6 +38,7 @@
 #include "mozilla/Sprintf.h"
 #include "mozilla/StaticPrefs_network.h"
 #include "mozilla/StaticPrefs_privacy.h"
+#include "mozilla/StaticPrefs_security.h"
 #include "mozilla/StoragePrincipalHelper.h"
 #include "nsAsyncRedirectVerifyHelper.h"
 #include "nsSocketTransportService2.h"
@@ -64,6 +66,7 @@
 #include "nsCharSeparatedTokenizer.h"
 #include "nsRFPService.h"
 #include "mozilla/net/rust_helper.h"
+#include "SerializedLoadContext.h"
 
 #include "mozilla/net/HttpConnectionMgrParent.h"
 #include "mozilla/net/NeckoChild.h"
@@ -73,6 +76,7 @@
 #include "mozilla/net/SocketProcessChild.h"
 #include "mozilla/intl/LocaleService.h"
 #include "mozilla/ipc/URIUtils.h"
+#include "mozilla/glean/GleanPings.h"
 #include "mozilla/glean/NetwerkProtocolHttpMetrics.h"
 #include "mozilla/AntiTrackingRedirectHeuristic.h"
 #include "mozilla/DynamicFpiRedirectHeuristic.h"
@@ -214,13 +218,15 @@ already_AddRefed<nsHttpHandler> nsHttpHandler::GetInstance() {
 static nsCString ImageAcceptHeader() {
   nsCString mimeTypes;
 
-  if (mozilla::StaticPrefs::image_avif_enabled()) {
-    mimeTypes.Append("image/avif,");
-  }
+#ifdef MOZ_AV1
+  mimeTypes.Append("image/avif,");
+#endif
 
+#ifdef MOZ_JXL
   if (mozilla::StaticPrefs::image_jxl_enabled()) {
     mimeTypes.Append("image/jxl,");
   }
+#endif
 
   mimeTypes.Append("image/webp,");
 
@@ -239,13 +245,15 @@ static nsCString DocumentAcceptHeader() {
 
   // we also insert all of the image formats before */* when the pref is set
   if (mozilla::StaticPrefs::network_http_accept_include_images()) {
-    if (mozilla::StaticPrefs::image_avif_enabled()) {
-      mimeTypes.Append("image/avif,");
-    }
+#ifdef MOZ_AV1
+    mimeTypes.Append("image/avif,");
+#endif
 
+#ifdef MOZ_JXL
     if (mozilla::StaticPrefs::image_jxl_enabled()) {
       mimeTypes.Append("image/jxl,");
     }
+#endif
 
     mimeTypes.Append("image/webp,image/png,image/svg+xml,");
   }
@@ -258,7 +266,9 @@ static nsCString DocumentAcceptHeader() {
 Atomic<bool, Relaxed> nsHttpHandler::sParentalControlsEnabled(false);
 
 nsHttpHandler::nsHttpHandler()
-    : mIdleTimeout(PR_SecondsToInterval(10)),
+    : mAuthCache(new nsHttpAuthCache()),
+      mPrivateAuthCache(new nsHttpAuthCache()),
+      mIdleTimeout(PR_SecondsToInterval(10)),
       mSpdyTimeout(
           PR_SecondsToInterval(StaticPrefs::network_http_http2_timeout())),
       mResponseTimeout(PR_SecondsToInterval(300)),
@@ -321,7 +331,6 @@ static const char* gCallbackPrefs[] = {
     SECURITY_PREFIX,
     DOM_SECURITY_PREFIX,
     "image.http.accept",
-    "image.avif.enabled",
     "image.jxl.enabled",
     nullptr,
 };
@@ -362,6 +371,7 @@ nsresult nsHttpHandler::Init() {
   if (!IsNeckoChild()) {
     if (XRE_IsParentProcess()) {
       mDictionaryCache = DictionaryCache::GetInstance();
+      // mDictionaryCache can be null if shutdown has occurred
 
       std::bitset<3> usageOfHTTPSRRPrefs;
       usageOfHTTPSRRPrefs[0] = StaticPrefs::network_dns_upgrade_with_https_rr();
@@ -509,6 +519,7 @@ nsresult nsHttpHandler::Init() {
     obsService->AddObserver(this, "network:socket-process-crashed", true);
     obsService->AddObserver(this, "network:reset_third_party_roots_check",
                             true);
+    obsService->AddObserver(this, "idle-daily", true);
 
     if (!IsNeckoChild()) {
       obsService->AddObserver(this, "net:current-browser-id", true);
@@ -659,8 +670,7 @@ nsresult nsHttpHandler::InitConnectionMgr() {
 // dictionary load.
 nsresult nsHttpHandler::AddAcceptAndDictionaryHeaders(
     nsIURI* aURI, ExtContentPolicyType aType, nsHttpRequestHead* aRequest,
-    bool aSecure, bool& aAsync, nsHttpChannel* aChan,
-    void (*aSuspend)(nsHttpChannel*),
+    bool aSecure, nsHttpChannel* aChan, void (*aSuspend)(nsHttpChannel*),
     const std::function<bool(bool, DictionaryCacheEntry*)>& aCallback) {
   LOG(("Adding Dictionary headers"));
   auto guard = MakeScopeExit([&]() { (aCallback)(false, nullptr); });
@@ -669,12 +679,12 @@ nsresult nsHttpHandler::AddAcceptAndDictionaryHeaders(
   // Add the "Accept-Encoding" header and possibly Dictionary headers
   if (aSecure) {
     // The dictionary info may require us to check the cache.
-    if (StaticPrefs::network_http_dictionaries_enable()) {
+    if (StaticPrefs::network_http_dictionaries_enable() && mDictionaryCache) {
       // Note: this is async; the lambda can happen later
       // aCallback will now be owned by GetDictionaryFor
       guard.release();
       mDictionaryCache->GetDictionaryFor(
-          aURI, aType, aAsync, aChan, aSuspend,
+          aURI, aType, aChan, aSuspend,
           [self = RefPtr(this), aRequest, aCallback](
               bool aNeedsResume, DictionaryCacheEntry* aDict) {
             if (!aDict) {
@@ -726,11 +736,7 @@ nsresult nsHttpHandler::AddAcceptAndDictionaryHeaders(
             }
             return NS_OK;
           });
-    } else {
-      aAsync = false;
     }
-  } else {
-    aAsync = false;
   }
   // guard may call aCallback here
   return rv;
@@ -738,7 +744,8 @@ nsresult nsHttpHandler::AddAcceptAndDictionaryHeaders(
 
 nsresult nsHttpHandler::AddStandardRequestHeaders(
     nsHttpRequestHead* request, nsIURI* aURI, bool aIsHTTPS,
-    ExtContentPolicyType aContentPolicyType, bool aShouldResistFingerprinting) {
+    ExtContentPolicyType aContentPolicyType, bool aShouldResistFingerprinting,
+    const nsCString& aLanguageOverride) {
   nsresult rv;
 
   // Add the "User-Agent" header
@@ -770,18 +777,26 @@ nsresult nsHttpHandler::AddStandardRequestHeaders(
                           nsHttpHeaderArray::eVarietyRequestOverride);
   if (NS_FAILED(rv)) return rv;
 
-  // Add the "Accept-Language" header.  This header is also exposed to the
-  // service worker.
-  if (mAcceptLanguagesIsDirty) {
-    rv = SetAcceptLanguages();
-    MOZ_ASSERT(NS_SUCCEEDED(rv));
-  }
-
-  // Add the "Accept-Language" header
-  if (!mAcceptLanguages.IsEmpty()) {
-    rv = request->SetHeader(nsHttp::Accept_Language, mAcceptLanguages, false,
+  if (!aLanguageOverride.IsEmpty()) {
+    nsAutoCString acceptLanguage;
+    acceptLanguage.Assign(aLanguageOverride.get());
+    rv = request->SetHeader(nsHttp::Accept_Language, acceptLanguage, false,
                             nsHttpHeaderArray::eVarietyRequestOverride);
     if (NS_FAILED(rv)) return rv;
+  } else {
+    // Add the "Accept-Language" header.  This header is also exposed to the
+    // service worker.
+    if (mAcceptLanguagesIsDirty) {
+      rv = SetAcceptLanguages();
+      MOZ_ASSERT(NS_SUCCEEDED(rv));
+    }
+
+    // Add the "Accept-Language" header
+    if (!mAcceptLanguages.IsEmpty()) {
+      rv = request->SetHeader(nsHttp::Accept_Language, mAcceptLanguages, false,
+                              nsHttpHeaderArray::eVarietyRequestOverride);
+      if (NS_FAILED(rv)) return rv;
+    }
   }
 
   // add the "Send Hint" header
@@ -1573,13 +1588,6 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
     if (NS_SUCCEEDED(rv)) mEnablePersistentHttpsCaching = cVar;
   }
 
-  if (PREF_CHANGED(HTTP_PREF("phishy-userpass-length"))) {
-    rv = Preferences::GetInt(HTTP_PREF("phishy-userpass-length"), &val);
-    if (NS_SUCCEEDED(rv)) {
-      mPhishyUserPassLength = (uint8_t)std::clamp(val, 0, 0xff);
-    }
-  }
-
   if (PREF_CHANGED(HTTP_PREF("http2.timeout"))) {
     mSpdyTimeout = PR_SecondsToInterval(
         std::clamp(StaticPrefs::network_http_http2_timeout(), 1, 0xffff));
@@ -1939,9 +1947,8 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
     }
   }
 
-  const bool imageAcceptPrefChanged = PREF_CHANGED("image.http.accept") ||
-                                      PREF_CHANGED("image.avif.enabled") ||
-                                      PREF_CHANGED("image.jxl.enabled");
+  const bool imageAcceptPrefChanged =
+      PREF_CHANGED("image.http.accept") || PREF_CHANGED("image.jxl.enabled");
 
   if (imageAcceptPrefChanged) {
     nsAutoCString userSetImageAcceptHeader;
@@ -2272,8 +2279,8 @@ nsHttpHandler::GetAltSvcCacheKeys(nsTArray<nsCString>& value) {
 
 NS_IMETHODIMP
 nsHttpHandler::GetAuthCacheKeys(nsTArray<nsCString>& aValues) {
-  mAuthCache.CollectKeys(aValues);
-  mPrivateAuthCache.CollectKeys(aValues);
+  mAuthCache->CollectKeys(aValues);
+  mPrivateAuthCache->CollectKeys(aValues);
   return NS_OK;
 }
 
@@ -2293,8 +2300,8 @@ nsHttpHandler::Observe(nsISupports* subject, const char* topic,
     mHandlerActive = false;
 
     // clear cache of all authentication credentials.
-    mAuthCache.ClearAll();
-    mPrivateAuthCache.ClearAll();
+    mAuthCache->ClearAll();
+    mPrivateAuthCache->ClearAll();
     if (mWifiTickler) mWifiTickler->Cancel();
 
     // Inform nsIOService that network is tearing down.
@@ -2323,8 +2330,8 @@ nsHttpHandler::Observe(nsISupports* subject, const char* topic,
     MOZ_ASSERT(NS_SUCCEEDED(rv));
     mAltSvcCache = MakeUnique<AltSvcCache>();
   } else if (!strcmp(topic, "net:clear-active-logins")) {
-    mAuthCache.ClearAll();
-    mPrivateAuthCache.ClearAll();
+    mAuthCache->ClearAll();
+    mPrivateAuthCache->ClearAll();
   } else if (!strcmp(topic, "net:cancel-all-connections")) {
     if (mConnMgr) {
       mConnMgr->AbortAndCloseAllConnections(0, nullptr);
@@ -2357,7 +2364,7 @@ nsHttpHandler::Observe(nsISupports* subject, const char* topic,
          nsCOMPtr<nsIURI> uri = do_QueryInterface(subject);
 #endif
   } else if (!strcmp(topic, "last-pb-context-exited")) {
-    mPrivateAuthCache.ClearAll();
+    mPrivateAuthCache->ClearAll();
     if (mAltSvcCache) {
       mAltSvcCache->ClearAltServiceMappings();
     }
@@ -2426,8 +2433,14 @@ nsHttpHandler::Observe(nsISupports* subject, const char* topic,
     ShutdownConnectionManager();
     mConnMgr = nullptr;
     (void)InitConnectionMgr();
+  } else if (!strcmp(topic, "idle-daily")) {
+    // Submit the local-network-access ping once per day
+    if (XRE_IsParentProcess()) {
+#if defined(EARLY_BETA_OR_EARLIER)  // Submit custom telemetry ping.
+      glean_pings::LocalNetworkAccess.Submit();
+#endif
+    }
   }
-
   return NS_OK;
 }
 
@@ -2438,8 +2451,11 @@ nsresult nsHttpHandler::SpeculativeConnectInternal(
     Maybe<OriginAttributes>&& aOriginAttributes,
     nsIInterfaceRequestor* aCallbacks, bool anonymous) {
   if (IsNeckoChild()) {
+    nsCOMPtr<nsILoadContext> loadContext = do_GetInterface(aCallbacks);
+
     gNeckoChild->SendSpeculativeConnect(
-        aURI, aPrincipal, std::move(aOriginAttributes), anonymous);
+        nullptr, IPC::SerializedLoadContext(loadContext), aURI, aPrincipal,
+        std::move(aOriginAttributes), anonymous);
     return NS_OK;
   }
 

@@ -17,7 +17,7 @@ namespace mozilla::dom {
 
 // Keeps track of all the existings schedulers that
 // share the same event loop.
-MOZ_RUNINIT static LinkedList<WebTaskScheduler> gWebTaskSchedulersMainThread;
+constinit static LinkedList<WebTaskScheduler> gWebTaskSchedulersMainThread;
 
 static Atomic<uint64_t> gWebTaskEnqueueOrder(0);
 

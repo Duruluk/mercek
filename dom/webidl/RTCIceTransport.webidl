@@ -23,10 +23,15 @@ enum RTCIceGathererState {
   "complete"
 };
 
+enum RTCIceRole {
+  "controlling",
+  "controlled",
+  "unknown"
+};
+
 [Exposed=Window]
 interface RTCIceTransport : EventTarget {
-  // TODO(bug 1307994)
-  // readonly attribute RTCIceRole role;
+  readonly attribute RTCIceRole role;
   // readonly attribute RTCIceComponent component;
   readonly attribute RTCIceTransportState state;
   readonly attribute RTCIceGathererState gatheringState;

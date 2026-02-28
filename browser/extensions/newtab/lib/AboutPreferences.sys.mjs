@@ -39,45 +39,11 @@ const PREFS_FOR_SETTINGS = () => [
     ),
   },
   {
-    id: "trending-searches",
-    pref: {
-      feed: "trendingSearch.enabled",
-      titleString: "home-prefs-trending-search-header",
-      descString: "home-prefs-trending-search-description",
-    },
-    eventSource: "TRENDING_SEARCH",
-    shouldHidePref:
-      // Hide if Trending Search experiment is not enabled for this user
-      !Services.prefs.getBoolPref(
-        "browser.newtabpage.activity-stream.system.trendingSearch.enabled",
-        false
-      ) ||
-      // Also hide if it's enabled but the user doesn't have Google as their default search engine
-      (Services.prefs.getBoolPref(
-        "browser.newtabpage.activity-stream.system.trendingSearch.enabled",
-        false
-      ) &&
-        Services.prefs.getStringPref("browser.urlbar.placeholderName", "") !==
-          "Google"),
-  },
-  {
     id: "topsites",
     pref: {
       feed: "feeds.topsites",
       titleString: "home-prefs-shortcuts-header",
       descString: "home-prefs-shortcuts-description",
-      nestedPrefs: [
-        {
-          name: "showSponsoredTopSites",
-          titleString: "home-prefs-shortcuts-by-option-sponsored",
-          eventSource: "SPONSORED_TOP_SITES",
-          // Hide this nested pref if "Support Firefox" checkbox is enabled
-          shouldHidePref: Services.prefs.getBoolPref(
-            "browser.newtabpage.activity-stream.system.showSponsoredCheckboxes",
-            false
-          ),
-        },
-      ],
     },
     maxRows: 4,
     rowsPref: "topSitesRows",
@@ -93,26 +59,6 @@ const PREFS_FOR_SETTINGS = () => [
       descString: {
         id: "home-prefs-recommended-by-description-generic",
       },
-      nestedPrefs: [
-        ...(Services.prefs.getBoolPref(
-          "browser.newtabpage.activity-stream.system.showSponsored",
-          true
-        ) && // Hide this nested pref if "Support Firefox" checkbox is enabled
-        !Services.prefs.getBoolPref(
-          "browser.newtabpage.activity-stream.system.showSponsoredCheckboxes",
-          false
-        )
-          ? [
-              {
-                name: "showSponsored",
-                titleString:
-                  "home-prefs-recommended-by-option-sponsored-stories",
-                icon: "icon-info",
-                eventSource: "POCKET_SPOCS",
-              },
-            ]
-          : []),
-      ],
     },
     shouldHidePref: !Services.prefs.getBoolPref(
       "browser.newtabpage.activity-stream.feeds.system.topstories",
@@ -146,10 +92,6 @@ const PREFS_FOR_SETTINGS = () => [
         },
       ],
     },
-    shouldHidePref: !Services.prefs.getBoolPref(
-      "browser.newtabpage.activity-stream.system.showSponsoredCheckboxes",
-      false
-    ),
   },
 ];
 
@@ -226,23 +168,19 @@ export class AboutPreferences {
    */
 
   /**
-   * @backward-compat { version 146 }
-   *
-   * The `web-search` DOM node will not exist until Fx146+ so we have
-   * to fall back to the `search` DOM node. Adding this shim causes
-   * renderPreferenceSection to have too many statements. We can remove
-   * this eslint exception once we are in Fx146+.
+   * We can remove this eslint exception once the Settings redesign is complete.
+   * In fact, we can probably remove this entire method.
    */
   // eslint-disable-next-line max-statements
   renderPreferenceSection(sectionData, document, Preferences) {
-    /**
-     * @backward-compat { version 146 }
-     *
-     * We have to potentially re-assign the `id` if it is `web-search`.
-     * We should restore `id` back to a const after Fx146+.
-     */
-    let { id } = sectionData;
+    /* Do not render old-style settings if new settings UI is enabled - this is needed to avoid
+     * registering prefs twice and ensuing errors */
+    if (Services.prefs.getBoolPref("browser.settings-redesign.enabled")) {
+      return;
+    }
+
     const {
+      id,
       pref: prefData,
       maxRows,
       rowsPref,
@@ -269,19 +207,6 @@ export class AboutPreferences {
     // Don't show any sections that we don't want to expose in preferences UI
     if (shouldHidePref) {
       return;
-    }
-
-    /**
-     * @backward-compat { version 146 }
-     *
-     * The `web-search` DOM node will not exist until Fx146+ so fall
-     * back to the `search` DOM node until then.
-     */
-    if (id === "web-search") {
-      let webSearchBox = document.getElementById(id);
-      if (!webSearchBox) {
-        id = "search";
-      }
     }
 
     // Add the main preference for turning on/off a section

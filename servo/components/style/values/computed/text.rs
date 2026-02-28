@@ -4,6 +4,7 @@
 
 //! Computed types for text properties.
 
+use crate::derives::*;
 use crate::values::computed::length::{Length, LengthPercentage};
 use crate::values::generics::text::{
     GenericHyphenateLimitChars, GenericInitialLetter, GenericTextDecorationInset,
@@ -19,8 +20,9 @@ use style_traits::{CssString, CssWriter, ToCss, ToTyped, TypedValue};
 
 pub use crate::values::specified::text::{
     HyphenateCharacter, LineBreak, MozControlCharacterVisibility, OverflowWrap, RubyPosition,
-    TextAlignLast, TextAutospace, TextDecorationLine, TextDecorationSkipInk, TextEmphasisPosition,
-    TextJustify, TextOverflow, TextTransform, TextUnderlinePosition, WordBreak,
+    TextAlignLast, TextAutospace, TextBoxEdge, TextBoxTrim, TextDecorationLine,
+    TextDecorationSkipInk, TextEmphasisPosition, TextJustify, TextOverflow, TextTransform,
+    TextUnderlinePosition, WordBreak,
 };
 
 /// A computed value for the `initial-letter` property.
@@ -102,13 +104,10 @@ impl ToTyped for LetterSpacing {
     // is collected to update the Property-specific Rules section to align with
     // observed test expectations.
     fn to_typed(&self) -> Option<TypedValue> {
-        if self.0.is_zero() {
+        if !self.0.has_percentage() && self.0.is_zero() {
             return Some(TypedValue::Keyword(CssString::from("normal")));
         }
-        // XXX According to the test, should return TypedValue::Numeric with
-        // unit "px" or "percent" once that variant is available. Tracked in
-        // bug 1990419.
-        None
+        self.0.to_typed()
     }
 }
 

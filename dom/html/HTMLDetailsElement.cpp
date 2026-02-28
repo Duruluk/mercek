@@ -93,13 +93,13 @@ nsresult HTMLDetailsElement::BindToTree(BindContext& aContext,
 
 void HTMLDetailsElement::SetupShadowTree() {
   const bool kNotify = false;
-  AttachAndSetUAShadowRoot(NotifyUAWidgetSetup::No);
+  AttachAndSetUAShadowRoot(NotifyUAWidget::No);
   RefPtr<ShadowRoot> sr = GetShadowRoot();
   if (NS_WARN_IF(!sr)) {
     return;
   }
 
-  nsNodeInfoManager* nim = OwnerDoc()->NodeInfoManager();
+  nsNodeInfoManager* nim = NodeInfoManager();
   RefPtr<NodeInfo> slotNodeInfo = nim->GetNodeInfo(
       nsGkAtoms::slot, nullptr, kNameSpaceID_XHTML, nsINode::ELEMENT_NODE);
   sr->AppendBuiltInStyleSheet(BuiltInStyleSheet::Details);
@@ -138,7 +138,7 @@ void HTMLDetailsElement::SetupShadowTree() {
       return;
     }
     if (StaticPrefs::layout_css_details_content_enabled()) {
-      slot->SetPseudoElementType(PseudoStyleType::detailsContent);
+      slot->SetPseudoElementType(PseudoStyleType::DetailsContent);
     }
     sr->AppendChildTo(slot, kNotify, IgnoreErrors());
   }
@@ -169,7 +169,10 @@ bool HTMLDetailsElement::HandleCommandInternal(Element* aSource,
     return true;
   }
 
-  MOZ_ASSERT(StaticPrefs::dom_element_commandfor_on_details_enabled());
+  if (!StaticPrefs::dom_element_commandfor_on_details_enabled()) {
+    return false;
+  }
+
   if (aCommand == Command::Toggle) {
     ToggleOpen();
     return true;

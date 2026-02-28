@@ -825,19 +825,24 @@ class WindowsDllDetourPatcher final
         return false;
       }
 
+      // Set aOutTramp now so that the new target won't race if accessing this
+      // value. Bug 1838286 did not fix this path, resulting in bug 1950847.
+      *aOutTramp = reinterpret_cast<void*>(originalTarget);
+
       // Write the new JMP target address.
       target.WritePointer(aDest);
       if (!target.Commit()) {
+        *aOutTramp = nullptr;
         return false;
       }
 
       // Store the old target address so we can restore it when we're cleared
       aTramp.WritePointer(originalTarget);
       if (!aTramp) {
+        *aOutTramp = nullptr;
         return false;
       }
 
-      *aOutTramp = reinterpret_cast<void*>(originalTarget);
       return true;
     }
 #endif  // defined(_M_X64)
@@ -932,6 +937,8 @@ class WindowsDllDetourPatcher final
   }
 #endif  // defined(_M_X64)
 
+  // Note that *aOutTramp is not set until CreateTrampoline has completed
+  // successfully, so callers can use that to check for success.
   void CreateTrampoline(ReadOnlyTargetFunction<MMPolicyT>& origBytes,
                         TrampPoolT* aTrampPool, Trampoline<MMPolicyT>& aTramp,
                         intptr_t aDest, void** aOutTramp) {
@@ -959,8 +966,7 @@ class WindowsDllDetourPatcher final
 
     auto clearInstanceOnFailure = MakeScopeExit([this, aOutTramp, &tramp,
                                                  &origBytes]() -> void {
-      // *aOutTramp is not set until CreateTrampoline has completed
-      // successfully, so we can use that to check for success.
+      // If *aOutTramp was set this method ran successfully.
       if (*aOutTramp) {
         return;
       }
@@ -1063,19 +1069,13 @@ class WindowsDllDetourPatcher final
         // INC r32
         origBytes += 1;
       } else if (*origBytes == 0x83) {
-        uint8_t mod = static_cast<uint8_t>(origBytes[1]) & kMaskMod;
-        uint8_t rm = static_cast<uint8_t>(origBytes[1]) & kMaskRm;
-        if (mod == kModReg) {
-          // ADD|OR|ADC|SBB|AND|SUB|XOR|CMP r, imm8
-          origBytes += 3;
-        } else if (mod == kModDisp8 && rm != kRmNeedSib) {
-          // ADD|OR|ADC|SBB|AND|SUB|XOR|CMP [r+disp8], imm8
-          origBytes += 4;
-        } else {
-          // bail
-          MOZ_ASSERT_UNREACHABLE("Unrecognized bit opcode sequence");
+        // ADD|OR|ADC|SBB|AND|SUB|XOR|CMP on imm8
+        int len = CountModRmSib(origBytes + 1);
+        if (len < 0) {
+          MOZ_ASSERT_UNREACHABLE("Unrecognized opcode sequence");
           return;
         }
+        COPY_CODES(len + 2);  // 1 for 0x83, 1 for imm8
       } else if (*origBytes == 0x68) {
         // PUSH with 4-byte operand
         origBytes += 5;
@@ -1298,16 +1298,14 @@ class WindowsDllDetourPatcher final
         if (*origBytes == 0x81 && (origBytes[1] & 0xf8) == 0xe8) {
           // sub r, dword
           COPY_CODES(6);
-        } else if (*origBytes == 0x83 && (origBytes[1] & 0xf8) == 0xe8) {
-          // sub r, byte
-          COPY_CODES(3);
-        } else if (*origBytes == 0x83 &&
-                   (origBytes[1] & (kMaskMod | kMaskReg)) == kModReg) {
-          // add r, byte
-          COPY_CODES(3);
-        } else if (*origBytes == 0x83 && (origBytes[1] & 0xf8) == 0x60) {
-          // and [r+d], imm8
-          COPY_CODES(5);
+        } else if (*origBytes == 0x83) {
+          // ADD|OR|ADC|SBB|AND|SUB|XOR|CMP on imm8
+          int len = CountModRmSib(origBytes + 1);
+          if (len < 0) {
+            MOZ_ASSERT_UNREACHABLE("Unrecognized opcode sequence");
+            return;
+          }
+          COPY_CODES(len + 2);  // 1 for 0x83, 1 for imm8
         } else if (*origBytes == 0x2b && (origBytes[1] & kMaskMod) == kModReg) {
           // sub r64, r64
           COPY_CODES(2);
@@ -1535,9 +1533,14 @@ class WindowsDllDetourPatcher final
         // bit shifts/rotates : (SA|SH|RO|RC)(R|L) r32
         // (e.g. 0xd1 0xe0 is SAL, 0xd1 0xc8 is ROR)
         COPY_CODES(2);
-      } else if (*origBytes == 0x83 && (origBytes[1] & kMaskMod) == kModReg) {
-        // ADD|OR|ADC|SBB|AND|SUB|XOR|CMP r, imm8
-        COPY_CODES(3);
+      } else if (*origBytes == 0x83) {
+        // ADD|OR|ADC|SBB|AND|SUB|XOR|CMP on imm8
+        int len = CountModRmSib(origBytes + 1);
+        if (len < 0) {
+          MOZ_ASSERT_UNREACHABLE("Unrecognized opcode sequence");
+          return;
+        }
+        COPY_CODES(len + 2);  // 1 for 0x83, 1 for imm8
       } else if (*origBytes == 0xc3) {
         // ret
         COPY_CODES(1);
@@ -1639,9 +1642,6 @@ class WindowsDllDetourPatcher final
           MOZ_ASSERT_UNREACHABLE("Unrecognized opcode sequence");
           return;
         }
-      } else if (*origBytes == 0x83 && (origBytes[1] & 0xf8) == 0x60) {
-        // and [r+d], imm8
-        COPY_CODES(5);
       } else if (*origBytes == 0xc6) {
         // mov [r+d], imm8
         int len = CountModRmSib(origBytes + 1);
@@ -1694,6 +1694,23 @@ class WindowsDllDetourPatcher final
         break;
       }
 
+      if (pcRelInfo.inspect().mType == arm64::LoadOrBranch::Type::Branch) {
+        // We need to branch to the original target of this instruction.
+        // This is a problem because on the first pass
+        // GetCurrentRemoteAddress() is 0, so the offset may be too large for
+        // BuildUnconditionalBranchImm. We don't need this for now on ARM64.
+        // so just behave like we don't have a decoder.
+
+        // origBytes is now pointing one instruction past the one that we
+        // need the trampoline to jump back to.
+        if (!origBytes.BackUpOneInstruction()) {
+          return;
+        }
+
+        break;
+      }
+
+      MOZ_ASSERT(pcRelInfo.inspect().mType == arm64::LoadOrBranch::Type::Load);
       // We need to load an absolute address into a particular register
       tramp.WriteLoadLiteral(pcRelInfo.inspect().mAbsAddress,
                              pcRelInfo.inspect().mDestReg);

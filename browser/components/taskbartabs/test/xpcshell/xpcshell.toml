@@ -1,6 +1,9 @@
 [DEFAULT]
 firefox-appdir = "browser"
-run-if = ["os == 'win'"]
+head = "head.js"
+run-if = [
+  "os == 'win'",
+]
 
 ["test_TaskbarTabsRegistry.js"]
 support-files = [

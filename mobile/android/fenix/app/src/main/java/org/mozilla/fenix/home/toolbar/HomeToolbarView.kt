@@ -19,12 +19,11 @@ import androidx.core.view.updateLayoutParams
 import androidx.navigation.fragment.findNavController
 import mozilla.components.browser.state.state.BrowserState
 import mozilla.components.support.ktx.android.content.res.resolveAttribute
-import org.mozilla.fenix.HomeActivity
 import org.mozilla.fenix.R
+import org.mozilla.fenix.components.AppStore
 import org.mozilla.fenix.components.toolbar.ToolbarPosition
 import org.mozilla.fenix.databinding.FragmentHomeBinding
 import org.mozilla.fenix.databinding.FragmentHomeToolbarViewLayoutBinding
-import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.ext.increaseTapAreaVertically
 import org.mozilla.fenix.ext.isLargeWindow
 import org.mozilla.fenix.ext.pixelSizeFor
@@ -39,10 +38,10 @@ import java.lang.ref.WeakReference
  * View class for setting up the home screen toolbar.
  */
 internal class HomeToolbarView(
+    private val appStore: AppStore,
     private val homeBinding: FragmentHomeBinding,
     private val interactor: ToolbarInteractor,
     private val homeFragment: HomeFragment,
-    private val homeActivity: HomeActivity,
 ) : FenixHomeToolbar {
     private var context = homeFragment.requireContext()
 
@@ -116,13 +115,6 @@ internal class HomeToolbarView(
     }
 
     /**
-     * Dismisses the home menu.
-     */
-    fun dismissMenu() {
-        homeMenuView?.dismissMenu()
-    }
-
-    /**
      * Configure the tab strip [ComposeView].
      *
      * @param block Configuration block for the tab strip [ComposeView].
@@ -141,7 +133,9 @@ internal class HomeToolbarView(
      *
      * @param id The resource ID of the drawable to use as the background.
      */
-    fun updateBackground(@DrawableRes id: Int) {
+    fun updateBackground(
+        @DrawableRes id: Int,
+    ) {
         toolbarBinding.toolbar.setBackgroundResource(id)
     }
 
@@ -156,21 +150,17 @@ internal class HomeToolbarView(
     @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
     internal fun buildHomeMenu() = HomeMenuView(
         context = context,
-        lifecycleOwner = homeFragment.viewLifecycleOwner,
-        homeActivity = homeActivity,
         navController = homeFragment.findNavController(),
-        fenixBrowserUseCases = context.components.useCases.fenixBrowserUseCases,
         menuButton = WeakReference(toolbarBinding.menuButton),
     ).also { it.build() }
 
     @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
     internal fun buildTabCounter() = TabCounterView(
+        appStore = appStore,
         context = context,
-        browsingModeManager = homeActivity.browsingModeManager,
         navController = homeFragment.findNavController(),
         tabCounter = toolbarBinding.tabButton,
         showLongPressMenu = !context.isLargeWindow(),
-        settings = context.settings(),
     )
 
     private fun initLayoutParameters() {
@@ -224,14 +214,18 @@ internal class HomeToolbarView(
                     context.theme.resolveAttribute(R.attr.bottomBarBackgroundTop),
                 )
 
+                val topPadding = context.pixelSizeFor(R.dimen.home_fragment_top_toolbar_header_margin) +
+                    if (isTabletAndTabStripEnabled) {
+                        context.pixelSizeFor(R.dimen.tab_strip_height)
+                    } else {
+                        0
+                    }
+
                 homeBinding.homeAppBar.updateLayoutParams<ViewGroup.MarginLayoutParams> {
-                    topMargin =
-                        context.pixelSizeFor(R.dimen.home_fragment_top_toolbar_header_margin) +
-                        if (isTabletAndTabStripEnabled) {
-                            context.pixelSizeFor(R.dimen.tab_strip_height)
-                        } else {
-                            0
-                        }
+                    topMargin = topPadding
+                }
+                homeBinding.homepageView.updateLayoutParams<ViewGroup.MarginLayoutParams> {
+                    bottomMargin = topPadding
                 }
             }
 

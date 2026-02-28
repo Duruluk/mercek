@@ -38,25 +38,24 @@ struct StylePositionArea;
  * its parent.
  *
  * There is no principal child list, just a named child list which contains
- * the absolutely positioned frames (FrameChildListID::Absolute or
- * FrameChildListID::Fixed).
+ * the absolutely positioned frames (FrameChildListID::Absolute).
  *
  * All functions include as the first argument the frame that is delegating
  * the request.
  */
 class AbsoluteContainingBlock {
  public:
-  explicit AbsoluteContainingBlock(FrameChildListID aChildListID)
-#ifdef DEBUG
-      : mChildListID(aChildListID)
-#endif
-  {
-    MOZ_ASSERT(mChildListID == FrameChildListID::Absolute ||
-                   mChildListID == FrameChildListID::Fixed,
-               "should either represent position:fixed or absolute content");
-  }
+  struct AnchorOffsetInfo {
+    nsPoint mScrollOffset;
+    StylePositionArea mResolvedPositionArea;
+  };
+
+  AbsoluteContainingBlock() = default;
 
   const nsFrameList& GetChildList() const { return mAbsoluteFrames; }
+  const nsFrameList& GetPushedChildList() const {
+    return mPushedAbsoluteFrames;
+  }
 
   void SetInitialChildList(nsIFrame* aDelegatingFrame, FrameChildListID aListID,
                            nsFrameList&& aChildList);
@@ -67,6 +66,30 @@ class AbsoluteContainingBlock {
   void RemoveFrame(FrameDestroyContext&, FrameChildListID, nsIFrame*);
 
   /**
+   * Return the pushed absolute frames. The caller is responsible for passing
+   * the ownership of the frames to someone else, or destroying them.
+   */
+  [[nodiscard]] nsFrameList StealPushedChildList();
+
+  /**
+   * Prepare our absolute child list so that it is ready to reflow by moving all
+   * the pushed absolute frames in aDelegatingFrame's prev-in-flow's absCB, and
+   * some in our own pushed absolute child list, to our absolute child list.
+   *
+   * @return true if we have absolute frames after we return.
+   */
+  bool PrepareAbsoluteFrames(nsContainerFrame* aDelegatingFrame);
+
+  /**
+   * Return true if we have absolute frames.
+   *
+   * Note: During reflow, consider calling PrepareAbsoluteFrames() rather than
+   * this method; it moves absolute frames from other lists to mAbsoluteFrames,
+   * which may be needed to get the correct result.
+   */
+  bool HasAbsoluteFrames() const { return mAbsoluteFrames.NotEmpty(); }
+
+  /**
    * Called by the delegating frame after it has done its reflow first. This
    * function will reflow any absolutely positioned child frames that need to
    * be reflowed, e.g., because the absolutely positioned child frame has
@@ -75,10 +98,12 @@ class AbsoluteContainingBlock {
    * @param aOverflowAreas, if non-null, is unioned with (in the local
    * coordinate space) the overflow areas of the absolutely positioned
    * children.
-   *
    * @param aReflowStatus This function merges in the statuses of the absolutely
    * positioned children's reflows.
-   *
+   * @param aContainingBlock Rect representing the area where absolute
+   * positioned children can be positioned. Generally, this is the padding rect
+   * of `aDelegatingFrame` (Which would not have a valid mRect set during
+   * reflow), offset against the `aDelegatingFrame`'s border rect.
    * @param aFlags zero or more AbsPosReflowFlags
    */
   void Reflow(nsContainerFrame* aDelegatingFrame, nsPresContext* aPresContext,
@@ -88,8 +113,6 @@ class AbsoluteContainingBlock {
 
   using DestroyContext = nsIFrame::DestroyContext;
   void DestroyFrames(DestroyContext&);
-
-  bool HasAbsoluteFrames() const { return mAbsoluteFrames.NotEmpty(); }
 
   /**
    * Mark our size-dependent absolute frames with NS_FRAME_HAS_DIRTY_CHILDREN
@@ -101,6 +124,17 @@ class AbsoluteContainingBlock {
    * Mark all our absolute frames with NS_FRAME_IS_DIRTY.
    */
   void MarkAllFramesDirty();
+
+  /**
+   * Rects for abspos frames to position against. Differences are relevant
+   * for containing blocks that scroll.
+   *
+   * See https://drafts.csswg.org/css-position-4/#scrollable-cb
+   */
+  struct ContainingBlockRects {
+    nsRect mLocal;
+    nsRect mScrollable;
+  };
 
  protected:
   /**
@@ -122,10 +156,12 @@ class AbsoluteContainingBlock {
    *
    * aOffset is an outparam.
    */
-  void ResolveSizeDependentOffsets(
-      ReflowInput& aKidReflowInput, const LogicalSize& aCBSize,
-      const LogicalSize& aKidSize, const LogicalMargin& aMargin,
-      const StylePositionArea& aResolvedPositionArea, LogicalMargin& aOffsets);
+  void ResolveSizeDependentOffsets(ReflowInput& aKidReflowInput,
+                                   const LogicalSize& aCBSize,
+                                   const LogicalSize& aKidSize,
+                                   const LogicalMargin& aMargin,
+                                   const AnchorOffsetInfo& aAnchorOffsetInfo,
+                                   LogicalMargin& aOffsets);
 
   /**
    * For frames that have intrinsic block sizes, since we want to use the
@@ -143,15 +179,17 @@ class AbsoluteContainingBlock {
                                      const LogicalSize& aCBSize,
                                      const LogicalSize& aKidSize,
                                      LogicalMargin& aMargin,
-                                     LogicalMargin& aOffsets);
+                                     const LogicalMargin& aOffsets);
 
   void ReflowAbsoluteFrame(
-      nsIFrame* aDelegatingFrame, nsPresContext* aPresContext,
+      nsContainerFrame* aDelegatingFrame, nsPresContext* aPresContext,
       const ReflowInput& aReflowInput,
-      const nsRect& aOriginalContainingBlockRect, AbsPosReflowFlags aFlags,
-      nsIFrame* aKidFrame, nsReflowStatus& aStatus,
+      const ContainingBlockRects& aContainingBlockRects,
+      AbsPosReflowFlags aFlags, nsIFrame* aKidFrame, nsReflowStatus& aStatus,
       OverflowAreas* aOverflowAreas,
-      mozilla::AnchorPosResolutionCache* aAnchorPosResolutionCache = nullptr);
+      const ContainingBlockRects* aFragmentedContainingBlockRects,
+      AnchorPosResolutionCache* aAnchorPosResolutionCache,
+      bool aReuseUnfragmentedAnchorPosReferences);
 
   /**
    * Mark our absolute frames dirty.
@@ -161,12 +199,47 @@ class AbsoluteContainingBlock {
    */
   void DoMarkFramesDirty(bool aMarkAllDirty);
 
- protected:
-  nsFrameList mAbsoluteFrames;  // additional named child list
+  /**
+   * Remove aFrame from one of our frame lists without destroying it.
+   */
+  void StealFrame(nsIFrame* aFrame);
+
+  /**
+   * Move any frame in our pushed absolute list into our absolute child list, if
+   * it is a first-in-flow, or if its prev-in-flow is not present in our
+   * absolute child list.
+   *
+   * @param aDelegatingFrame the frame that owns us.
+   */
+  void DrainPushedChildList(const nsIFrame* aDelegatingFrame);
+
+  // Stores the abspos frames that have been placed in this containing block.
+  nsFrameList mAbsoluteFrames;
+
+  // A temporary frame list used during reflow, storing abspos frames that need
+  // to be reflowed by the delegating frame's next-in-flow after transferring
+  // them to its own AbsoluteContainingBlock.
+  nsFrameList mPushedAbsoluteFrames;
+
+  // Suppose D is the distance from an absolute containing block fragment's
+  // border-box block-start edge to whichever is larger of either (a) its
+  // border-box block-end edge, or (b) the available space's block-end
+  // edge.
+  //
+  // TODO (TYLin, Bug 2009647): We currently assume (a) cannot be bigger than
+  // (b), but it can if there is an unfragmentable in-flow element.
+  //
+  // This variable stores the sum of the D values for the current absolute
+  // containing block fragment and for all its previous fragments. It represents
+  // the offset from the start of the theoretical unfragmented abspos containing
+  // block to the start of the current fragment. During reflow, we subtract this
+  // value from abspos frames' unfragmented positions to get their local
+  // coordinate space position in the current fragment.
+  nscoord mCumulativeContainingBlockBSize = 0;
 
 #ifdef DEBUG
-  // FrameChildListID::Fixed or FrameChildListID::Absolute
-  FrameChildListID const mChildListID;
+  void SanityCheckChildListsBeforeReflow(
+      const nsIFrame* aDelegatingFrame) const;
 #endif
 };
 

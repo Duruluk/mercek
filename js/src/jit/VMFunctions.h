@@ -47,7 +47,8 @@ class MegamorphicCacheEntry;
 
 namespace gc {
 
-struct Cell;
+class AllocSite;
+class Cell;
 
 }  // namespace gc
 
@@ -409,8 +410,11 @@ bool OperatorIn(JSContext* cx, HandleValue key, HandleObject obj, bool* out);
                                      MutableHandleValue rval);
 
 [[nodiscard]] bool CreateThisFromIC(JSContext* cx, HandleObject callee,
-                                    HandleObject newTarget,
-                                    MutableHandleValue rval);
+                                    HandleObject newTarget, Value* argv,
+                                    uint32_t argc, MutableHandleValue rval);
+[[nodiscard]] bool CreateThisFromICWithAllocSite(
+    JSContext* cx, HandleObject callee, HandleObject newTarget,
+    gc::AllocSite* site, Value* argv, uint32_t argc, MutableHandleValue rval);
 [[nodiscard]] bool CreateThisFromIon(JSContext* cx, HandleObject callee,
                                      HandleObject newTarget,
                                      MutableHandleValue rval);
@@ -521,6 +525,7 @@ void JitWasmAnyRefPreWriteBarrier(JSRuntime* rt, wasm::AnyRef* refp);
 bool ObjectIsCallable(JSObject* obj);
 bool ObjectIsConstructor(JSObject* obj);
 JSObject* ObjectKeys(JSContext* cx, HandleObject obj);
+JSObject* ObjectKeysFromIterator(JSContext* cx, HandleObject iterObj);
 bool ObjectKeysLength(JSContext* cx, HandleObject obj, int32_t* length);
 
 [[nodiscard]] bool ThrowRuntimeLexicalError(JSContext* cx,
@@ -731,6 +736,8 @@ void AssertMapObjectHash(JSContext* cx, MapObject* obj, const Value* value,
                          mozilla::HashNumber actualHash);
 
 void AssertPropertyLookup(NativeObject* obj, PropertyKey id, uint32_t slot);
+
+void ReadBarrier(gc::Cell* cell);
 
 // Functions used when JS_MASM_VERBOSE is enabled.
 void AssumeUnreachable(const char* output);

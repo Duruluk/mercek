@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef __FFmpegDataDecoder_h__
-#define __FFmpegDataDecoder_h__
+#ifndef FFmpegDataDecoder_h_
+#define FFmpegDataDecoder_h_
 
 #include "FFmpegLibWrapper.h"
 #include "PlatformDecoderModule.h"
@@ -15,7 +15,7 @@
 #include "FFmpegLibs.h"
 
 namespace mozilla {
-#if defined(MOZ_WIDGET_ANDROID) && defined(FFVPX_VERSION)
+#if defined(MOZ_WIDGET_ANDROID) && defined(USING_MOZFFVPX)
 class MediaDrmCrypto;
 class MediaDrmRemoteCDMParent;
 #endif
@@ -34,7 +34,7 @@ class FFmpegDataDecoder<LIBAV_VER>
  public:
   NS_INLINE_DECL_THREADSAFE_REFCOUNTING(FFmpegDataDecoder, final);
 
-  FFmpegDataDecoder(FFmpegLibWrapper* aLib, AVCodecID aCodecID,
+  FFmpegDataDecoder(const FFmpegLibWrapper* aLib, AVCodecID aCodecID,
                     PRemoteCDMActor* aCDM);
 
   static bool Link();
@@ -45,10 +45,11 @@ class FFmpegDataDecoder<LIBAV_VER>
   RefPtr<FlushPromise> Flush() override;
   RefPtr<ShutdownPromise> Shutdown() override;
 
-  static AVCodec* FindSoftwareAVCodec(FFmpegLibWrapper* aLib, AVCodecID aCodec);
+  static AVCodec* FindSoftwareAVCodec(const FFmpegLibWrapper* aLib,
+                                      AVCodecID aCodec);
 #ifdef MOZ_USE_HWDECODE
   static AVCodec* FindHardwareAVCodec(
-      FFmpegLibWrapper* aLib, AVCodecID aCodec,
+      const FFmpegLibWrapper* aLib, AVCodecID aCodec,
       AVHWDeviceType aDeviceType = AV_HWDEVICE_TYPE_NONE);
 #endif
 
@@ -59,16 +60,22 @@ class FFmpegDataDecoder<LIBAV_VER>
   virtual void InitCodecContext() MOZ_REQUIRES(sMutex) {}
   void ReleaseCodecContext() MOZ_REQUIRES(sMutex);
   AVFrame* PrepareFrame();
+  void ReleaseFrame();
   MediaResult InitSWDecoder(AVDictionary** aOptions);
   MediaResult InitDecoder(AVCodec* aCodec, AVDictionary** aOptions);
   MediaResult AllocateExtraData();
   MediaResult DoDecode(MediaRawData* aSample, bool* aGotFrame,
                        DecodedData& aResults);
 
+#if defined(MOZ_WIDGET_ANDROID) && defined(USING_MOZFFVPX)
+  static void CryptoInfoAddRef(void* aCryptoInfo);
+  static void CryptoInfoRelease(void* aCryptoInfo);
+  MediaResult MaybeAttachCryptoInfo(MediaRawData* aSample, AVPacket* aPacket);
   MediaResult MaybeAttachCDM();
   void MaybeDetachCDM();
+#endif
 
-  FFmpegLibWrapper* mLib;  // set in constructor
+  const FFmpegLibWrapper* mLib;  // set in constructor
 
   // mCodecContext is accessed on taskqueue only, no locking needed
   AVCodecContext* mCodecContext;
@@ -106,4 +113,4 @@ class FFmpegDataDecoder<LIBAV_VER>
 
 }  // namespace mozilla
 
-#endif  // __FFmpegDataDecoder_h__
+#endif  // FFmpegDataDecoder_h_

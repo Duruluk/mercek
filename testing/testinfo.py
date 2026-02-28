@@ -399,17 +399,13 @@ class TestInfoReport(TestInfo):
     def get_testinfoall_index_url(self):
         import taskcluster
 
-        index = taskcluster.Index(
-            {
-                "rootUrl": "https://firefox-ci-tc.services.mozilla.com",
-            }
-        )
+        index = taskcluster.Index({
+            "rootUrl": "https://firefox-ci-tc.services.mozilla.com",
+        })
         route = "gecko.v2.mozilla-central.latest.source.test-info-all"
-        queue = taskcluster.Queue(
-            {
-                "rootUrl": "https://firefox-ci-tc.services.mozilla.com",
-            }
-        )
+        queue = taskcluster.Queue({
+            "rootUrl": "https://firefox-ci-tc.services.mozilla.com",
+        })
 
         task_id = index.findTask(route)["taskId"]
         artifacts = queue.listLatestArtifacts(task_id)["artifacts"]
@@ -660,7 +656,12 @@ class TestInfoReport(TestInfo):
             filter_values = filter_values.split(",")
         else:
             filter_values = []
-        display_keys = (filter_keys or []) + ["skip-if", "fail-if", "fails-if"]
+        display_keys = (filter_keys or []) + [
+            "run-if",
+            "skip-if",
+            "fail-if",
+            "fails-if",
+        ]
         display_keys = set(display_keys)
         ifd = self.get_intermittent_failure_data(start, end)
 

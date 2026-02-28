@@ -51,12 +51,14 @@ import mozilla.components.compose.base.menu.MenuItem.CheckableItem
 import mozilla.components.compose.base.text.Text
 import mozilla.components.compose.base.text.value
 import mozilla.components.compose.base.theme.surfaceDimVariant
+import mozilla.components.support.utils.CertificateUtils
 import org.mozilla.fenix.R
 import org.mozilla.fenix.components.menu.compose.MenuBadgeItem
 import org.mozilla.fenix.components.menu.compose.MenuGroup
 import org.mozilla.fenix.components.menu.compose.MenuItem
 import org.mozilla.fenix.components.menu.compose.MenuItemState
 import org.mozilla.fenix.components.menu.compose.MenuScaffold
+import org.mozilla.fenix.components.menu.compose.MenuTextItem
 import org.mozilla.fenix.compose.LinkText
 import org.mozilla.fenix.compose.LinkTextState
 import org.mozilla.fenix.settings.PhoneFeature
@@ -67,17 +69,21 @@ import org.mozilla.fenix.theme.FirefoxTheme
 import mozilla.components.ui.icons.R as iconsR
 
 private val BANNER_ROUNDED_CORNER_SHAPE = RoundedCornerShape(
-    topStart = 28.dp, topEnd = 28.dp, bottomStart = 4.dp, bottomEnd = 4.dp,
+    topStart = 28.dp,
+    topEnd = 28.dp,
+    bottomStart = 4.dp,
+    bottomEnd = 4.dp,
 )
 
 private const val DROPDOWN_TEXT_WIDTH_FRACTION = 0.5f
 
-@Suppress("LongParameterList", "LongMethod")
+@Suppress("LongParameterList", "LongMethod", "CognitiveComplexMethod")
 @Composable
 internal fun ProtectionPanel(
     websiteInfoState: WebsiteInfoState,
     icon: Bitmap?,
     isTrackingProtectionEnabled: Boolean,
+    isGlobalTrackingProtectionEnabled: Boolean,
     isLocalPdf: Boolean,
     numberOfTrackersBlocked: Int,
     websitePermissions: List<WebsitePermission>,
@@ -87,7 +93,10 @@ internal fun ProtectionPanel(
     onPrivacySecuritySettingsClick: () -> Unit,
     onAutoplayValueClick: (AutoplayValue) -> Unit,
     onToggleablePermissionClick: (WebsitePermission.Toggleable) -> Unit,
+    onViewCertificateClick: () -> Unit,
+    onViewQWACClick: () -> Unit,
 ) {
+    val isSiteProtectionEnabled = isTrackingProtectionEnabled && isGlobalTrackingProtectionEnabled
     MenuScaffold(
         header = {
             ProtectionPanelHeader(
@@ -99,27 +108,29 @@ internal fun ProtectionPanel(
         MenuGroup {
             ProtectionPanelBanner(
                 isSecured = websiteInfoState.isSecured || isLocalPdf,
-                isTrackingProtectionEnabled = isTrackingProtectionEnabled || isLocalPdf,
+                isTrackingProtectionEnabled = isGlobalTrackingProtectionEnabled &&
+                        (isTrackingProtectionEnabled || isLocalPdf),
             )
 
             if (!isLocalPdf) {
                 MenuBadgeItem(
                     label = stringResource(id = R.string.protection_panel_etp_toggle_label),
-                    checked = isTrackingProtectionEnabled,
-                    description = if (isTrackingProtectionEnabled) {
+                    checked = isSiteProtectionEnabled,
+                    description = if (isSiteProtectionEnabled) {
                         stringResource(id = R.string.protection_panel_etp_toggle_enabled_description_2)
                     } else {
                         stringResource(id = R.string.protection_panel_etp_toggle_disabled_description_2)
                     },
-                    badgeText = if (isTrackingProtectionEnabled) {
+                    badgeText = if (isSiteProtectionEnabled) {
                         stringResource(id = R.string.protection_panel_etp_toggle_on)
                     } else {
                         stringResource(id = R.string.protection_panel_etp_toggle_off)
                     },
+                    enabled = isGlobalTrackingProtectionEnabled,
                     onClick = onTrackingProtectionToggleClick,
                 )
 
-                if (!isTrackingProtectionEnabled) {
+                if (!(isSiteProtectionEnabled)) {
                     MenuItem(
                         label = stringResource(id = R.string.protection_panel_etp_disabled_no_trackers_blocked),
                         beforeIconPainter = painterResource(id = iconsR.drawable.mozac_ic_shield_slash_critical_24),
@@ -156,9 +167,20 @@ internal fun ProtectionPanel(
                     beforeIconPainter = painterResource(id = iconsR.drawable.mozac_ic_lock_24),
                     description = stringResource(
                         id = R.string.connection_security_panel_verified_by,
-                        websiteInfoState.certificateName,
+                        CertificateUtils.issuerOrganization(websiteInfoState.certificate) ?: "",
                     ),
+                    onClick = onViewCertificateClick,
                 )
+                websiteInfoState.qwac?.let {
+                    MenuTextItem(
+                        label = stringResource(
+                            id = R.string.connection_security_panel_issued_to,
+                            CertificateUtils.subjectOrganization(it) ?: "",
+                        ),
+                        description = stringResource(id = R.string.connection_security_panel_qualified_certificate),
+                        onClick = onViewQWACClick,
+                    )
+                }
             } else {
                 MenuItem(
                     label = stringResource(id = R.string.connection_security_panel_not_secure),
@@ -272,6 +294,7 @@ private fun ProtectionPanelBanner(
 }
 
 @Composable
+@Suppress("CognitiveComplexMethod")
 private fun WebsitePermissionsMenuGroup(
     websitePermissions: List<WebsitePermission>,
     onAutoplayValueClick: (AutoplayValue) -> Unit,
@@ -435,10 +458,11 @@ private fun ProtectionPanelPreview() {
                     isSecured = true,
                     websiteUrl = "https://www.mozilla.org",
                     websiteTitle = "Mozilla",
-                    certificateName = "",
+                    certificate = null,
                 ),
                 icon = null,
                 isTrackingProtectionEnabled = true,
+                isGlobalTrackingProtectionEnabled = true,
                 isLocalPdf = false,
                 numberOfTrackersBlocked = 5,
                 websitePermissions = listOf(
@@ -454,6 +478,8 @@ private fun ProtectionPanelPreview() {
                 onPrivacySecuritySettingsClick = {},
                 onAutoplayValueClick = {},
                 onToggleablePermissionClick = {},
+                onViewCertificateClick = {},
+                onViewQWACClick = {},
             )
         }
     }

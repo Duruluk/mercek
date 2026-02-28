@@ -7,36 +7,20 @@
 /* import-globals-from main.js */
 
 // HOME PAGE
+const { BLANK_HOMEPAGE_URL } = ChromeUtils.importESModule(
+  "chrome://browser/content/preferences/config/home-startup.mjs",
+  { global: "current" }
+);
 
 ChromeUtils.defineESModuleGetters(this, {
   ExtensionUtils: "resource://gre/modules/ExtensionUtils.sys.mjs",
+  BrowserUtils: "resource://gre/modules/BrowserUtils.sys.mjs",
+  HomePage: "resource:///modules/HomePage.sys.mjs",
 });
-
-/*
- * Preferences:
- *
- * browser.startup.homepage
- * - the user's home page, as a string; if the home page is a set of tabs,
- *   this will be those URLs separated by the pipe character "|"
- * browser.newtabpage.enabled
- * - determines that is shown on the user's new tab page.
- *   true = Activity Stream is shown,
- *   false = about:blank is shown
- */
-
-Preferences.addAll([
-  { id: "browser.startup.homepage", type: "wstring" },
-  { id: "pref.browser.homepage.disable_button.current_page", type: "bool" },
-  { id: "pref.browser.homepage.disable_button.bookmark_page", type: "bool" },
-  { id: "pref.browser.homepage.disable_button.restore_default", type: "bool" },
-  { id: "browser.newtabpage.enabled", type: "bool" },
-]);
 
 const HOMEPAGE_OVERRIDE_KEY = "homepage_override";
 const URL_OVERRIDES_TYPE = "url_overrides";
 const NEW_TAB_KEY = "newTabURL";
-
-const BLANK_HOMEPAGE_URL = "chrome://browser/content/blanktab.html";
 
 var gHomePane = {
   HOME_MODE_FIREFOX_HOME: "0",
@@ -135,6 +119,7 @@ var gHomePane = {
 
   /**
    *  _updateMenuInterface: adds items to or removes them from the menulists
+   *
    * @param {string} selectId Optional Id of the menulist to add or remove items from.
    *                          If not included this will update both home and newtab menus.
    */
@@ -285,6 +270,7 @@ var gHomePane = {
   /**
    * _renderCustomSettings: Hides or shows the UI for setting a custom
    * homepage URL
+   *
    * @param {obj} options
    * @param {bool} options.shouldShow Should the custom UI be shown?
    * @param {bool} options.isControlled Is an extension controlling the home page?
@@ -325,6 +311,7 @@ var gHomePane = {
 
   /**
    * _isHomePageDefaultValue
+   *
    * @returns {bool} Is the homepage set to the default pref value?
    */
   _isHomePageDefaultValue() {
@@ -336,6 +323,7 @@ var gHomePane = {
 
   /**
    * isHomePageBlank
+   *
    * @returns {bool} Is the homepage set to about:blank?
    */
   isHomePageBlank() {
@@ -348,6 +336,7 @@ var gHomePane = {
 
   /**
    * _isTabAboutPreferencesOrSettings: Is a given tab set to about:preferences or about:settings?
+   *
    * @param {Element} aTab A tab element
    * @returns {bool} Is the linkedBrowser of aElement set to about:preferences or about:settings?
    */
@@ -360,6 +349,7 @@ var gHomePane = {
 
   /**
    * _getTabsForHomePage
+   *
    * @returns {Array} An array of current tabs
    */
   _getTabsForHomePage() {

@@ -106,7 +106,7 @@ class DocAccessibleParent : public RemoteAccessible,
       const uint64_t& aID, const LayoutDeviceIntRect& aCaretRect,
       const int32_t& aOffset, const bool& aIsSelectionCollapsed,
       const bool& aIsAtEndOfLine, const int32_t& aGranularity,
-      const bool& aFromUser) final;
+      const bool& aFromUser, const bool& aSuppressEvent) final;
 
   virtual mozilla::ipc::IPCResult RecvMutationEvents(
       nsTArray<MutationEventData>&& aData) override;
@@ -136,11 +136,9 @@ class DocAccessibleParent : public RemoteAccessible,
   virtual mozilla::ipc::IPCResult RecvAccessiblesWillMove(
       nsTArray<uint64_t>&& aIDs) override;
 
-#if !defined(XP_WIN)
   virtual mozilla::ipc::IPCResult RecvAnnouncementEvent(
       const uint64_t& aID, const nsAString& aAnnouncement,
       const uint16_t& aPriority) override;
-#endif
 
   virtual mozilla::ipc::IPCResult RecvTextSelectionChangeEvent(
       const uint64_t& aID, nsTArray<TextRangeData>&& aSelection) override;

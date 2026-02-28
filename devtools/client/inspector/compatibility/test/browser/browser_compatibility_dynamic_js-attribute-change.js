@@ -16,15 +16,15 @@ const {
 const ISSUE_DEPRECATED = {
   type: COMPATIBILITY_ISSUE_TYPE.CSS_PROPERTY,
   property: "-moz-user-focus",
-  url: "https://developer.mozilla.org/docs/Web/CSS/-moz-user-focus",
+  url: "https://developer.mozilla.org/docs/Web/CSS/Reference/Properties/-moz-user-focus",
   deprecated: true,
   experimental: false,
 };
 
-const ISSUE_SCROLLBAR_COLOR = {
+const ISSUE_NOT_DEPRECATED = {
   type: COMPATIBILITY_ISSUE_TYPE.CSS_PROPERTY,
-  property: "scrollbar-color",
-  url: "https://developer.mozilla.org/docs/Web/CSS/scrollbar-color",
+  property: "overflow-anchor",
+  url: "https://developer.mozilla.org/docs/Web/CSS/Reference/Properties/overflow-anchor",
   deprecated: false,
   experimental: false,
 };
@@ -65,10 +65,10 @@ add_task(async function () {
     inspector,
     selectedElementPane,
     allElementsPane,
-    [ISSUE_SCROLLBAR_COLOR],
-    [ISSUE_SCROLLBAR_COLOR],
+    [ISSUE_NOT_DEPRECATED],
+    [ISSUE_NOT_DEPRECATED],
     async function () {
-      content.document.querySelector(".test").style["scrollbar-color"] = "auto";
+      content.document.querySelector(".test").style["overflow-anchor"] = "auto";
     }
   );
 
@@ -78,8 +78,8 @@ add_task(async function () {
     inspector,
     selectedElementPane,
     allElementsPane,
-    [ISSUE_SCROLLBAR_COLOR, ISSUE_DEPRECATED],
-    [ISSUE_SCROLLBAR_COLOR, ISSUE_DEPRECATED],
+    [ISSUE_NOT_DEPRECATED, ISSUE_DEPRECATED],
+    [ISSUE_NOT_DEPRECATED, ISSUE_DEPRECATED],
     async function () {
       content.document.querySelector(".test").classList.add("issue");
     }
@@ -91,8 +91,8 @@ add_task(async function () {
     inspector,
     selectedElementPane,
     allElementsPane,
-    [ISSUE_SCROLLBAR_COLOR],
-    [ISSUE_SCROLLBAR_COLOR],
+    [ISSUE_NOT_DEPRECATED],
+    [ISSUE_NOT_DEPRECATED],
     async function () {
       content.document.querySelector(".test").classList.remove("issue");
     }

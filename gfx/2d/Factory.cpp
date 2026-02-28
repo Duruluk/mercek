@@ -504,12 +504,23 @@ bool Factory::DoesBackendSupportDataDrawtarget(BackendType aType) {
   return false;
 }
 
-uint32_t Factory::GetMaxSurfaceSize(BackendType aType) {
+size_t Factory::GetMaxSurfaceSize(BackendType aType) {
   switch (aType) {
     case BackendType::CAIRO:
       return DrawTargetCairo::GetMaxSurfaceSize();
     case BackendType::SKIA:
       return DrawTargetSkia::GetMaxSurfaceSize();
+    default:
+      return 0;
+  }
+}
+
+size_t Factory::GetMaxSurfaceArea(BackendType aType) {
+  switch (aType) {
+    case BackendType::CAIRO:
+      return DrawTargetCairo::GetMaxSurfaceArea();
+    case BackendType::SKIA:
+      return DrawTargetSkia::GetMaxSurfaceArea();
     default:
       return 0;
   }
@@ -952,7 +963,8 @@ already_AddRefed<DataSourceSurface> Factory::CopyDataSourceSurface(
   MOZ_ASSERT(aSource->GetFormat() == SurfaceFormat::R8G8B8A8 ||
              aSource->GetFormat() == SurfaceFormat::R8G8B8X8 ||
              aSource->GetFormat() == SurfaceFormat::B8G8R8A8 ||
-             aSource->GetFormat() == SurfaceFormat::B8G8R8X8);
+             aSource->GetFormat() == SurfaceFormat::B8G8R8X8 ||
+             aSource->GetFormat() == SurfaceFormat::A8);
 
   DataSourceSurface::ScopedMap srcMap(aSource, DataSourceSurface::READ);
   if (NS_WARN_IF(!srcMap.IsMapped())) {
@@ -987,12 +999,14 @@ void Factory::CopyDataSourceSurface(DataSourceSurface* aSource,
   MOZ_ASSERT(aSource->GetFormat() == SurfaceFormat::R8G8B8A8 ||
              aSource->GetFormat() == SurfaceFormat::R8G8B8X8 ||
              aSource->GetFormat() == SurfaceFormat::B8G8R8A8 ||
-             aSource->GetFormat() == SurfaceFormat::B8G8R8X8);
+             aSource->GetFormat() == SurfaceFormat::B8G8R8X8 ||
+             aSource->GetFormat() == SurfaceFormat::A8);
   MOZ_ASSERT(aDest->GetFormat() == SurfaceFormat::R8G8B8A8 ||
              aDest->GetFormat() == SurfaceFormat::R8G8B8X8 ||
              aDest->GetFormat() == SurfaceFormat::B8G8R8A8 ||
              aDest->GetFormat() == SurfaceFormat::B8G8R8X8 ||
-             aDest->GetFormat() == SurfaceFormat::R5G6B5_UINT16);
+             aDest->GetFormat() == SurfaceFormat::R5G6B5_UINT16 ||
+             aDest->GetFormat() == SurfaceFormat::A8);
 
   DataSourceSurface::MappedSurface srcMap;
   DataSourceSurface::MappedSurface destMap;

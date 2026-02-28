@@ -349,7 +349,7 @@ newtab-wallpaper-abstract-orange = ᱞᱮᱢᱵᱚ ᱜᱚᱲᱦᱚᱱ
 newtab-wallpaper-gradient-orange = ᱜᱽᱨᱮᱰᱤᱭᱮᱱᱴ ᱞᱮᱢᱵᱚ ᱟᱨ ᱜᱩᱞᱟᱯᱤ
 newtab-wallpaper-abstract-blue-purple = ᱞᱤᱞ ᱟᱨ ᱵᱮᱝᱜᱩᱱᱤ ᱜᱚᱲᱦᱚᱱ
 
-## Celestial
+## Firefox
 
 newtab-wallpaper-category-title-photographs = ᱯᱷᱳᱴᱳᱜᱽᱨᱟᱯᱷ
 newtab-wallpaper-beach-at-sunrise = ᱥᱤᱛᱩᱝ ᱩᱰᱩᱝ ᱨᱮ ᱫᱚᱨᱭᱟ ᱟᱲᱮ
@@ -403,6 +403,11 @@ newtab-weather-menu-hide-weather = ᱱᱟᱶᱟ ᱴᱮᱵᱽ ᱨᱮ ᱦᱚᱭ �
 newtab-weather-menu-learn-more = ᱰᱷᱮᱨ ᱥᱮᱬᱟᱭ ᱢᱮ
 # This message is shown if user is working offline
 newtab-weather-error-not-available = ᱱᱤᱛᱚᱜ ᱫᱚ ᱦᱚᱭ ᱦᱤᱥᱤᱫ ᱰᱟᱴᱟ ᱵᱟᱝ ᱧᱟᱢᱚᱜ ᱠᱟᱱᱟ ᱾
+# Variables:
+#   $provider (string) - Service provider for weather data
+newtab-weather-see-forecast-description =
+    .title = { $provider } ᱨᱮ ᱨᱮ ᱯᱷᱚᱨᱠᱟᱥᱴ ᱧᱮᱞ ᱢᱮ
+    .aria-description = { $provider } ∙ ᱥᱯᱚᱱᱥᱚᱨ ᱟᱠᱟᱱ
 
 ## Topic Labels
 

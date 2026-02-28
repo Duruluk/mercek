@@ -19,6 +19,8 @@ XPCOMUtils.defineLazyServiceGetters(lazy, {
 });
 
 ChromeUtils.defineESModuleGetters(lazy, {
+  AIWindow:
+    "moz-src:///browser/components/aiwindow/ui/modules/AIWindow.sys.mjs",
   HomePage: "resource:///modules/HomePage.sys.mjs",
   PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.sys.mjs",
 });
@@ -184,7 +186,7 @@ export const BrowserWindowTracker = {
    * there are no open windows in the current virtual desktop. To prevent this,
    * set `options.allowFromInactiveWorkspace` to true.
    *
-   * @param {Object} options - An object accepting the arguments for the search.
+   * @param {object} options - An object accepting the arguments for the search.
    * @param {boolean} [options.private]
    *   true to only search for private windows.
    *   false to restrict the search to non-private windows.
@@ -236,7 +238,7 @@ export const BrowserWindowTracker = {
    * opened via the `openWindow` function in this module or that have been
    * registered with the `registerOpeningWindow` function.
    *
-   * @param {Object} options
+   * @param {object} options
    *   Options for the search.
    * @param {boolean} [options.private]
    *   true to restrict the search to private windows only, false to restrict
@@ -295,13 +297,15 @@ export const BrowserWindowTracker = {
   /**
    * A standard function for opening a new browser window.
    *
-   * @param {Object} [options]
+   * @param {object} [options]
    *   Options for the new window.
    * @param {Window} [options.openerWindow]
    *   An existing browser window to open the new one from.
    * @param {boolean} [options.private]
    *   True to make the window a private browsing window.
-   * @param {String} [options.features]
+   * @param {boolean} [options.aiWindow]
+   *   True to make the window an AI browsing window.
+   * @param {string} [options.features]
    *   Additional window features to give the new window.
    * @param {boolean} [options.all]
    *   True if "all" should be included as a window feature. If omitted, defaults
@@ -317,15 +321,19 @@ export const BrowserWindowTracker = {
    *
    * @returns {Window}
    */
-  openWindow({
-    openerWindow = undefined,
-    private: isPrivate = false,
-    features = undefined,
-    all = true,
-    args = null,
-    remote = undefined,
-    fission = undefined,
-  } = {}) {
+  openWindow(options = {}) {
+    let {
+      openerWindow = undefined,
+      private: isPrivate = false,
+      features = undefined,
+      all = true,
+      args = null,
+      remote = undefined,
+      fission = undefined,
+    } = options;
+
+    args = lazy.AIWindow.handleAIWindowOptions(options);
+
     let windowFeatures = "chrome,dialog=no";
     if (all) {
       windowFeatures += ",all";
@@ -403,7 +411,7 @@ export const BrowserWindowTracker = {
    * Async version of `openWindow` waiting for delayed startup of the new
    * window before returning.
    *
-   * @param {Object} [options]
+   * @param {object} [options]
    *   Options for the new window. See `openWindow` for details.
    *
    * @returns {Window}
@@ -431,6 +439,7 @@ export const BrowserWindowTracker = {
   /**
    * Array of browser windows ordered by z-index, in reverse order.
    * This means that the top-most browser window will be the first item.
+   *
    * @param {object} options
    * @param {boolean}  [options.private]
    *   If set, returns only windows with the specified privateness. i.e. `true`

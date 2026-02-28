@@ -32,6 +32,7 @@
 
 #include "gc/Marking-inl.h"
 #include "gc/StableCellHasher-inl.h"
+#include "gc/WeakMap-inl.h"
 #include "vm/BytecodeIterator-inl.h"
 #include "vm/Stack-inl.h"
 
@@ -2123,13 +2124,14 @@ class DebugEnvironmentProxyHandler : public NurseryAllocableProxyHandler {
       return true;
     }
 
-    if (!GetFunctionThis(cx, maybeEnv->frame(), thisv)) {
+    AbstractFramePtr frame = maybeEnv->frame();
+    if (!GetFunctionThis(cx, frame, thisv)) {
       return false;
     }
 
     // Update the this-argument to avoid boxing primitive |this| more
     // than once.
-    maybeEnv->frame().thisArgument() = thisv;
+    frame.thisArgument() = thisv;
     *success = true;
     return true;
   }
@@ -2685,9 +2687,9 @@ bool DebugEnvironmentProxy::isOptimizedOut() const {
     JSContext* cx, AbstractFramePtr frame, const jsbytecode* pc,
     MutableHandleObject env, MutableHandle<Scope*> scope);
 
-DebugEnvironments::DebugEnvironments(JSContext* cx, Zone* zone)
-    : zone_(zone),
-      proxiedEnvs(cx),
+DebugEnvironments::DebugEnvironments(JSContext* cx)
+    : zone_(cx->zone()),
+      proxiedEnvs(cx->zone()),
       missingEnvs(cx->zone()),
       liveEnvs(cx->zone()) {}
 
@@ -2785,7 +2787,7 @@ DebugEnvironments* DebugEnvironments::ensureRealmData(JSContext* cx) {
     return debugEnvs;
   }
 
-  auto debugEnvs = cx->make_unique<DebugEnvironments>(cx, cx->zone());
+  auto debugEnvs = cx->make_unique<DebugEnvironments>(cx);
   if (!debugEnvs) {
     return nullptr;
   }
@@ -3139,6 +3141,30 @@ void DebugEnvironments::onPopWith(AbstractFramePtr frame) {
 
 void DebugEnvironments::onPopModule(JSContext* cx, const EnvironmentIter& ei) {
   onPopGeneric<ModuleEnvironmentObject, ModuleScope>(cx, ei);
+}
+
+void DebugEnvironments::onPopWasm(JSContext* cx, AbstractFramePtr frame) {
+  MOZ_ASSERT(frame.isWasmDebugFrame());
+
+  DebugEnvironments* envs = cx->realm()->debugEnvs();
+  if (!envs) {
+    return;
+  }
+
+  Rooted<WasmInstanceObject*> instance(cx, frame.wasmInstance()->object());
+  uint32_t funcIndex = frame.asWasmDebugFrame()->funcIndex();
+  Rooted<Scope*> wasmFunctionScope(
+      cx, instance->getExistingFunctionScope(funcIndex));
+  if (!wasmFunctionScope) {
+    return;
+  }
+
+  MissingEnvironmentKey key(frame, wasmFunctionScope);
+  if (MissingEnvironmentMap::Ptr p = envs->missingEnvs.lookup(key)) {
+    EnvironmentObject& env = p->value()->environment();
+    envs->liveEnvs.remove(&env);
+    envs->missingEnvs.remove(p);
+  }
 }
 
 void DebugEnvironments::onRealmUnsetIsDebuggee(Realm* realm) {

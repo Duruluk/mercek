@@ -13,6 +13,7 @@
 #include "mozilla/ipc/IPCStreamUtils.h"
 #include "mozilla/net/EarlyHintRegistrar.h"
 #include "mozilla/net/HttpChannelParent.h"
+#include "mozilla/net/CacheEntryWriteHandleParent.h"
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/ContentProcessManager.h"
 #include "mozilla/dom/Element.h"
@@ -86,7 +87,9 @@ struct ChannelMarker {
     using MS = MarkerSchema;
     MS schema(MS::Location::MarkerChart, MS::Location::MarkerTable);
     schema.SetTableLabel("{marker.data.url}");
-    schema.AddKeyFormat("url", MS::Format::Url, MS::PayloadFlags::Searchable);
+    schema.AddKeyFormat("url", MS::Format::Url);
+    // Bug 1618687 - Use channelId to segment "Waiting for Socket Thread".
+    schema.AddKeyFormat("channelId", MS::Format::Integer);
     schema.AddStaticLabelValue(
         "Description",
         "Timestamp capturing various phases of a network channel's lifespan.");
@@ -1108,8 +1111,9 @@ static ResourceTimingStructArgs GetTimingAttributes(HttpBaseChannel* aChannel) {
 
   aChannel->GetEncodedBodySize(&size);
   args.encodedBodySize() = size;
-  // decodedBodySize can be computed in the child process so it doesn't need
-  // to be passed down.
+
+  aChannel->GetDecodedBodySize(&size);
+  args.decodedBodySize() = size;
 
   aChannel->GetCacheReadStart(&timeStamp);
   args.cacheReadStart() = timeStamp;
@@ -1352,20 +1356,6 @@ HttpChannelParent::OnStartRequest(nsIRequest* aRequest) {
       multiPartID.valueOr(0) == 0) {
     LOG(("HttpChannelParent::SendOnStartRequestSent\n"));
     (void)SendOnStartRequestSent();
-  }
-
-  if (!args.timing().domainLookupEnd().IsNull() &&
-      !args.timing().connectStart().IsNull()) {
-    nsAutoCString protocolVersion;
-    mChannel->GetProtocolVersion(protocolVersion);
-    uint32_t classOfServiceFlags = 0;
-    mChannel->GetClassFlags(&classOfServiceFlags);
-    nsAutoCString cosString;
-    ClassOfService::ToString(classOfServiceFlags, cosString);
-    nsAutoCString key(
-        nsPrintfCString("%s_%s", protocolVersion.get(), cosString.get()));
-    glean::network::dns_end_to_connect_start_exp.Get(key).AccumulateRawDuration(
-        args.timing().connectStart() - args.timing().domainLookupEnd());
   }
 
   return rv;
@@ -1730,8 +1720,7 @@ HttpChannelParent::SetClassifierMatchedInfo(const nsACString& aList,
                                             const nsACString& aProvider,
                                             const nsACString& aFullHash) {
   LOG(("HttpChannelParent::SetClassifierMatchedInfo [this=%p]\n", this));
-  if (!mIPCClosed) {
-    MOZ_ASSERT(mBgParent);
+  if (!mIPCClosed && mBgParent) {
     (void)mBgParent->OnSetClassifierMatchedInfo(aList, aProvider, aFullHash);
   }
   return NS_OK;
@@ -1742,8 +1731,7 @@ HttpChannelParent::SetClassifierMatchedTrackingInfo(
     const nsACString& aLists, const nsACString& aFullHashes) {
   LOG(("HttpChannelParent::SetClassifierMatchedTrackingInfo [this=%p]\n",
        this));
-  if (!mIPCClosed) {
-    MOZ_ASSERT(mBgParent);
+  if (!mIPCClosed && mBgParent) {
     (void)mBgParent->OnSetClassifierMatchedTrackingInfo(aLists, aFullHashes);
   }
   return NS_OK;
@@ -1756,8 +1744,7 @@ HttpChannelParent::NotifyClassificationFlags(uint32_t aClassificationFlags,
       ("HttpChannelParent::NotifyClassificationFlags "
        "classificationFlags=%" PRIu32 ", thirdparty=%d [this=%p]\n",
        aClassificationFlags, static_cast<int>(aIsThirdParty), this));
-  if (!mIPCClosed) {
-    MOZ_ASSERT(mBgParent);
+  if (!mIPCClosed && mBgParent) {
     (void)mBgParent->OnNotifyClassificationFlags(aClassificationFlags,
                                                  aIsThirdParty);
   }
@@ -1963,6 +1950,37 @@ HttpChannelParent::CompleteRedirect(nsresult status) {
 
   mRedirectChannel = nullptr;
   return NS_OK;
+}
+
+NS_IMPL_ADDREF(CacheEntryWriteHandleParent)
+NS_IMPL_RELEASE(CacheEntryWriteHandleParent)
+NS_INTERFACE_MAP_BEGIN(CacheEntryWriteHandleParent)
+  NS_INTERFACE_MAP_ENTRY(nsISupports)
+  NS_INTERFACE_MAP_ENTRY(nsICacheEntryWriteHandle)
+NS_INTERFACE_MAP_END
+
+CacheEntryWriteHandleParent::CacheEntryWriteHandleParent(
+    nsICacheEntry* aCacheEntry)
+    : mCacheEntry(aCacheEntry) {}
+
+NS_IMETHODIMP
+CacheEntryWriteHandleParent::OpenAlternativeOutputStream(
+    const nsACString& type, int64_t predictedSize,
+    nsIAsyncOutputStream** _retval) {
+  if (!mCacheEntry) {
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+
+  nsresult rv =
+      mCacheEntry->OpenAlternativeOutputStream(type, predictedSize, _retval);
+  if (NS_SUCCEEDED(rv)) {
+    mCacheEntry->SetMetaDataElement("alt-data-from-child", "1");
+  }
+  return rv;
+}
+
+CacheEntryWriteHandleParent* HttpChannelParent::AllocCacheEntryWriteHandle() {
+  return new CacheEntryWriteHandleParent(mCacheEntry);
 }
 
 nsresult HttpChannelParent::OpenAlternativeOutputStream(

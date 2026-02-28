@@ -33,7 +33,6 @@
 #include "mozilla/TextEventDispatcher.h"
 #include "mozilla/TextEvents.h"
 #include "mozilla/TouchEvents.h"
-#include "mozilla/UniquePtr.h"
 #include "mozilla/dom/BrowserBridgeParent.h"
 #include "mozilla/dom/BrowserHost.h"
 #include "mozilla/dom/BrowserSessionStore.h"
@@ -97,7 +96,6 @@
 #include "nsQueryActor.h"
 #include "nsSHistory.h"
 #include "nsVariant.h"
-#include "nsViewManager.h"
 #ifndef XP_WIN
 #  include "nsJARProtocolHandler.h"
 #endif
@@ -107,14 +105,12 @@
 #include "ColorPickerParent.h"
 #include "FilePickerParent.h"
 #include "IHistory.h"
-#include "ImageOps.h"
 #include "MMPrinter.h"
 #include "PermissionMessageUtils.h"
 #include "ProcessPriorityManager.h"
 #include "StructuredCloneData.h"
 #include "UnitTransforms.h"
 #include "VsyncSource.h"
-#include "gfxDrawable.h"
 #include "gfxUtils.h"
 #include "mozilla/NullPrincipal.h"
 #include "mozilla/ProfilerLabels.h"
@@ -258,8 +254,7 @@ class RequestingAccessKeyEventData {
   static int32_t sBrowserParentCount;
 };
 int32_t RequestingAccessKeyEventData::sBrowserParentCount = 0;
-MOZ_RUNINIT Maybe<RequestingAccessKeyEventData::Data>
-    RequestingAccessKeyEventData::sData;
+Maybe<RequestingAccessKeyEventData::Data> RequestingAccessKeyEventData::sData;
 
 namespace dom {
 
@@ -575,19 +570,18 @@ BrowserBridgeParent* BrowserParent::GetBrowserBridgeParent() const {
 
 BrowserHost* BrowserParent::GetBrowserHost() const { return mBrowserHost; }
 
+bool BrowserParent::IsTransparent() const {
+  return mFrameElement && mFrameElement->HasAttr(nsGkAtoms::transparent) &&
+         nsContentUtils::IsChromeDoc(mFrameElement->OwnerDoc());
+}
+
 ParentShowInfo BrowserParent::GetShowInfo() {
   TryCacheDPIAndScale();
+  nsAutoString name;
   if (mFrameElement) {
-    nsAutoString name;
     mFrameElement->GetAttr(nsGkAtoms::name, name);
-    bool isTransparent =
-        nsContentUtils::IsChromeDoc(mFrameElement->OwnerDoc()) &&
-        mFrameElement->HasAttr(nsGkAtoms::transparent);
-    return ParentShowInfo(name, false, isTransparent, mDPI, mRounding,
-                          mDefaultScale.scale);
   }
-
-  return ParentShowInfo(u""_ns, false, false, mDPI, mRounding,
+  return ParentShowInfo(name, false, IsTransparent(), mDPI, mRounding,
                         mDefaultScale.scale);
 }
 
@@ -791,9 +785,9 @@ mozilla::ipc::IPCResult BrowserParent::RecvDidUnsuppressPainting() {
 }
 
 mozilla::ipc::IPCResult BrowserParent::RecvEnsureLayersConnected(
-    CompositorOptions* aCompositorOptions) {
+    Maybe<CompositorOptions>* aCompositorOptions) {
   if (mRemoteLayerTreeOwner.IsInitialized()) {
-    mRemoteLayerTreeOwner.EnsureLayersConnected(aCompositorOptions);
+    mRemoteLayerTreeOwner.EnsureLayersConnected(*aCompositorOptions);
   }
   return IPC_OK();
 }
@@ -1127,7 +1121,7 @@ void BrowserParent::UpdateDimensions(const LayoutDeviceIntRect& rect,
 
   LayoutDeviceIntPoint clientOffset = GetClientOffset();
   LayoutDeviceIntPoint chromeOffset = !GetBrowserBridgeParent()
-                                          ? -GetChildProcessOffset()
+                                          ? GetChildProcessOffset()
                                           : LayoutDeviceIntPoint();
 
   if (!mUpdatedDimensions || mDimensions != size || !mRect.IsEqualEdges(rect) ||
@@ -2237,6 +2231,7 @@ void BrowserParent::SendRealTouchMoveEvent(
 
   AutoTArray<int32_t, kMaxTouchMoveIdentifiers> changedTouches;
   bool preventCompression = !StaticPrefs::dom_events_compress_touchmove() ||
+                            aEvent.mFlags.mIsSynthesizedForTests ||
                             // Ensure the very first touchmove isn't overridden
                             // by the second one, so that web pages can get
                             // accurate coordinates for the first touchmove.
@@ -2327,31 +2322,25 @@ mozilla::ipc::IPCResult BrowserParent::RecvSynthesizedEventResponse(
 }
 
 mozilla::ipc::IPCResult BrowserParent::RecvSyncMessage(
-    const nsString& aMessage, const ClonedMessageData& aData,
-    nsTArray<UniquePtr<ipc::StructuredCloneData>>* aRetVal) {
+    const nsString& aMessage, NotNull<ipc::StructuredCloneData*> aData,
+    nsTArray<NotNull<RefPtr<ipc::StructuredCloneData>>>* aRetVal) {
   AUTO_PROFILER_LABEL_DYNAMIC_LOSSY_NSSTRING("BrowserParent::RecvSyncMessage",
                                              OTHER, aMessage);
   MMPrinter::Print("BrowserParent::RecvSyncMessage", aMessage, aData);
 
-  ipc::StructuredCloneData data;
-  ipc::UnpackClonedMessageData(aData, data);
-
-  if (!ReceiveMessage(aMessage, true, &data, aRetVal)) {
+  if (!ReceiveMessage(aMessage, true, aData, aRetVal)) {
     return IPC_FAIL_NO_REASON(this);
   }
   return IPC_OK();
 }
 
 mozilla::ipc::IPCResult BrowserParent::RecvAsyncMessage(
-    const nsString& aMessage, const ClonedMessageData& aData) {
+    const nsString& aMessage, NotNull<ipc::StructuredCloneData*> aData) {
   AUTO_PROFILER_LABEL_DYNAMIC_LOSSY_NSSTRING("BrowserParent::RecvAsyncMessage",
                                              OTHER, aMessage);
   MMPrinter::Print("BrowserParent::RecvAsyncMessage", aMessage, aData);
 
-  StructuredCloneData data;
-  ipc::UnpackClonedMessageData(aData, data);
-
-  if (!ReceiveMessage(aMessage, false, &data, nullptr)) {
+  if (!ReceiveMessage(aMessage, false, aData, nullptr)) {
     return IPC_FAIL_NO_REASON(this);
   }
   return IPC_OK();
@@ -2372,15 +2361,10 @@ mozilla::ipc::IPCResult BrowserParent::RecvSetCursor(
 
   nsCOMPtr<imgIContainer> customCursorImage;
   if (aCustomCursor) {
-    RefPtr<gfx::DataSourceSurface> customCursorSurface =
-        nsContentUtils::IPCImageToSurface(*aCustomCursor);
-    if (!customCursorSurface) {
+    customCursorImage = nsContentUtils::IPCImageToImage(*aCustomCursor);
+    if (!customCursorImage) {
       return IPC_FAIL(this, "Invalid custom cursor data");
     }
-
-    RefPtr<gfxDrawable> drawable = new gfxSurfaceDrawable(
-        customCursorSurface, customCursorSurface->GetSize());
-    customCursorImage = image::ImageOps::CreateFromDrawable(drawable);
   }
 
   mCursor = nsIWidget::Cursor{aCursor,
@@ -2718,7 +2702,7 @@ BrowserParent::GetChildToParentConversionMatrix() {
   if (mChildToParentConversionMatrix) {
     return *mChildToParentConversionMatrix;
   }
-  LayoutDevicePoint offset(-GetChildProcessOffset());
+  LayoutDevicePoint offset(GetChildProcessOffset());
   return LayoutDeviceToLayoutDeviceMatrix4x4::Translation(offset);
 }
 
@@ -2742,34 +2726,20 @@ void BrowserParent::SetChildToParentConversionMatrix(
 LayoutDeviceIntPoint BrowserParent::GetChildProcessOffset() {
   // The "toplevel widget" in child processes is always at position
   // 0,0.  Map the event coordinates to match that.
-
-  LayoutDeviceIntPoint offset(0, 0);
   RefPtr<nsFrameLoader> frameLoader = GetFrameLoader();
   if (!frameLoader) {
-    return offset;
+    return {};
   }
   nsIFrame* targetFrame = frameLoader->GetPrimaryFrameOfOwningContent();
   if (!targetFrame) {
-    return offset;
+    return {};
   }
 
   nsCOMPtr<nsIWidget> widget = GetWidget();
   if (!widget) {
-    return offset;
+    return {};
   }
 
-  nsPresContext* presContext = targetFrame->PresContext();
-  nsIFrame* rootFrame = presContext->PresShell()->GetRootFrame();
-  nsView* rootView = rootFrame ? rootFrame->GetView() : nullptr;
-  if (!rootView) {
-    return offset;
-  }
-
-  // Note that we don't want to take into account transforms here:
-#if 0
-  nsPoint pt(0, 0);
-  nsLayoutUtils::TransformPoint(targetFrame, rootFrame, pt);
-#endif
   // In practice, when transforms are applied to this frameLoader, we currently
   // get the wrong results whether we take transforms into account here or not.
   // But applying transforms here gives us the wrong results in all
@@ -2781,15 +2751,13 @@ LayoutDeviceIntPoint BrowserParent::GetChildProcessOffset() {
   // What we actually need to do is apply the transforms to the coordinates of
   // any events we send to the child, and reverse them for any screen
   // coordinates that we retrieve from the child.
-
-  // TODO: Once we take into account transforms here, set viewportType
-  // correctly. For now we use Visual as this means we don't apply
-  // the layout-to-visual transform in TranslateViewToWidget().
-  ViewportType viewportType = ViewportType::Visual;
-
-  nsPoint pt = targetFrame->GetOffsetTo(rootFrame);
-  return -nsLayoutUtils::TranslateViewToWidget(presContext, rootView, pt,
-                                               viewportType, widget);
+  auto point = nsLayoutUtils::FrameToWidgetOffset(targetFrame, widget);
+  if (!point) {
+    return {};
+  }
+  nsPresContext* pc = targetFrame->PresContext();
+  return LayoutDeviceIntPoint::FromAppUnitsRounded(*point,
+                                                   pc->AppUnitsPerDevPixel());
 }
 
 LayoutDeviceIntPoint BrowserParent::GetClientOffset() {
@@ -3107,9 +3075,7 @@ mozilla::ipc::IPCResult BrowserParent::RecvNotifyContentBlockingEvent(
     const Maybe<
         mozilla::ContentBlockingNotifier::StorageAccessPermissionGrantedReason>&
         aReason,
-    const Maybe<mozilla::ContentBlockingNotifier::CanvasFingerprinter>&
-        aCanvasFingerprinter,
-    const Maybe<bool>& aCanvasFingerprinterKnownText) {
+    const Maybe<CanvasFingerprintingEvent>& aCanvasFingerprintingEvent) {
   RefPtr<BrowsingContext> bc = GetBrowsingContext();
 
   if (!bc || bc->IsDiscarded()) {
@@ -3133,9 +3099,9 @@ mozilla::ipc::IPCResult BrowserParent::RecvNotifyContentBlockingEvent(
       aRequestData.matchedList());
   request->SetCanceledReason(aRequestData.canceledReason());
 
-  wgp->NotifyContentBlockingEvent(
-      aEvent, request, aBlocked, aTrackingOrigin, aTrackingFullHashes, aReason,
-      aCanvasFingerprinter, aCanvasFingerprinterKnownText);
+  wgp->NotifyContentBlockingEvent(aEvent, request, aBlocked, aTrackingOrigin,
+                                  aTrackingFullHashes, aReason,
+                                  aCanvasFingerprintingEvent);
 
   return IPC_OK();
 }
@@ -3501,8 +3467,9 @@ mozilla::ipc::IPCResult BrowserParent::RecvSetInputContext(
 }
 
 bool BrowserParent::ReceiveMessage(
-    const nsString& aMessage, bool aSync, ipc::StructuredCloneData* aData,
-    nsTArray<UniquePtr<ipc::StructuredCloneData>>* aRetVal) {
+    const nsString& aMessage, bool aSync,
+    NotNull<ipc::StructuredCloneData*> aData,
+    nsTArray<NotNull<RefPtr<ipc::StructuredCloneData>>>* aRetVal) {
   // If we're for an oop iframe, don't deliver messages to the wrong place.
   if (mBrowserBridgeParent) {
     return true;
@@ -3514,7 +3481,7 @@ bool BrowserParent::ReceiveMessage(
         frameLoader->GetFrameMessageManager();
 
     manager->ReceiveMessage(mFrameElement, frameLoader, aMessage, aSync, aData,
-                            aRetVal, IgnoreErrors());
+                            aRetVal);
   }
   return true;
 }
@@ -3668,7 +3635,7 @@ mozilla::ipc::IPCResult BrowserParent::RecvRespondStartSwipeEvent(
   return IPC_OK();
 }
 
-bool BrowserParent::GetDocShellIsActive() {
+bool BrowserParent::GetDocShellIsActive() const {
   return mBrowsingContext && mBrowsingContext->IsActive();
 }
 
@@ -3741,6 +3708,12 @@ void BrowserParent::NotifyResolutionChanged() {
   // that case.
   (void)SendUIResolutionChanged(mDPI, mRounding,
                                 mDPI < 0 ? -1.0 : mDefaultScale.scale);
+}
+
+void BrowserParent::NotifyTransparencyChanged() {
+  if (!mIsDestroyed) {
+    (void)SendTransparencyChanged(IsTransparent());
+  }
 }
 
 bool BrowserParent::CanCancelContentJS(
@@ -3959,13 +3932,18 @@ mozilla::ipc::IPCResult BrowserParent::RecvInvokeDragSession(
       cookieJarSettings, aSourceWindowContext.GetMaybeDiscarded(),
       aSourceTopWindowContext.GetMaybeDiscarded());
 
-  if (aVisualDnDData) {
-    const auto checkedSize = CheckedInt<size_t>(aDragRect.height) * aStride;
-    if (checkedSize.isValid() &&
-        aVisualDnDData->Size() >= checkedSize.value()) {
+  if (aVisualDnDData && aDragRect.width >= 0 && aDragRect.height >= 0) {
+    const auto checkedSize = CheckedInt<int32_t>(aDragRect.height) * aStride;
+    const auto computedStride =
+        CheckedInt<int32_t>(aDragRect.width) * gfx::BytesPerPixel(aFormat);
+    const auto checkedStride = CheckedInt<int32_t>(aStride);
+    if (checkedSize.isValid() && checkedSize.value() >= 0 &&
+        aVisualDnDData->Size() >= static_cast<size_t>(checkedSize.value()) &&
+        computedStride.isValid() && checkedStride.isValid() &&
+        computedStride.value() <= checkedStride.value()) {
       dragStartData->SetVisualization(gfx::CreateDataSourceSurfaceFromData(
           gfx::IntSize(aDragRect.width, aDragRect.height), aFormat,
-          aVisualDnDData->Data(), aStride));
+          aVisualDnDData->Data(), checkedStride.value()));
     }
   }
 

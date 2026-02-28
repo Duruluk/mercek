@@ -23,6 +23,9 @@ newtab-personalize-dialog-label =
     .aria-label = Անհատականացնել
 newtab-logo-and-wordmark =
     .aria-label = { -brand-full-name }
+newtab-card-dismiss-button =
+    .title = Բաց թողնել
+    .aria-label = Բաց թողնել
 
 ## Search box component.
 
@@ -125,7 +128,7 @@ newtab-menu-open-new-private-window = Բացել նոր գաղտնի պատու�
 newtab-menu-dismiss = Բաց թողնել
 newtab-menu-pin = Ամրացնել
 newtab-menu-unpin = Ապամրացնել
-newtab-menu-delete-history = Ջնջել Պատմությունից
+newtab-menu-delete-history = Ջնջել պատմությունից
 newtab-menu-save-to-pocket = Պահպանել { -pocket-brand-name }-ում
 newtab-menu-delete-pocket = Ջնջել { -pocket-brand-name }-ից
 newtab-menu-archive-pocket = Արխիվացնել { -pocket-brand-name }-ում
@@ -136,10 +139,14 @@ newtab-menu-report = Զեկուցել
 # Context menu option to personalize New Tab recommended stories by blocking a section of stories,
 # e.g. "Sports". "Block" is a verb here.
 newtab-menu-section-block = Արգելափակել
+# "Follow", "unfollow", and "following" are social media terms that refer to subscribing to or unsubscribing from a section of stories.
+# e.g. Following the travel section of stories.
+newtab-menu-section-unfollow = Չհետևել թեմային
 
 ## Context menu options for sponsored stories and new ad formats on New Tab.
 
-newtab-menu-manage-sponsored-content = Կառավարեք հովանավորված բովանդակությունը
+newtab-menu-manage-sponsored-content = Կառավարել հովանավորված բովանդակությունը
+newtab-menu-our-sponsors-and-your-privacy = Մեր հովանավորները և ձեր գաղտնիությունը
 newtab-menu-report-this-ad = Հաղորդել այս գովազդի մասին
 
 ## Message displayed in a modal window to explain privacy and provide context for sponsored content.
@@ -199,7 +206,7 @@ newtab-label-sponsored-by = Հովանավորված է { $sponsor }-ի կողմ
 # Variables:
 #   $source (string) - The name of a company or their domain
 #   $timeToRead (number) - The estimated number of minutes to read this story
-newtab-label-source-read-time = { $source } · { $timeToRead } րոպե
+newtab-label-source-read-time = { $source } · { $timeToRead } ր․
 # This string is used under fixed size ads to indicate sponsored content
 newtab-label-sponsored-fixed = Հովանավորված
 
@@ -304,6 +311,8 @@ newtab-custom-row-selector =
     }
 newtab-custom-sponsored-sites = Հովանավորված դյուրանցումներ
 newtab-custom-pocket-title = Խորհուրդ է տրվում { -pocket-brand-name }-ի կողմից
+newtab-custom-stories-personalized-toggle =
+    .label = Պատմություններ
 newtab-custom-pocket-sponsored = Հովանավորված պատմություններ
 newtab-custom-pocket-show-recent-saves = Ցուցադրել վերջին պահումները
 newtab-custom-recent-title = Վերջին ակտիվություն
@@ -313,13 +322,16 @@ newtab-custom-weather-toggle =
     .description = Այսօրվա կանխատեսումը մի հայացքով
 newtab-custom-widget-weather-toggle =
     .label = Եղանակ
-newtab-custom-widget-trending-search-toggle =
-    .label = Թրենդային որոնումներ
 newtab-custom-widget-lists-toggle =
     .label = Ցանկեր
 newtab-custom-widget-timer-toggle =
     .label = ժամաչափ
 newtab-custom-widget-section-title = Վիջեթներ
+newtab-custom-widget-section-toggle =
+    .label = Վիջեթներ
+newtab-widget-manage-title = Վիջեթներ
+newtab-widget-manage-widget-button =
+    .label = Կառավարել վիջեթները
 # Tooltip for close button
 newtab-custom-close-menu-button =
     .title = Փակել
@@ -380,7 +392,7 @@ newtab-wallpaper-abstract-blue-purple = Կապույտ և մանուշակագո
 newtab-wallpaper-abstract-white-curves = Սպիտակ՝ ստվերագծված կորերով
 newtab-wallpaper-abstract-purple-green = Մանուշակագույն և կանաչ լույսի գրադիենտ
 
-## Celestial
+## Firefox
 
 newtab-wallpaper-category-title-photographs = Լուսանկարներ
 newtab-wallpaper-beach-at-sunrise = Լողափ արևածագին
@@ -403,6 +415,10 @@ feature-highlight-dismiss-button =
 feature-highlight-wallpaper =
     .title = { -newtab-wallpaper-feature-highlight-header }
     .aria-label = { -newtab-wallpaper-feature-highlight-content }
+
+## Firefox
+
+newtab-wallpaper-category-title-firefox = { -brand-product-name }
 
 ## Celestial
 
@@ -445,8 +461,21 @@ newtab-weather-menu-change-temperature-units-fahrenheit = Փոխարկել ֆա�
 newtab-weather-menu-change-temperature-units-celsius = Փոխարկել ցելսիուսին
 newtab-weather-menu-hide-weather = Թաքցնել եղանակը Նոր ներդիրում
 newtab-weather-menu-learn-more = Իմանալ ավելին
+newtab-weather-menu-detect-my-location = Հայտնաբերել իմ գտնվելու վայրը
 # This message is shown if user is working offline
 newtab-weather-error-not-available = Եղանակի տվյալներն այս պահին հասանելի չեն:
+newtab-weather-opt-in-see-weather = Ցանկանո՞ւմ եք տեսնել ձեր գտնվելու վայրի եղանակը։
+newtab-weather-opt-in-not-now =
+    .label = Ոչ հիմա
+newtab-weather-opt-in-yes =
+    .label = Այո
+# We'll be showing static (fake) weather data if the user has not opted in to using their location
+newtab-weather-static-city = Նյու Յորք քաղաք
+# Variables:
+#   $provider (string) - Service provider for weather data
+newtab-weather-see-forecast-description =
+    .title = Տեսեք կանխատեսումը { $provider }-ում
+    .aria-description = { $provider } ∙ Հովանավորվում է
 
 ## Topic Labels
 
@@ -454,7 +483,7 @@ newtab-topic-label-business = Բիզնես
 newtab-topic-label-career = Կարիերա
 newtab-topic-label-education = Կրթություն
 newtab-topic-label-arts = Ժամանց
-newtab-topic-label-food = ՈՒտելիք
+newtab-topic-label-food = Սնունդ
 newtab-topic-label-health = Առողջություն
 newtab-topic-label-hobbies = Խաղեր
 # ”Money” = “Personal Finance”, refers to articles and stories that help readers better manage
@@ -490,8 +519,10 @@ newtab-topic-selection-button-pick-interests = Ընտրեք ձեր հետաքր�
 ## e.g. Following the travel section of stories.
 
 newtab-section-follow-button = Հետևել
-newtab-section-following-button = Հետևում
+newtab-section-following-button = Հետևվում է
 newtab-section-unfollow-button = Ապահետևել
+# A modal may appear next to the Follow button, directing users to try out the feature
+newtab-section-follow-highlight-title = Կարգավորեք ձեր լրահոսը
 
 ## Button to block/unblock listed topics
 ## "Block", "unblocked", and "blocked" are social media terms that refer to hiding a section of stories.
@@ -499,7 +530,7 @@ newtab-section-unfollow-button = Ապահետևել
 
 newtab-section-block-button = Արգելափակել
 newtab-section-blocked-button = Արգելափակված
-newtab-section-unblock-button = Ապակողպել
+newtab-section-unblock-button = Ապաարգելափակել
 
 ## Confirmation modal for blocking a section
 
@@ -514,19 +545,33 @@ newtab-section-mangage-topics-title = Թեմաներ
 newtab-section-manage-topics-button-v2 =
     .label = Կառավարել թեմաները
 newtab-section-mangage-topics-followed-topics = Հետևված
+newtab-section-mangage-topics-followed-topics-empty-state = Դուք դեռ որևէ թեմայի չեք հետևել։
 newtab-section-mangage-topics-blocked-topics = Արգելափակված
+newtab-section-mangage-topics-blocked-topics-empty-state = Դուք դեռ որևէ թեմա չեք արգելափակել։
+newtab-custom-wallpaper-title = Պատվերով պատրաստված պաստառներ այստեղ են
+# 'Make firefox yours" means to customize or personalize
+newtab-custom-wallpaper-subtitle = Վերբեռնեք ձեր սեփական պաստառը կամ ընտրեք ձեր սեփական գույնը՝ { -brand-product-name }-ը ձերը դարձնելու համար։
 newtab-custom-wallpaper-cta = Փորձել
 
 ## Strings for new user activation custom wallpaper highlight
 
 newtab-new-user-custom-wallpaper-cta = Փորձել հիմա
 
+## Strings for download mobile highlight
+
+newtab-download-mobile-highlight-title = Ներբեռնեք { -brand-product-name }-ը բջջայինի համար
+# "Scan the code" refers to scanning the QR code that appears above the body text that leads to Firefox for mobile download.
+newtab-download-mobile-highlight-body-variant-a = Սկանավորեք կոդը՝ ճանապարհին անվտանգ զննարկելու համար։
+newtab-download-mobile-highlight-body-variant-b = Շարունակեք այնտեղից, որտեղ կանգ եք առել, երբ համաժամեցնում եք ձեր ներդիրները, գաղտնաբառերը և այլն:
+
 ## Strings for shortcuts highlight
 
 newtab-shortcuts-highlight-title = Ձեր սիրելիները՝ ձեր մատների ծայրերին
 
-## Strings for reporting ads and content
+## Strings for reporting issues with ads and content
 
+newtab-report-content-why-reporting-this =
+    .label = Ինչո՞ւ եք սա հաղորդում։
 newtab-report-ads-reason-not-interested =
     .label = Ես հետաքրքրված չեմ
 newtab-report-ads-reason-inappropriate =
@@ -541,19 +586,11 @@ newtab-report-content-inappropriate-offensive =
     .label = Անպատշաճ կամ վիրավորական
 newtab-report-content-spam-misleading =
     .label = Սպամ կամ մոլորեցնող
+newtab-report-content-requires-payment-subscription-learn-more = Իմանալ ավելին
 newtab-report-cancel = Չեղարկել
 newtab-report-submit = Ուղարկել
 newtab-toast-thanks-for-reporting =
     .message = Շնորհակալություն հայտնելու համար:
-
-## Strings for trending searches
-
-newtab-trending-searches-hide-trending =
-    .title = Թաքցնել թրենդային որոնումները
-newtab-trending-searches-learn-more = Իմանալ ավելին
-newtab-trending-searches-dismiss = Թաքցնել թրենդային որոնումները
-# "Trending searches refers to popular searches from search engines
-newtab-trending-searches-title = Թրենդային որոնումներ
 
 ## Strings for task / to-do list productivity widget
 
@@ -583,6 +620,9 @@ newtab-widget-lists-input-menu-move-up = Շարժել վերև
 newtab-widget-lists-input-menu-move-down = Շարժել ներքև
 newtab-widget-lists-input-menu-delete = Ջնջել
 newtab-widget-lists-input-menu-edit = Խմբագրել
+# the + symbol emphasises the functionality of adding a new list
+newtab-widget-lists-dropdown-create =
+    .label = + Ստեղծել նոր ցուցակ
 newtab-widget-lists-name-label-default =
     .label = Առաջադրանքների ցանկ
 newtab-widget-lists-name-placeholder-default =
@@ -590,20 +630,29 @@ newtab-widget-lists-name-placeholder-default =
 # The placeholder value of the name field for a newly created list
 newtab-widget-lists-name-placeholder-new =
     .placeholder = Նոր ցանկ
+newtab-widget-section-title = Վիջեթներ
+# Tooltip for hide all widgets button
+newtab-widget-section-hide-all-button =
+    .title = Թաքցնել վիջեթները
+    .aria-label = Թաքցնել բոլոր վիջեթները
+newtab-widget-section-maximize =
+    .title = Ընդարձակել վիջեթները
+    .aria-label = Ընդարձակել բոլոր վիջեթները լրիվ չափով
+newtab-widget-section-minimize =
+    .title = Փոքրացնել վիջեթները
+    .aria-label = Կոծկել բոլոր վիջեթները սեղմ չափի
 
 ## Strings for timer productivity widget
 ## When the timer ends, a system notification may be shown. Depending on which mode the timer is in, that message would be shown
 
 newtab-widget-timer-notification-title = ժամաչափ
+newtab-widget-timer-notification-focus = Կենտրոնանալու ժամանակը սպառվեց։ Լավ աշխատանք։ Հանգստի կարիք ունե՞ք։
+newtab-widget-timer-notification-break = Ձեր ընդմիջումն ավարտվեց։ Պատրա՞ստ եք կենտրոնանալու։
 newtab-widget-timer-notification-warning = Ծանուցումներն անջատված են
 newtab-widget-timer-mode-focus =
     .label = Կենտրոնացում
 newtab-widget-timer-mode-break =
     .label = Ընդմիջում
-newtab-widget-timer-play =
-    .title = Նվագարկել
-newtab-widget-timer-pause =
-    .title = Դադար
 newtab-widget-timer-label-play =
     .label = Նվագարկել
 newtab-widget-timer-label-pause =
@@ -614,8 +663,23 @@ newtab-widget-timer-menu-notifications = Անջատել ծանուցումներ
 newtab-widget-timer-menu-notifications-on = Միացնել ծանուցումները
 newtab-widget-timer-menu-hide = Թաքցնել ժամաչափը
 newtab-widget-timer-menu-learn-more = Իմանալ ավելին
+newtab-widget-message-title = Մնացեք կենտրոնացած ցուցակների և ներկառուցված ժամանակաչափի միջոցով
 newtab-promo-card-title = Աջակցել { -brand-product-name }-ին
+newtab-promo-card-body = Մեր հովանավորները աջակցում են ավելի լավ համացանց կերտելու մեր առաքելությանը
 newtab-promo-card-cta = Իմանալ ավելին
 newtab-promo-card-dismiss-button =
     .title = Բաց թողնել
     .aria-label = Բաց թողնել
+
+## Strings for activation window message variants. In certain experiment configurations,
+## the strings from these variants may be displayed in a message below the search input
+## for the first 48 hours of a new profile's lifetime. Some messages include buttons with
+## labels, but not all.
+
+newtab-activation-window-message-customization-focus-primary-button =
+    .label = Սկսեք անհատականացնել
+# "This space" refers to about:newtab. The sentiment of "plays by your rules" is
+# meant to evoke the idea that newtab is malleable and customizable. The call to
+# action is to customize newtab with a background image or colour, or by tweaking
+# the existing widgetry that appears on it.
+newtab-activation-window-message-values-focus-header = Այս տարածքը խաղում է ձեր կանոններով

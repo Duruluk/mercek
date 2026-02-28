@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 plugins {
+    alias(libs.plugins.dependency.analysis)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
@@ -29,6 +30,8 @@ dependencies {
     implementation libs.androidx.fragment
     implementation libs.androidx.lifecycle.compose
     implementation libs.androidx.lifecycle.process
+    implementation libs.androidx.lifecycle.viewmodel.compose
+    implementation libs.androidx.navigation.fragment
     implementation libs.kotlinx.coroutines
 
     testImplementation project(':components:support-test')

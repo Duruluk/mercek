@@ -13,9 +13,13 @@
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <optional>
+#include <utility>
 #include <vector>
 
 #include "api/field_trials.h"
+#include "api/transport/ecn_marking.h"
+#include "api/units/timestamp.h"
 #include "call/rtp_demuxer.h"
 #include "media/base/fake_rtp.h"
 #include "p2p/dtls/dtls_transport_internal.h"
@@ -29,7 +33,7 @@
 #include "rtc_base/containers/flat_set.h"
 #include "rtc_base/copy_on_write_buffer.h"
 #include "rtc_base/ssl_stream_adapter.h"
-#include "rtc_base/third_party/sigslot/sigslot.h"
+#include "rtc_base/thread.h"
 #include "test/create_test_field_trials.h"
 #include "test/gtest.h"
 
@@ -49,7 +53,7 @@ static const ZeroOnFreeBuffer<uint8_t> kTestKeyGcm256_1{
 static const ZeroOnFreeBuffer<uint8_t> kTestKeyGcm256_2{
     "rqponmlkjihgfedcbaZYXWVUTSRQPONMLKJIHGFEDCBA", 44};
 
-class SrtpTransportTest : public ::testing::Test, public sigslot::has_slots<> {
+class SrtpTransportTest : public ::testing::Test {
  protected:
   SrtpTransportTest() {
     bool rtcp_mux_enabled = true;
@@ -72,12 +76,16 @@ class SrtpTransportTest : public ::testing::Test, public sigslot::has_slots<> {
     srtp_transport2_->SetRtpPacketTransport(rtp_packet_transport2_.get());
 
     srtp_transport1_->SubscribeRtcpPacketReceived(
-        &rtp_sink1_, [this](CopyOnWriteBuffer* buffer, int64_t packet_time_ms) {
-          rtp_sink1_.OnRtcpPacketReceived(buffer, packet_time_ms);
+        &rtp_sink1_,
+        [this](CopyOnWriteBuffer packet, std::optional<Timestamp> arrival_time,
+               EcnMarking ecn) {
+          rtp_sink1_.OnRtcpPacketReceived(std::move(packet), arrival_time, ecn);
         });
     srtp_transport2_->SubscribeRtcpPacketReceived(
-        &rtp_sink2_, [this](CopyOnWriteBuffer* buffer, int64_t packet_time_ms) {
-          rtp_sink2_.OnRtcpPacketReceived(buffer, packet_time_ms);
+        &rtp_sink2_,
+        [this](CopyOnWriteBuffer packet, std::optional<Timestamp> arrival_time,
+               EcnMarking ecn) {
+          rtp_sink2_.OnRtcpPacketReceived(std::move(packet), arrival_time, ecn);
         });
 
     RtpDemuxerCriteria demuxer_criteria;
@@ -321,6 +329,7 @@ class SrtpTransportTest : public ::testing::Test, public sigslot::has_slots<> {
     TestSendRecvPacketWithEncryptedHeaderExtension(crypto_suite,
                                                    encrypted_headers);
   }
+  AutoThread main_thread;
 
   std::unique_ptr<SrtpTransport> srtp_transport1_;
   std::unique_ptr<SrtpTransport> srtp_transport2_;

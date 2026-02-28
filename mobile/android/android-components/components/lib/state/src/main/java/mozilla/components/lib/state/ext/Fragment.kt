@@ -10,6 +10,8 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.flowWithLifecycle
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.consumeEach
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.filter
@@ -85,6 +87,7 @@ fun <S : State, A : Action> Fragment.consumeFrom(store: Store<S, A>, block: (S) 
 fun <S : State, A : Action> Fragment.consumeFlow(
     from: Store<S, A>,
     owner: LifecycleOwner? = this,
+    mainDispatcher: CoroutineDispatcher = Dispatchers.Main,
     block: suspend (Flow<S>) -> Unit,
 ) {
     val fragment = this
@@ -98,7 +101,7 @@ fun <S : State, A : Action> Fragment.consumeFlow(
         minActiveState = Lifecycle.State.STARTED,
     )
 
-    val viewBoundScope = view.toScope()
+    val viewBoundScope = view.toScope(mainDispatcher = mainDispatcher)
 
     viewBoundScope.launch {
         val filteredFlow = viewLifecycleAwareFlow.filter {

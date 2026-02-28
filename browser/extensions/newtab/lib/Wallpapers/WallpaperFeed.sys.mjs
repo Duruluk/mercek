@@ -35,12 +35,15 @@ const RS_FALLBACK_BASE_URL =
   "https://firefox-settings-attachments.cdn.mozilla.net/";
 
 export class WallpaperFeed {
-  #customBackgroundObjectURL = null;
-
   constructor() {
     this.loaded = false;
     this.wallpaperClient = null;
     this._onSync = this.onSync.bind(this);
+  }
+
+  // Constructs a moz-newtab-wallpaper:// URI for the given wallpaper UUID.
+  getWallpaperURL(uuid) {
+    return `moz-newtab-wallpaper://${uuid}`;
   }
 
   /**
@@ -109,36 +112,15 @@ export class WallpaperFeed {
       ""
     );
 
-    if (this.#customBackgroundObjectURL) {
-      URL.revokeObjectURL(this.#customBackgroundObjectURL);
-      this.#customBackgroundObjectURL = null;
-    }
-
     if (uuid && selectedWallpaper === "custom") {
-      const wallpaperDir = PathUtils.join(PathUtils.profileDir, "wallpaper");
-      const filePath = PathUtils.join(wallpaperDir, uuid);
+      const wallpaperURI = this.getWallpaperURL(uuid);
 
-      try {
-        let testFile = await IOUtils.getFile(filePath);
-
-        if (!testFile) {
-          throw new Error("File does not exist");
-        }
-
-        let imageFile = await File.createFromNsIFile(testFile);
-        this.#customBackgroundObjectURL = URL.createObjectURL(imageFile);
-
-        this.store.dispatch(
-          ac.BroadcastToContent({
-            type: at.WALLPAPERS_CUSTOM_SET,
-            data: this.#customBackgroundObjectURL,
-          })
-        );
-      } catch (error) {
-        console.warn(`Wallpaper file not found: ${error.message}`);
-        Services.prefs.clearUserPref(PREF_WALLPAPERS_CUSTOM_WALLPAPER_UUID);
-        return;
-      }
+      this.store.dispatch(
+        ac.BroadcastToContent({
+          type: at.WALLPAPERS_CUSTOM_SET,
+          data: wallpaperURI,
+        })
+      );
     } else {
       this.store.dispatch(
         ac.BroadcastToContent({
@@ -177,7 +159,10 @@ export class WallpaperFeed {
                 wallpaperUrl: `${baseAttachmentURL}${record.attachment.location}`,
               }
             : {}),
+          background_position: record.background_position || "center",
           category: record.category || "",
+          order: record.order || 0,
+          thumbnail: record.thumbnail || null,
         };
       }),
     ];
@@ -279,17 +264,12 @@ export class WallpaperFeed {
 
       await IOUtils.write(filePath, uint8Array, { tmpPath: `${filePath}.tmp` });
 
-      if (this.#customBackgroundObjectURL) {
-        URL.revokeObjectURL(this.#customBackgroundObjectURL);
-        this.#customBackgroundObjectURL = null;
-      }
-
-      this.#customBackgroundObjectURL = URL.createObjectURL(file);
+      const wallpaperURI = this.getWallpaperURL(uuid);
 
       this.store.dispatch(
         ac.BroadcastToContent({
           type: at.WALLPAPERS_CUSTOM_SET,
-          data: this.#customBackgroundObjectURL,
+          data: wallpaperURI,
         })
       );
 

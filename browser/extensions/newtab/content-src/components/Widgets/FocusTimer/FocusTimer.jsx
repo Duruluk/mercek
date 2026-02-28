@@ -46,6 +46,27 @@ export const formatTime = seconds => {
 };
 
 /**
+ * Validates that the inputs in the timer only allow numerical digits (0-9)
+ *
+ * @param input - The character being input
+ * @returns boolean - true if valid numeric input, false otherwise
+ */
+export const isNumericValue = input => {
+  // Check for null/undefined input or non-numeric characters
+  return input && /^\d+$/.test(input);
+};
+
+/**
+ * Validates if adding a new digit would exceed the 2-character limit
+ *
+ * @param currentValue - The current value in the field
+ * @returns boolean - true if at 2-character limit, false otherwise
+ */
+export const isAtMaxLength = currentValue => {
+  return currentValue.length >= 2;
+};
+
+/**
  * Converts a polar coordinate (angle on circle) into a percentage-based [x,y] position for clip-path
  *
  * @param cx
@@ -83,7 +104,12 @@ export const getClipPath = progress => {
   return `polygon(${points.join(", ")})`;
 };
 
-export const FocusTimer = ({ dispatch, handleUserInteraction }) => {
+export const FocusTimer = ({
+  dispatch,
+  handleUserInteraction,
+  isMaximized,
+  widgetsMayBeMaximized,
+}) => {
   const [timeLeft, setTimeLeft] = useState(0);
   // calculated value for the progress circle; 1 = 100%
   const [progress, setProgress] = useState(0);
@@ -91,6 +117,7 @@ export const FocusTimer = ({ dispatch, handleUserInteraction }) => {
   const activeMinutesRef = useRef(null);
   const activeSecondsRef = useRef(null);
   const arcRef = useRef(null);
+  const impressionFired = useRef(false);
 
   const timerType = useSelector(state => state.TimerWidget.timerType);
   const timerData = useSelector(state => state.TimerWidget);
@@ -98,18 +125,38 @@ export const FocusTimer = ({ dispatch, handleUserInteraction }) => {
     timerData[timerType];
   const initialTimerDuration = timerData[timerType].initialDuration;
 
+  const widgetSize = isMaximized ? "medium" : "small";
+
   const handleTimerInteraction = useCallback(
     () => handleUserInteraction("focusTimer"),
     [handleUserInteraction]
   );
 
   const handleIntersection = useCallback(() => {
-    dispatch(
-      ac.AlsoToMain({
-        type: at.WIDGETS_TIMER_USER_IMPRESSION,
-      })
-    );
-  }, [dispatch]);
+    if (impressionFired.current) {
+      return;
+    }
+    impressionFired.current = true;
+    batch(() => {
+      dispatch(
+        ac.AlsoToMain({
+          type: at.WIDGETS_TIMER_USER_IMPRESSION,
+        })
+      );
+
+      const telemetryData = {
+        widget_name: "focus_timer",
+        widget_size: widgetsMayBeMaximized ? widgetSize : "medium",
+      };
+
+      dispatch(
+        ac.AlsoToMain({
+          type: at.WIDGETS_IMPRESSION,
+          data: telemetryData,
+        })
+      );
+    });
+  }, [dispatch, widgetsMayBeMaximized, widgetSize]);
 
   const timerRef = useIntersectionObserver(handleIntersection);
 
@@ -129,11 +176,18 @@ export const FocusTimer = ({ dispatch, handleUserInteraction }) => {
   useEffect(() => {
     // resets default values after timer ends
     let interval;
+    let hasReachedZero = false;
     if (isRunning && duration > 0) {
       interval = setInterval(() => {
+        const currentTime = Math.floor(Date.now() / 1000);
+        const elapsed = currentTime - startTime;
         const remaining = calculateTimeRemaining(duration, startTime);
 
-        if (remaining <= 0) {
+        // using setTimeLeft to trigger a re-render of the component to show live countdown each second
+        setTimeLeft(remaining);
+        setProgress((initialDuration - remaining) / initialDuration);
+
+        if (elapsed >= duration && hasReachedZero) {
           clearInterval(interval);
 
           batch(() => {
@@ -152,6 +206,20 @@ export const FocusTimer = ({ dispatch, handleUserInteraction }) => {
               ac.OnlyToMain({
                 type: at.WIDGETS_TIMER_USER_EVENT,
                 data: { userAction: USER_ACTION_TYPES.TIMER_END },
+              })
+            );
+
+            const telemetryData = {
+              widget_name: "focus_timer",
+              widget_source: "widget",
+              user_action: USER_ACTION_TYPES.TIMER_END,
+              widget_size: widgetsMayBeMaximized ? widgetSize : "medium",
+            };
+
+            dispatch(
+              ac.OnlyToMain({
+                type: at.WIDGETS_USER_EVENT,
+                data: telemetryData,
               })
             );
           });
@@ -178,25 +246,37 @@ export const FocusTimer = ({ dispatch, handleUserInteraction }) => {
                   })
                 );
 
+                const userAction =
+                  timerType === "focus"
+                    ? USER_ACTION_TYPES.TIMER_TOGGLE_BREAK
+                    : USER_ACTION_TYPES.TIMER_TOGGLE_FOCUS;
+
                 dispatch(
                   ac.OnlyToMain({
                     type: at.WIDGETS_TIMER_USER_EVENT,
-                    data: {
-                      userAction:
-                        timerType === "focus"
-                          ? USER_ACTION_TYPES.TIMER_TOGGLE_BREAK
-                          : USER_ACTION_TYPES.TIMER_TOGGLE_FOCUS,
-                    },
+                    data: { userAction },
+                  })
+                );
+
+                const telemetryData = {
+                  widget_name: "focus_timer",
+                  widget_source: "widget",
+                  user_action: userAction,
+                  widget_size: widgetsMayBeMaximized ? widgetSize : "medium",
+                };
+
+                dispatch(
+                  ac.OnlyToMain({
+                    type: at.WIDGETS_USER_EVENT,
+                    data: telemetryData,
                   })
                 );
               });
-            }, 1500);
-          }, 1500);
+            }, 500);
+          }, 1000);
+        } else if (elapsed >= duration) {
+          hasReachedZero = true;
         }
-
-        // using setTimeLeft to trigger a re-render of the component to show live countdown each second
-        setTimeLeft(remaining);
-        setProgress((initialDuration - remaining) / initialDuration);
       }, 1000);
     }
 
@@ -226,6 +306,8 @@ export const FocusTimer = ({ dispatch, handleUserInteraction }) => {
     resetProgressCircle,
     timerType,
     initialTimerDuration,
+    widgetSize,
+    widgetsMayBeMaximized,
   ]);
 
   // Update the clip-path of the gradient circle to match the current progress value
@@ -270,10 +352,25 @@ export const FocusTimer = ({ dispatch, handleUserInteraction }) => {
             data: { timerType, duration: totalSeconds },
           })
         );
+
         dispatch(
           ac.OnlyToMain({
             type: at.WIDGETS_TIMER_USER_EVENT,
             data: { userAction: USER_ACTION_TYPES.TIMER_SET },
+          })
+        );
+
+        const telemetryData = {
+          widget_name: "focus_timer",
+          widget_source: "widget",
+          user_action: USER_ACTION_TYPES.TIMER_SET,
+          widget_size: widgetsMayBeMaximized ? widgetSize : "medium",
+        };
+
+        dispatch(
+          ac.OnlyToMain({
+            type: at.WIDGETS_USER_EVENT,
+            data: telemetryData,
           })
         );
       });
@@ -291,10 +388,25 @@ export const FocusTimer = ({ dispatch, handleUserInteraction }) => {
             data: { timerType },
           })
         );
+
         dispatch(
           ac.OnlyToMain({
             type: at.WIDGETS_TIMER_USER_EVENT,
             data: { userAction: USER_ACTION_TYPES.TIMER_PLAY },
+          })
+        );
+
+        const telemetryData = {
+          widget_name: "focus_timer",
+          widget_source: "widget",
+          user_action: USER_ACTION_TYPES.TIMER_PLAY,
+          widget_size: widgetsMayBeMaximized ? widgetSize : "medium",
+        };
+
+        dispatch(
+          ac.OnlyToMain({
+            type: at.WIDGETS_USER_EVENT,
+            data: telemetryData,
           })
         );
       });
@@ -311,10 +423,25 @@ export const FocusTimer = ({ dispatch, handleUserInteraction }) => {
             },
           })
         );
+
         dispatch(
           ac.OnlyToMain({
             type: at.WIDGETS_TIMER_USER_EVENT,
             data: { userAction: USER_ACTION_TYPES.TIMER_PAUSE },
+          })
+        );
+
+        const telemetryData = {
+          widget_name: "focus_timer",
+          widget_source: "widget",
+          user_action: USER_ACTION_TYPES.TIMER_PAUSE,
+          widget_size: widgetsMayBeMaximized ? widgetSize : "medium",
+        };
+
+        dispatch(
+          ac.OnlyToMain({
+            type: at.WIDGETS_USER_EVENT,
+            data: telemetryData,
           })
         );
       });
@@ -340,6 +467,20 @@ export const FocusTimer = ({ dispatch, handleUserInteraction }) => {
         ac.OnlyToMain({
           type: at.WIDGETS_TIMER_USER_EVENT,
           data: { userAction: USER_ACTION_TYPES.TIMER_RESET },
+        })
+      );
+
+      const telemetryData = {
+        widget_name: "focus_timer",
+        widget_source: "widget",
+        user_action: USER_ACTION_TYPES.TIMER_RESET,
+        widget_size: widgetsMayBeMaximized ? widgetSize : "medium",
+      };
+
+      dispatch(
+        ac.OnlyToMain({
+          type: at.WIDGETS_USER_EVENT,
+          data: telemetryData,
         })
       );
     });
@@ -373,6 +514,20 @@ export const FocusTimer = ({ dispatch, handleUserInteraction }) => {
         })
       );
 
+      const pauseTelemetryData = {
+        widget_name: "focus_timer",
+        widget_source: "widget",
+        user_action: USER_ACTION_TYPES.TIMER_PAUSE,
+        widget_size: widgetsMayBeMaximized ? widgetSize : "medium",
+      };
+
+      dispatch(
+        ac.OnlyToMain({
+          type: at.WIDGETS_USER_EVENT,
+          data: pauseTelemetryData,
+        })
+      );
+
       // Sets the current timer type so it persists when opening a new tab
       dispatch(
         ac.AlsoToMain({
@@ -383,15 +538,29 @@ export const FocusTimer = ({ dispatch, handleUserInteraction }) => {
         })
       );
 
+      const toggleUserAction =
+        type === "focus"
+          ? USER_ACTION_TYPES.TIMER_TOGGLE_FOCUS
+          : USER_ACTION_TYPES.TIMER_TOGGLE_BREAK;
+
       dispatch(
         ac.OnlyToMain({
           type: at.WIDGETS_TIMER_USER_EVENT,
-          data: {
-            userAction:
-              type === "focus"
-                ? USER_ACTION_TYPES.TIMER_TOGGLE_FOCUS
-                : USER_ACTION_TYPES.TIMER_TOGGLE_BREAK,
-          },
+          data: { userAction: toggleUserAction },
+        })
+      );
+
+      const toggleTelemetryData = {
+        widget_name: "focus_timer",
+        widget_source: "widget",
+        user_action: toggleUserAction,
+        widget_size: widgetsMayBeMaximized ? widgetSize : "medium",
+      };
+
+      dispatch(
+        ac.OnlyToMain({
+          type: at.WIDGETS_USER_EVENT,
+          data: toggleTelemetryData,
         })
       );
     });
@@ -416,13 +585,9 @@ export const FocusTimer = ({ dispatch, handleUserInteraction }) => {
     const values = e.target.innerText.trim();
 
     // only allow numerical digits 0–9 for time input
-    if (!/^\d+$/.test(input)) {
+    if (!isNumericValue(input)) {
       e.preventDefault();
-    }
-
-    // only allow 2 values each for minutes and seconds
-    if (values.length >= 2) {
-      e.preventDefault();
+      return;
     }
 
     const selection = window.getSelection();
@@ -441,6 +606,12 @@ export const FocusTimer = ({ dispatch, handleUserInteraction }) => {
       const sel = window.getSelection();
       sel.removeAllRanges();
       sel.addRange(range);
+      return;
+    }
+
+    // only allow 2 values each for minutes and seconds
+    if (isAtMaxLength(values)) {
+      e.preventDefault();
     }
   };
 
@@ -459,10 +630,25 @@ export const FocusTimer = ({ dispatch, handleUserInteraction }) => {
             },
           })
         );
+
         dispatch(
           ac.OnlyToMain({
             type: at.WIDGETS_TIMER_USER_EVENT,
             data: { userAction: USER_ACTION_TYPES.TIMER_PAUSE },
+          })
+        );
+
+        const telemetryData = {
+          widget_name: "focus_timer",
+          widget_source: "widget",
+          user_action: USER_ACTION_TYPES.TIMER_PAUSE,
+          widget_size: widgetsMayBeMaximized ? widgetSize : "medium",
+        };
+
+        dispatch(
+          ac.OnlyToMain({
+            type: at.WIDGETS_USER_EVENT,
+            data: telemetryData,
           })
         );
       });
@@ -507,7 +693,7 @@ export const FocusTimer = ({ dispatch, handleUserInteraction }) => {
 
   return timerData ? (
     <article
-      className="focus-timer"
+      className={`focus-timer ${isMaximized ? "is-maximized" : ""}`}
       ref={el => {
         timerRef.current = [el];
       }}
@@ -538,7 +724,23 @@ export const FocusTimer = ({ dispatch, handleUserInteraction }) => {
             <panel-item
               data-l10n-id="newtab-widget-timer-menu-hide"
               onClick={() => {
-                handlePrefUpdate("widgets.focusTimer.enabled", false);
+                batch(() => {
+                  handlePrefUpdate("widgets.focusTimer.enabled", false);
+
+                  const telemetryData = {
+                    widget_name: "focus_timer",
+                    widget_source: "context_menu",
+                    enabled: false,
+                    widget_size: widgetsMayBeMaximized ? widgetSize : "medium",
+                  };
+
+                  dispatch(
+                    ac.OnlyToMain({
+                      type: at.WIDGETS_ENABLED,
+                      data: telemetryData,
+                    })
+                  );
+                });
               }}
             />
             <panel-item

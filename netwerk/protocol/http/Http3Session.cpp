@@ -21,10 +21,13 @@
 #include "mozilla/RandomNum.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/ScopeExit.h"
+#include "mozilla/glean/NetwerkDnsMetrics.h"
 #include "mozilla/glean/NetwerkMetrics.h"
 #include "mozilla/glean/NetwerkProtocolHttpMetrics.h"
 #include "mozilla/net/DNS.h"
+#include "nsHttpConnectionMgr.h"
 #include "nsHttpHandler.h"
+#include "nsHttpTransaction.h"
 #include "nsIHttpActivityObserver.h"
 #include "nsIOService.h"
 #include "nsITLSSocketControl.h"
@@ -234,37 +237,53 @@ nsresult Http3Session::Init(const nsHttpConnectionInfo* aConnInfo,
   // connection to the WebTransport server should authenticate using the
   // expected certificate hash. Therefore, 0RTT should be disabled in this
   // context to ensure the certificate hash is checked.
-  if (StaticPrefs::network_http_http3_enable_0rtt() && !hasServCertHashes() &&
-      NS_SUCCEEDED(SSLTokensCache::Get(peerId, token, info))) {
-    LOG(("Found a resumption token in the cache."));
-    mHttp3Connection->SetResumptionToken(token);
-    mSocketControl->SetSessionCacheInfo(std::move(info));
-    if (mHttp3Connection->IsZeroRtt()) {
-      LOG(("Can send ZeroRtt data"));
-      RefPtr<Http3Session> self(this);
-      mState = ZERORTT;
-      udpConn->ChangeConnectionState(ConnectionState::ZERORTT);
-      mZeroRttStarted = TimeStamp::Now();
-      // Let the nsHttpConnectionMgr know that the connection can accept
-      // transactions.
-      // We need to dispatch the following function to this thread so that
-      // it is executed after the current function. At this point a
-      // Http3Session is still being initialized and ReportHttp3Connection
-      // will try to dispatch transaction on this session therefore it
-      // needs to be executed after the initializationg is done.
-      DebugOnly<nsresult> rv = NS_DispatchToCurrentThread(
-          NS_NewRunnableFunction("Http3Session::ReportHttp3Connection",
-                                 [self]() { self->ReportHttp3Connection(); }));
-      NS_WARNING_ASSERTION(NS_SUCCEEDED(rv),
-                           "NS_DispatchToCurrentThread failed");
+  if (StaticPrefs::network_http_http3_enable_0rtt() && !hasServCertHashes()) {
+    uint32_t maxAttempts =
+        StaticPrefs::network_ssl_tokens_cache_records_per_entry();
+    for (uint32_t attempt = 0; attempt < maxAttempts; ++attempt) {
+      if (NS_FAILED(SSLTokensCache::Get(peerId, token, info))) {
+        break;
+      }
+      LOG(("Found a resumption token in the cache [attempt=%u].", attempt));
+      nsresult rv = mHttp3Connection->SetResumptionToken(token);
+      if (NS_FAILED(rv)) {
+        LOG(("SetResumptionToken failed [attempt=%u], trying next token",
+             attempt));
+        continue;
+      }
+      mSocketControl->SetSessionCacheInfo(std::move(info));
+      if (mHttp3Connection->IsZeroRtt()) {
+        LOG(("Can send ZeroRtt data"));
+        RefPtr<Http3Session> self(this);
+        mState = ZERORTT;
+        udpConn->ChangeConnectionState(ConnectionState::ZERORTT);
+        mZeroRttStarted = TimeStamp::Now();
+        // Let the nsHttpConnectionMgr know that the connection can accept
+        // transactions.
+        // We need to dispatch the following function to this thread so that
+        // it is executed after the current function. At this point a
+        // Http3Session is still being initialized and ReportHttp3Connection
+        // will try to dispatch transaction on this session therefore it
+        // needs to be executed after the initializationg is done.
+        nsCOMPtr<nsIRunnable> event =
+            NS_NewRunnableFunction("Http3Session::ReportHttp3Connection",
+                                   [self]() { self->ReportHttp3Connection(); });
+        if (StaticPrefs::network_trr_high_priority_events() &&
+            mConnInfo->GetIsTrrServiceChannel()) {
+          event = new PrioritizableRunnable(
+              event.forget(), nsIRunnablePriority::PRIORITY_MEDIUMHIGH);
+        }
+        DebugOnly<nsresult> rv = NS_DispatchToCurrentThread(event);
+        NS_WARNING_ASSERTION(NS_SUCCEEDED(rv),
+                             "NS_DispatchToCurrentThread failed");
+      }
+      break;
     }
   }
 
-#ifndef ANDROID
   if (mState != ZERORTT) {
     ZeroRttTelemetry(ZeroRttOutcome::NOT_USED);
   }
-#endif
 
   // After this line, Http3Session and HttpConnectionUDP become a cycle. We put
   // this line in the end of Http3Session::Init to make sure Http3Session can be
@@ -439,6 +458,11 @@ nsresult Http3Session::ProcessInput(nsIUDPSocket* socket) {
   LOG(("Http3Session::ProcessInput writer=%p [this=%p state=%d]",
        mUdpConn.get(), this, mState));
 
+  if (!socket || socket->IsSocketClosed()) {
+    MOZ_DIAGNOSTIC_ASSERT(false, "UDP socket should still be open");
+    return NS_ERROR_UNEXPECTED;
+  }
+
   if (mUseNSPRForIO) {
     while (true) {
       nsTArray<uint8_t> data;
@@ -584,6 +608,7 @@ nsresult Http3Session::ProcessEvents() {
 
         if (stream) {
           StreamReadyToWrite(stream);
+          stream->SetBlockedByFlowControl(false);
         }
       } break;
       case Http3Event::Tag::Reset:
@@ -640,9 +665,7 @@ nsresult Http3Session::ProcessEvents() {
           mState = INITIALIZING;
           mTransactionCount = 0;
           Finish0Rtt(true);
-#ifndef ANDROID
           ZeroRttTelemetry(ZeroRttOutcome::USED_REJECTED);
-#endif
         }
         break;
       case Http3Event::Tag::ResumptionToken: {
@@ -666,9 +689,7 @@ nsresult Http3Session::ProcessEvents() {
         mSocketControl->HandshakeCompleted();
         if (was0RTT) {
           Finish0Rtt(false);
-#ifndef ANDROID
           ZeroRttTelemetry(ZeroRttOutcome::USED_SUCCEEDED);
-#endif
         }
 
         OnTransportStatus(nullptr, NS_NET_STATUS_CONNECTED_TO, 0);
@@ -1091,6 +1112,11 @@ nsresult Http3Session::ProcessOutput(nsIUDPSocket* socket) {
   LOG(("Http3Session::ProcessOutput reader=%p, [this=%p]", mUdpConn.get(),
        this));
 
+  if (!socket || socket->IsSocketClosed()) {
+    MOZ_DIAGNOSTIC_ASSERT(false, "UDP socket should still be open");
+    return NS_ERROR_UNEXPECTED;
+  }
+
   if (mUseNSPRForIO) {
     mSocket = socket;
     nsresult rv = mHttp3Connection->ProcessOutputAndSendUseNSPRForIO(
@@ -1169,6 +1195,22 @@ nsresult Http3Session::ProcessOutputAndEvents(nsIUDPSocket* socket) {
 
   MOZ_ASSERT(mTimerShouldTrigger);
 
+  // Check if session has been stuck in ZERORTT state for too long
+  if (mState == ZERORTT) {
+    MOZ_ASSERT(mZeroRttStarted);
+    uint32_t timeout = StaticPrefs::network_http_http3_0rtt_timeout();
+    if (timeout > 0) {
+      TimeDuration elapsed = TimeStamp::Now() - mZeroRttStarted;
+      if (elapsed.ToMilliseconds() > timeout) {
+        LOG(
+            ("Http3Session %p stuck in ZERORTT for %.2fms (timeout=%ums), "
+             "closing connection",
+             this, elapsed.ToMilliseconds(), timeout));
+        return NS_ERROR_NET_TIMEOUT;
+      }
+    }
+  }
+
   if (Telemetry::CanRecordPrereleaseData()) {
     auto now = TimeStamp::Now();
     if (mTimerShouldTrigger > now) {
@@ -1214,6 +1256,25 @@ void Http3Session::SetupTimer(uint64_t aTimeout) {
   // connection is in or going to be Closed state.
   if (aTimeout == UINT64_MAX) {
     return;
+  }
+
+  // If we're in ZERORTT state, ensure the timeout doesn't exceed the
+  // 0-RTT timeout to prevent the session from being closed later than expected.
+  if (mState == ZERORTT) {
+    MOZ_ASSERT(mZeroRttStarted);
+    uint32_t zeroRttTimeout = StaticPrefs::network_http_http3_0rtt_timeout();
+    if (zeroRttTimeout > 0) {
+      TimeDuration elapsed = TimeStamp::Now() - mZeroRttStarted;
+      uint64_t remainingMs =
+          static_cast<uint64_t>(zeroRttTimeout - elapsed.ToMilliseconds());
+
+      if (elapsed.ToMilliseconds() < zeroRttTimeout && aTimeout > remainingMs) {
+        LOG3(("Http3Session::SetupTimer capping timeout from %" PRIu64
+              "ms to %" PRIu64 "ms (0-RTT timeout remaining) [this=%p].",
+              aTimeout, remainingMs, this));
+        aTimeout = remainingMs;
+      }
+    }
   }
 
   LOG3(
@@ -1294,6 +1355,9 @@ bool Http3Session::AddStream(nsAHttpTransaction* aHttpTransaction,
           this, aHttpTransaction));
     stream = new Http3ConnectUDPStream(aHttpTransaction, this,
                                        NS_GetCurrentThread());
+    if (mConnInfo->GetIsTrrServiceChannel()) {
+      stream->GetHttp3ConnectUDPStream()->MarkAsTRRServiceChannel();
+    }
   } else if (trans && trans->IsForWebTransport()) {
     LOG3(("Http3Session::AddStream new  WeTransport session %p atrans=%p.\n",
           this, aHttpTransaction));
@@ -1428,7 +1492,7 @@ void Http3Session::RemoveStreamFromQueues(Http3StreamBase* aStream) {
 // calls Http3Stream::OnReadSegment.
 nsresult Http3Session::TryActivating(
     const nsACString& aMethod, const nsACString& aScheme,
-    const nsACString& aAuthorityHeader, const nsACString& aPath,
+    const nsACString& aAuthorityHeader, const nsACString& aPathQuery,
     const nsACString& aHeaders, uint64_t* aStreamId, Http3StreamBase* aStream) {
   MOZ_ASSERT(OnSocketThread(), "not on socket thread");
   MOZ_ASSERT(*aStreamId == UINT64_MAX);
@@ -1451,7 +1515,13 @@ nsresult Http3Session::TryActivating(
 
   if (mState == ZERORTT) {
     if (!aStream->Do0RTT()) {
-      MOZ_ASSERT(!mCannotDo0RTTStreams.Contains(aStream));
+      // Stream can't do 0RTT - queue it for activation when the session
+      // reaches CONNECTED state via Finish0Rtt.
+      if (!mCannotDo0RTTStreams.Contains(aStream)) {
+        LOG(("Http3Session %p queuing stream %p for post-0RTT activation", this,
+             aStream));
+        mCannotDo0RTTStreams.AppendElement(aStream);
+      }
       return NS_BASE_STREAM_WOULD_BLOCK;
     }
   }
@@ -1466,15 +1536,15 @@ nsresult Http3Session::TryActivating(
                                    false);
   } else if (RefPtr<Http3Stream> httpStream = aStream->GetHttp3Stream()) {
     rv = mHttp3Connection->Fetch(
-        aMethod, aScheme, aAuthorityHeader, aPath, aHeaders, aStreamId,
+        aMethod, aScheme, aAuthorityHeader, aPathQuery, aHeaders, aStreamId,
         httpStream->PriorityUrgency(), httpStream->PriorityIncremental());
   } else if (RefPtr<Http3ConnectUDPStream> udpStream =
                  aStream->GetHttp3ConnectUDPStream()) {
     if (DeferIfNegotiating(ExtendedConnectKind::ConnectUDP, aStream)) {
       return NS_BASE_STREAM_WOULD_BLOCK;
     }
-    rv = mHttp3Connection->CreateConnectUdp(aAuthorityHeader, aPath, aHeaders,
-                                            aStreamId);
+    rv = mHttp3Connection->CreateConnectUdp(aAuthorityHeader, aPathQuery,
+                                            aHeaders, aStreamId);
   } else {
     MOZ_RELEASE_ASSERT(aStream->GetHttp3WebTransportSession(),
                        "It must be a WebTransport session");
@@ -1483,8 +1553,8 @@ nsresult Http3Session::TryActivating(
     if (DeferIfNegotiating(ExtendedConnectKind::WebTransport, aStream)) {
       return NS_BASE_STREAM_WOULD_BLOCK;
     }
-    rv = mHttp3Connection->CreateWebTransport(aAuthorityHeader, aPath, aHeaders,
-                                              aStreamId);
+    rv = mHttp3Connection->CreateWebTransport(aAuthorityHeader, aPathQuery,
+                                              aHeaders, aStreamId);
   }
 
   if (NS_FAILED(rv)) {
@@ -1503,9 +1573,15 @@ nsresult Http3Session::TryActivating(
       QueueStream(aStream);
       return rv;
     }
-    // Ignore this error. This may happen if some events are not handled yet.
-    // TODO we may try to add an assertion here.
-    return NS_OK;
+
+    // Previously we always returned NS_OK here, which caused the
+    // transaction to wait until the quic connection timed out
+    // after which it was retried without quic.
+    if (StaticPrefs::network_http_http3_fallback_to_h2_on_error()) {
+      return NS_ERROR_HTTP2_FALLBACK_TO_HTTP1;
+    }
+
+    return rv;
   }
 
   LOG(("Http3Session::TryActivating streamId=0x%" PRIx64
@@ -1807,11 +1883,18 @@ nsresult Http3Session::SendData(nsIUDPSocket* socket) {
   nsresult rv = NS_OK;
   RefPtr<Http3StreamBase> stream;
 
+  nsTArray<RefPtr<Http3StreamBase>> blockedStreams;
+
   // Step 1)
   while (CanSendData() && (stream = mReadyForWrite.PopFront())) {
     LOG(("Http3Session::SendData call ReadSegments from stream=%p [this=%p]",
          stream.get(), this));
     stream->SetInTxQueue(false);
+    if (stream->BlockedByFlowControl()) {
+      LOG(("stream %p blocked by flow control", stream.get()));
+      blockedStreams.AppendElement(stream);
+      continue;
+    }
     rv = stream->ReadSegments();
 
     // on stream error we return earlier to let the error be handled.
@@ -1847,6 +1930,13 @@ nsresult Http3Session::SendData(nsIUDPSocket* socket) {
   if (NS_FAILED(rv)) {
     return rv;
   }
+
+  // Put the blocked streams back to the queue, since they are ready to write.
+  for (const auto& stream : blockedStreams) {
+    mReadyForWrite.Push(stream);
+    stream->SetInTxQueue(true);
+  }
+
   rv = ProcessEvents();
 
   // Let the connection know we sent some app data successfully.
@@ -1979,12 +2069,10 @@ void Http3Session::CloseInternal(bool aCallNeqoClose) {
     mBeforeConnectedError = true;
   }
 
-#ifndef ANDROID
   if (mState == ZERORTT) {
     ZeroRttTelemetry(aCallNeqoClose ? ZeroRttOutcome::USED_CONN_CLOSED_BY_NECKO
                                     : ZeroRttOutcome::USED_CONN_ERROR);
   }
-#endif
 
   mState = CLOSING;
   Shutdown();
@@ -2096,6 +2184,11 @@ void Http3Session::CloseTransaction(nsAHttpTransaction* aTransaction,
 
 void Http3Session::CloseStream(Http3StreamBase* aStream, nsresult aResult) {
   MOZ_ASSERT(OnSocketThread(), "not on socket thread");
+  if (aStream->Closed()) {
+    LOG(("Http3Session::CloseStream aStream %p already closed", aStream));
+    return;
+  }
+
   RefPtr<Http3WebTransportStream> wtStream =
       aStream->GetHttp3WebTransportStream();
   if (wtStream) {
@@ -2163,9 +2256,7 @@ void Http3Session::CloseStreamInternal(Http3StreamBase* aStream,
   // Close(NS_OK) implies that the NeqoHttp3Conn will be closed, so we can only
   // do this when there is no Http3Steeam, WebTransportSession and
   // WebTransportStream.
-  if ((mShouldClose || mGoawayReceived) &&
-      (!mStreamTransactionHash.Count() && mWebTransportSessions.IsEmpty() &&
-       mWebTransportStreams.IsEmpty() && mTunnelStreams.IsEmpty())) {
+  if ((mShouldClose || mGoawayReceived) && HasNoActiveStreams()) {
     MOZ_ASSERT(!IsClosing());
     Close(NS_OK);
   }
@@ -2231,6 +2322,11 @@ void Http3Session::DontReuse() {
     LOG3(("Http3Session %p not on socket thread\n", this));
     nsCOMPtr<nsIRunnable> event = NewRunnableMethod(
         "Http3Session::DontReuse", this, &Http3Session::DontReuse);
+    if (StaticPrefs::network_trr_high_priority_events() &&
+        mConnInfo->GetIsTrrServiceChannel()) {
+      event = new PrioritizableRunnable(
+          event.forget(), nsIRunnablePriority::PRIORITY_MEDIUMHIGH);
+    }
     gSocketTransportService->Dispatch(event, NS_DISPATCH_NORMAL);
     return;
   }
@@ -2240,7 +2336,7 @@ void Http3Session::DontReuse() {
   }
 
   mShouldClose = true;
-  if (!mStreamTransactionHash.Count()) {
+  if (HasNoActiveStreams()) {
     // This is a temporary workaround and should be fixed properly in Happy
     // Eyeballs project. We should not exclude this domain if
     // Http3Session::DontReuse is called from
@@ -2258,15 +2354,18 @@ void Http3Session::CloseWebTransportConn() {
   LOG3(("Http3Session::CloseWebTransportConn %p\n", this));
   // We need to dispatch, since Http3Session could be released in
   // HttpConnectionUDP::CloseTransaction.
-  gSocketTransportService->Dispatch(
-      NS_NewRunnableFunction("Http3Session::CloseWebTransportConn",
-                             [self = RefPtr{this}]() {
-                               if (self->mUdpConn) {
-                                 self->mUdpConn->CloseTransaction(
-                                     self, NS_ERROR_ABORT);
-                               }
-                             }),
-      NS_DISPATCH_NORMAL);
+  nsCOMPtr<nsIRunnable> event = NS_NewRunnableFunction(
+      "Http3Session::CloseWebTransportConn", [self = RefPtr{this}]() {
+        if (self->mUdpConn) {
+          self->mUdpConn->CloseTransaction(self, NS_ERROR_ABORT);
+        }
+      });
+  if (StaticPrefs::network_trr_high_priority_events() &&
+      mConnInfo->GetIsTrrServiceChannel()) {
+    event = new PrioritizableRunnable(event.forget(),
+                                      nsIRunnablePriority::PRIORITY_MEDIUMHIGH);
+  }
+  gSocketTransportService->Dispatch(event.forget(), NS_DISPATCH_NORMAL);
 }
 
 void Http3Session::CurrentBrowserIdChanged(uint64_t id) {
@@ -2554,9 +2653,15 @@ void Http3Session::Authenticated(int32_t aError,
     // Call OnQuicTimeoutExpired to properly process neqo events and outputs.
     // We call OnQuicTimeoutExpired instead of ProcessOutputAndEvents, because
     // HttpConnectionUDP must close this session in case of an error.
-    NS_DispatchToCurrentThread(
+    nsCOMPtr<nsIRunnable> event =
         NewRunnableMethod("net::HttpConnectionUDP::OnQuicTimeoutExpired",
-                          mUdpConn, &HttpConnectionUDP::OnQuicTimeoutExpired));
+                          mUdpConn, &HttpConnectionUDP::OnQuicTimeoutExpired);
+    if (StaticPrefs::network_trr_high_priority_events() &&
+        mConnInfo->GetIsTrrServiceChannel()) {
+      event = new PrioritizableRunnable(
+          event.forget(), nsIRunnablePriority::PRIORITY_MEDIUMHIGH);
+    }
+    NS_DispatchToCurrentThread(event);
     mUdpConn->ChangeConnectionState(ConnectionState::TRANSFERING);
   }
 }
@@ -2817,6 +2922,7 @@ void Http3Session::EchOutcomeTelemetry() {
   glean::http3::ech_outcome.EnumGet(label).AccumulateSingleSample(
       mHandshakeSucceeded ? 0 : 1);
 }
+#endif
 
 void Http3Session::ZeroRttTelemetry(ZeroRttOutcome aOutcome) {
   nsAutoCString key;
@@ -2838,18 +2944,27 @@ void Http3Session::ZeroRttTelemetry(ZeroRttOutcome aOutcome) {
       break;
   }
 
+  bool isTrr = mConnInfo && mConnInfo->GetIsTrrServiceChannel();
+
   if (key.IsEmpty()) {
     mozilla::glean::netwerk::http3_0rtt_state.Get("not_used"_ns).Add(1);
+    if (isTrr) {
+      mozilla::glean::dns::trr_http3_0rtt_state.Get("not_used"_ns).Add(1);
+    }
   } else {
     MOZ_ASSERT(mZeroRttStarted);
     mozilla::TimeStamp zeroRttEnded = mozilla::TimeStamp::Now();
     mozilla::glean::netwerk::http3_0rtt_state_duration.Get(key)
         .AccumulateRawDuration(zeroRttEnded - mZeroRttStarted);
-
     mozilla::glean::netwerk::http3_0rtt_state.Get(key).Add(1);
+
+    if (isTrr) {
+      mozilla::glean::dns::trr_http3_0rtt_state_duration.Get(key)
+          .AccumulateRawDuration(zeroRttEnded - mZeroRttStarted);
+      mozilla::glean::dns::trr_http3_0rtt_state.Get(key).Add(1);
+    }
   }
 }
-#endif
 
 nsresult Http3Session::GetTransactionTLSSocketControl(
     nsITLSSocketControl** tlsSocketControl) {
@@ -2944,6 +3059,9 @@ already_AddRefed<HttpConnectionUDP> Http3Session::CreateTunnelStream(
        aHttpTransaction));
   RefPtr<Http3StreamBase> stream =
       new Http3ConnectUDPStream(aHttpTransaction, this, NS_GetCurrentThread());
+  if (mConnInfo->GetIsTrrServiceChannel()) {
+    stream->GetHttp3ConnectUDPStream()->MarkAsTRRServiceChannel();
+  }
   mStreamTransactionHash.InsertOrUpdate(aHttpTransaction, RefPtr{stream});
   StreamHasDataToWrite(stream);
 

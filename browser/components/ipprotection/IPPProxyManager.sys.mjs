@@ -5,15 +5,40 @@
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
-  GuardianClient: "resource:///modules/ipprotection/GuardianClient.sys.mjs",
-  IPPChannelFilter: "resource:///modules/ipprotection/IPPChannelFilter.sys.mjs",
-  IPProtectionUsage:
-    "resource:///modules/ipprotection/IPProtectionUsage.sys.mjs",
+  IPPEnrollAndEntitleManager:
+    "moz-src:///browser/components/ipprotection/IPPEnrollAndEntitleManager.sys.mjs",
+  IPPChannelFilter:
+    "moz-src:///browser/components/ipprotection/IPPChannelFilter.sys.mjs",
+  IPPNetworkUtils:
+    "moz-src:///browser/components/ipprotection/IPPNetworkUtils.sys.mjs",
   IPPNetworkErrorObserver:
-    "resource:///modules/ipprotection/IPPNetworkErrorObserver.sys.mjs",
+    "moz-src:///browser/components/ipprotection/IPPNetworkErrorObserver.sys.mjs",
   IPProtectionServerlist:
-    "resource:///modules/ipprotection/IPProtectionServerlist.sys.mjs",
+    "moz-src:///browser/components/ipprotection/IPProtectionServerlist.sys.mjs",
+  IPProtectionService:
+    "moz-src:///browser/components/ipprotection/IPProtectionService.sys.mjs",
+  IPProtectionStates:
+    "moz-src:///browser/components/ipprotection/IPProtectionService.sys.mjs",
+  IPPStartupCache:
+    "moz-src:///browser/components/ipprotection/IPPStartupCache.sys.mjs",
 });
+
+ChromeUtils.defineLazyGetter(
+  lazy,
+  "setTimeout",
+  () =>
+    ChromeUtils.importESModule("resource://gre/modules/Timer.sys.mjs")
+      .setTimeout
+);
+ChromeUtils.defineLazyGetter(
+  lazy,
+  "clearTimeout",
+  () =>
+    ChromeUtils.importESModule("resource://gre/modules/Timer.sys.mjs")
+      .clearTimeout
+);
+
+import { ERRORS } from "chrome://browser/content/ipprotection/ipprotection-constants.mjs";
 
 const LOG_PREF = "browser.ipProtection.log";
 
@@ -25,35 +50,147 @@ ChromeUtils.defineLazyGetter(lazy, "logConsole", function () {
 });
 
 /**
+ * A Type containing the states of the IPPProxyManager.
+ *
+ * @typedef {"not-ready" | "ready" | "activating" | "active" | "error" | "paused"} IPPProxyState
+ * An Object containing instances of the IPPProxyState
+ * @typedef {object} IPPProxyStates
+ *
+ * @property {string} NOT_READY
+ *  The proxy is not ready because the main state machine is not in the READY state.
+ * @property {string} READY
+ *  The proxy is ready to be activated.
+ * @property {string} ACTIVE
+ *  The proxy is active.
+ * @property {string} ERROR
+ *  An error occurred while the proxy was active.
+ * @property {string} PAUSED
+ *  The VPN is paused i.e when the bandwidth limit is reached.
+ *
+ * Note: If you update this list of states, make sure to update the
+ * corresponding documentation in the `docs` folder as well.
+ */
+export const IPPProxyStates = Object.freeze({
+  NOT_READY: "not-ready",
+  READY: "ready",
+  ACTIVATING: "activating",
+  ACTIVE: "active",
+  ERROR: "error",
+  PAUSED: "paused",
+});
+
+/**
+ * Schedules a callback to be triggered at a specific timepoint.
+ *
+ * Allows to schedule callbacks further in the future than setTimeout.
+ *
+ * @param {Function} callback  - the callback to trigger when the timepoint is reached
+ * @param {Temporal.Instant} timepoint - the time to trigger the callback
+ * @param {AbortSignal} abortSignal - signal to cancel the scheduled callback
+ * @param {object} imports - dependencies for this function, mainly for testing
+ */
+export async function scheduleCallback(
+  callback,
+  timepoint,
+  abortSignal,
+  imports = lazy
+) {
+  const getNow = imports.getNow || (() => Temporal.Now.instant());
+  while (getNow().until(timepoint).total("milliseconds") > 0) {
+    const msUntilTrigger = getNow().until(timepoint).total("milliseconds");
+    // clamp the timeout to the max allowed by setTimeout
+    const clampedMs = Math.min(msUntilTrigger, 2147483647);
+    await new Promise(resolve => {
+      const timeoutId = imports.setTimeout(resolve, clampedMs);
+      abortSignal.addEventListener(
+        "abort",
+        () => {
+          imports.clearTimeout(timeoutId);
+          resolve();
+        },
+        { once: true }
+      );
+    });
+  }
+  if (abortSignal.aborted) {
+    return;
+  }
+  callback();
+}
+
+/**
  * Manages the proxy connection for the IPProtectionService.
  */
-class IPPProxyManager {
-  #guardian = null;
+class IPPProxyManagerSingleton extends EventTarget {
+  /** @type {IPPProxyState}  */
+  #state = IPPProxyStates.NOT_READY;
+
+  #activatingPromise = null;
+  #activationAbortController = null;
+
   #pass = null;
+  /**@type {import("./GuardianClient.sys.mjs").ProxyUsage | null} */
+  #usage = null;
   /**@type {import("./IPPChannelFilter.sys.mjs").IPPChannelFilter | null} */
   #connection = null;
-  #usageObserver = null;
   #networkErrorObserver = null;
   // If this is set, we're awaiting a proxy pass rotation
   #rotateProxyPassPromise = null;
-  #activatedAt = false;
+  #activatedAt = 0;
 
+  #rotationTimer = 0;
+  #usageRefreshAbortController = null;
+
+  constructor() {
+    super();
+
+    this.setErrorState = this.#setErrorState.bind(this);
+    this.handleProxyErrorEvent = this.#handleProxyErrorEvent.bind(this);
+    this.handleEvent = this.#handleEvent.bind(this);
+  }
+
+  init() {
+    lazy.IPProtectionService.addEventListener(
+      "IPProtectionService:StateChanged",
+      this.handleEvent
+    );
+
+    if (!this.#usage) {
+      this.#usage = lazy.IPPStartupCache.usageInfo;
+    }
+  }
+
+  initOnStartupCompleted() {}
+
+  uninit() {
+    lazy.IPProtectionService.removeEventListener(
+      "IPProtectionService:StateChanged",
+      this.handleEvent
+    );
+
+    if (
+      this.#state === IPPProxyStates.ACTIVE ||
+      this.#state === IPPProxyStates.ACTIVATING
+    ) {
+      this.stop(false);
+    }
+    if (this.#usageRefreshAbortController) {
+      this.#usageRefreshAbortController.abort();
+      this.#usageRefreshAbortController = null;
+    }
+
+    this.#pass = null;
+    this.#usage = null;
+    this.#connection = null;
+  }
+
+  /**
+   * Checks if the proxy is active and was activated.
+   *
+   * @returns {Date}
+   */
   get activatedAt() {
-    return this.#activatedAt;
-  }
-
-  get guardian() {
-    if (!this.#guardian) {
-      this.#guardian = new lazy.GuardianClient();
-    }
-    return this.#guardian;
-  }
-
-  get usageObserver() {
-    if (!this.#usageObserver) {
-      this.#usageObserver = new lazy.IPProtectionUsage();
-    }
-    return this.#usageObserver;
+    return this.#state === IPPProxyStates.ACTIVE && this.#activatedAt;
   }
 
   get networkErrorObserver() {
@@ -68,7 +205,7 @@ class IPPProxyManager {
   }
 
   get active() {
-    return !!this.#connection?.active && !!this.#connection?.proxyInfo;
+    return this.#connection?.active;
   }
 
   get isolationKey() {
@@ -78,10 +215,15 @@ class IPPProxyManager {
   get hasValidProxyPass() {
     return !!this.#pass?.isValid();
   }
-
-  constructor(guardian) {
-    this.#guardian = guardian;
-    this.handleProxyErrorEvent = this.#handleProxyErrorEvent.bind(this);
+  /**
+   * Gets the current usage info.
+   * This will be updated on every new ProxyPass fetch,
+   * changes to the usage will be notified via the "IPPProxyManager:UsageChanged" event.
+   *
+   * @returns {import("./GuardianClient.sys.mjs").ProxyUsage | null}
+   */
+  get usageInfo() {
+    return this.#usage;
   }
 
   createChannelFilter() {
@@ -98,66 +240,219 @@ class IPPProxyManager {
     }
   }
 
+  get state() {
+    return this.#state;
+  }
+
   /**
-   * Starts the proxy connection:
-   * - Gets a new proxy pass if needed.
-   * - Find the server to use.
-   * - Adds usage and network-error observers.
+   * Start the proxy if the user is eligible.
    *
-   * @returns {Promise<boolean|Error>}
+   * @param {boolean} userAction
+   * True if started by user action, false if system action
+   * @param {boolean} inPrivateBrowsing
+   * True if started from a private browsing window
+   * @returns {Promise<{started: boolean, error?: string}>}
+   * Started is true if successfully connected, error contains the error message if it fails.
    */
-  async start() {
+  async start(userAction = true, inPrivateBrowsing = false) {
+    if (this.#state === IPPProxyStates.ACTIVATING) {
+      if (!this.#activatingPromise) {
+        throw new Error(ERRORS.MISSING_PROMISE);
+      }
+
+      return this.#activatingPromise;
+    }
+
+    if (this.#state === IPPProxyStates.PAUSED) {
+      await this.refreshUsage();
+      if (this.#state === IPPProxyStates.PAUSED) {
+        // Still paused after refreshing usage, cannot start.
+        return { started: false };
+      }
+    }
+
+    if (
+      this.#state === IPPProxyStates.NOT_READY ||
+      this.#state === IPPProxyStates.ERROR
+    ) {
+      return { started: false };
+    }
+
+    this.#activationAbortController = new AbortController();
+    const abortSignal = this.#activationAbortController.signal;
+
+    // Abort the activation if it takes more than 30 seconds, or if the user cancels it.
+    lazy.setTimeout(
+      () => {
+        this.#activationAbortController?.abort(ERRORS.TIMEOUT);
+      },
+      Temporal.Duration.from({ seconds: 30 }).total("milliseconds")
+    );
+
+    this.#setState(IPPProxyStates.ACTIVATING);
+
+    const { promise: abortPromise, reject } = Promise.withResolvers();
+    abortSignal.addEventListener(
+      "abort",
+      () => {
+        reject(abortSignal.reason);
+      },
+      { once: true }
+    );
+
+    this.#activatingPromise = Promise.race([
+      this.#startInternal(abortSignal),
+      abortPromise,
+    ])
+      .then(
+        started => {
+          if (
+            this.#state === IPPProxyStates.ERROR ||
+            this.#state === IPPProxyStates.PAUSED
+          ) {
+            return { started: false };
+          }
+          // Proxy failed to start but no error was given.
+          if (!started) {
+            this.updateState();
+            return { started: false };
+          }
+          this.#setState(IPPProxyStates.ACTIVE);
+          Glean.ipprotection.started.record({
+            userAction,
+            inPrivateBrowsing,
+          });
+          return { started: true };
+        },
+        error => {
+          this.#setErrorState(error);
+          this.#activationAbortController = null;
+          this.cancelChannelFilter();
+          return { started: false, error };
+        }
+      )
+      .finally(() => {
+        this.#activatingPromise = null;
+        this.#activationAbortController = null;
+      });
+    return this.#activatingPromise;
+  }
+
+  async #startInternal(abortSignal) {
+    // Check network status before attempting connection
+    if (lazy.IPPNetworkUtils.isOffline) {
+      throw ERRORS.NETWORK;
+    }
+
+    await lazy.IPProtectionServerlist.maybeFetchList();
+
+    const enrollAndEntitleData =
+      await lazy.IPPEnrollAndEntitleManager.maybeEnrollAndEntitle(abortSignal);
+    if (!enrollAndEntitleData || !enrollAndEntitleData.isEnrolledAndEntitled) {
+      throw enrollAndEntitleData?.error || ERRORS.GENERIC;
+    }
+
+    // Check if we aborted before starting the channel filter.
+    if (abortSignal?.aborted) {
+      return false;
+    }
+
     this.createChannelFilter();
 
     // If the current proxy pass is valid, no need to re-authenticate.
     // Throws an error if the proxy pass is not available.
-    if (!this.#pass?.isValid()) {
-      this.#pass = await this.#getProxyPass();
+    if (this.#pass == null || this.#pass.shouldRotate()) {
+      const { pass, usage, error } = await this.#getPassAndUsage(abortSignal);
+      if (usage) {
+        this.#setUsage(usage);
+        if (this.#usage.remaining <= 0) {
+          this.#pass = null;
+          this.#setState(IPPProxyStates.PAUSED);
+          return false;
+        }
+      }
+
+      if (error || !pass) {
+        throw ERRORS.PASS_UNAVAILABLE;
+      }
+      this.#pass = pass;
     }
+    this.#schedulePassRotation(this.#pass);
 
     const location = lazy.IPProtectionServerlist.getDefaultLocation();
     const server = lazy.IPProtectionServerlist.selectServer(location?.city);
     if (!server) {
-      lazy.logConsole.error("No server found");
-      throw new Error("No server found");
+      throw ERRORS.SERVER_NOT_FOUND;
     }
 
     lazy.logConsole.debug("Server:", server?.hostname);
 
-    this.#connection.initialize(
-      this.#pass.asBearerToken(),
-      server.hostname,
-      server.port
-    );
-
-    this.usageObserver.start();
-    this.usageObserver.addIsolationKey(this.#connection.isolationKey);
+    this.#connection.initialize(this.#pass.asBearerToken(), server);
 
     this.networkErrorObserver.start();
     this.networkErrorObserver.addIsolationKey(this.#connection.isolationKey);
 
     lazy.logConsole.info("Started");
 
-    if (this.active) {
+    if (!!this.#connection?.active && !!this.#connection?.proxyInfo) {
       this.#activatedAt = ChromeUtils.now();
+      return true;
     }
 
-    return this.active;
+    return false;
   }
 
   /**
-   * Stops the proxy connection and observers. Returns the duration of the connection.
+   * Stops the proxy.
    *
-   * @returns {int}
+   * @param {boolean} userAction
+   * True if started by user action, false if system action
    */
-  stop() {
-    this.cancelChannelFilter();
+  async stop(userAction = true) {
+    if (this.#state === IPPProxyStates.ACTIVATING) {
+      if (!this.#activatingPromise) {
+        throw new Error(ERRORS.MISSING_PROMISE);
+      }
+      if (!this.#activationAbortController) {
+        throw new Error(ERRORS.MISSING_ABORT);
+      }
+      this.#activationAbortController?.abort();
+      await this.#activatingPromise.then(() => this.stop(userAction));
+      return;
+    }
 
-    this.networkErrorObserver.stop();
+    if (
+      this.#state !== IPPProxyStates.PAUSED &&
+      this.#state !== IPPProxyStates.ACTIVE &&
+      this.#state !== IPPProxyStates.ERROR
+    ) {
+      return;
+    }
+
+    if (this.#connection) {
+      this.cancelChannelFilter();
+
+      lazy.clearTimeout(this.#rotationTimer);
+      this.#rotationTimer = 0;
+
+      this.networkErrorObserver.stop();
+    }
 
     lazy.logConsole.info("Stopped");
 
-    return ChromeUtils.now() - this.#activatedAt;
+    const sessionLength = this.#activatedAt
+      ? ChromeUtils.now() - this.#activatedAt
+      : 0;
+
+    Glean.ipprotection.stopped.record({
+      userAction,
+      duration: String(sessionLength),
+    });
+    if (this.#state === IPPProxyStates.PAUSED) {
+      this.#setState(IPPProxyStates.NOT_READY);
+    } else {
+      this.#setState(IPPProxyStates.READY);
+    }
   }
 
   /**
@@ -165,66 +460,173 @@ class IPPProxyManager {
    */
   async reset() {
     this.#pass = null;
-    if (this.active) {
+    if (
+      this.#state === IPPProxyStates.ACTIVE ||
+      this.#state === IPPProxyStates.ACTIVATING
+    ) {
       await this.stop();
     }
   }
 
-  /**
-   * Cleans up this instance.
-   */
-  destroy() {
-    this.reset();
-    this.#connection = null;
-    this.usageObserver.stop();
+  async #handleEvent(_event) {
+    if (lazy.IPProtectionService.state !== lazy.IPProtectionStates.READY) {
+      await this.reset();
+    }
+    this.updateState();
   }
 
   /**
    * Fetches a new ProxyPass.
    * Throws an error on failures.
    *
-   * @returns {Promise<ProxyPass|Error>} - the proxy pass if it available.
+   * @param {AbortSignal} [abortSignal=null] - a signal to indicate the fetch should be aborted, will then throw an AbortError
+   * @returns {Promise<{pass: ProxyPass | null, usage: ProxyUsage | null, error: string | null}>}
    */
-  async #getProxyPass() {
-    let { status, error, pass } = await this.guardian.fetchProxyPass();
+  async #getPassAndUsage(abortSignal = null) {
+    let { status, error, pass, usage } =
+      await lazy.IPProtectionService.guardian.fetchProxyPass(abortSignal);
     lazy.logConsole.debug("ProxyPass:", {
       status,
       valid: pass?.isValid(),
       error,
     });
 
-    if (error || !pass || status != 200) {
-      throw error || new Error(`Status: ${status}`);
+    // Handle quota exceeded as a special case - return null pass with usage
+    if (status === 429 && error === "quota_exceeded") {
+      lazy.logConsole.info("Quota exceeded", {
+        usage: usage ? `${usage.remaining} / ${usage.max}` : "unknown",
+      });
+      return { pass: null, usage, error };
     }
 
-    return pass;
+    // All other error cases
+    if (error || status != 200) {
+      return { error: error || `Status: ${status}` };
+    }
+
+    return { pass, usage };
+  }
+
+  /**
+   * Given a ProxyPass, sets a timer and triggers a rotation when it's about to expire.
+   *
+   * @param {*} pass
+   */
+  #schedulePassRotation(pass) {
+    if (this.#rotationTimer) {
+      lazy.clearTimeout(this.#rotationTimer);
+      this.#rotationTimer = 0;
+    }
+
+    const now = Temporal.Now.instant();
+    const rotationTimePoint = pass.rotationTimePoint;
+    let msUntilRotation = now.until(rotationTimePoint).total("milliseconds");
+    if (msUntilRotation <= 0) {
+      msUntilRotation = 0;
+    }
+
+    lazy.logConsole.debug(
+      `ProxyPass will rotate in ${now.until(rotationTimePoint).total("minutes")} minutes`
+    );
+    this.#rotationTimer = lazy.setTimeout(async () => {
+      this.#rotationTimer = 0;
+      if (!this.#connection?.active) {
+        return;
+      }
+      lazy.logConsole.debug(`Statrting scheduled ProxyPass rotation`);
+      let newPass = await this.rotateProxyPass();
+      if (newPass) {
+        this.#schedulePassRotation(newPass);
+      }
+    }, msUntilRotation);
   }
 
   /**
    * Starts a flow to get a new ProxyPass and replace the current one.
    *
-   * @returns {Promise<void>} - Returns a promise that resolves when the rotation is complete or failed.
+   * @returns {Promise<void|ProxyPass>} - Returns a promise that resolves when the rotation is complete or failed.
    * When it's called again while a rotation is in progress, it will return the existing promise.
    */
-  async #rotateProxyPass() {
+  async rotateProxyPass() {
     if (this.#rotateProxyPassPromise) {
       return this.#rotateProxyPassPromise;
     }
-    this.#rotateProxyPassPromise = this.#getProxyPass();
-    const pass = await this.#rotateProxyPassPromise;
-    this.#rotateProxyPassPromise = null;
+    let { promise, resolve } = Promise.withResolvers();
+    using scopeGuard = new DisposableStack();
+    scopeGuard.defer(() => {
+      resolve();
+      this.#rotateProxyPassPromise = null;
+    });
+    this.#rotateProxyPassPromise = promise;
+    const { pass, usage, error } = await this.#getPassAndUsage();
+    if (error) {
+      this.#setErrorState(error);
+      return null;
+    }
+
+    if (usage) {
+      this.#setUsage(usage);
+      if (this.#usage.remaining <= 0) {
+        this.#pass = null;
+        this.#connection.uninitialize();
+        this.#setState(IPPProxyStates.PAUSED);
+        return null;
+      }
+    }
+
     if (!pass) {
+      lazy.logConsole.debug("Failed to rotate token!");
       return null;
     }
     // Inject the new token in the current connection
     if (this.#connection?.active) {
       this.#connection.replaceAuthToken(pass.asBearerToken());
-      this.usageObserver.addIsolationKey(this.#connection.isolationKey);
       this.networkErrorObserver.addIsolationKey(this.#connection.isolationKey);
     }
     lazy.logConsole.debug("Successfully rotated token!");
     this.#pass = pass;
-    return null;
+    resolve(pass);
+    return promise;
+  }
+
+  /**
+   * Refreshes the usage info from the server.
+   * Can move the state:
+   *  Active -> Paused if the usage is exhausted
+   *  Not-Ready -> Ready if the service becomes ready and usage is available
+   *
+   * Will move the state to PAUSED if no usage is available.
+   *
+   * @return {Promise<void>}
+   */
+  async refreshUsage() {
+    let newUsage;
+    try {
+      newUsage = await lazy.IPProtectionService.guardian.fetchProxyUsage();
+    } catch (error) {
+      lazy.logConsole.error("Error refreshing usage:", error);
+    }
+    if (!newUsage) {
+      lazy.logConsole.debug("Failed to refresh usage info!");
+      return;
+    }
+    this.#setUsage(newUsage);
+    switch (this.#state) {
+      case IPPProxyStates.ACTIVE:
+        if (newUsage.remaining <= 0) {
+          this.#setState(IPPProxyStates.PAUSED);
+          this.#connection?.uninitialize();
+        }
+        break;
+      case IPPProxyStates.NOT_READY:
+        if (newUsage.remaining > 0) {
+          this.#setState(IPPProxyStates.READY);
+        }
+        break;
+      default:
+        // No state change needed
+        break;
+    }
   }
 
   #handleProxyErrorEvent(event) {
@@ -246,10 +648,109 @@ class IPPProxyManager {
 
     if (level == "error" || this.#pass?.shouldRotate()) {
       // If this is a visible top-level error force a rotation
-      return this.#rotateProxyPass();
+      return this.rotateProxyPass();
     }
     return null;
   }
+
+  updateState() {
+    // State must remain as error until the connection is stopped.
+    if (this.#state === IPPProxyStates.ERROR && this.#connection?.active) {
+      return;
+    }
+
+    if (lazy.IPProtectionService.state === lazy.IPProtectionStates.READY) {
+      if (!this.#usage || this.#usage.remaining > 0) {
+        this.#setState(IPPProxyStates.READY);
+        return;
+      }
+    }
+
+    this.#setState(IPPProxyStates.NOT_READY);
+  }
+
+  /**
+   * Helper to update the state after an error.
+   *
+   * @param {string} error - the error message that occurred.
+   */
+  #setErrorState(error) {
+    if (this.#state === IPPProxyStates.ACTIVE) {
+      // If the proxy is active, switch to the error state.
+      // Stop will need to be called to move out of the error state.
+      this.#setState(IPPProxyStates.ERROR);
+    } else {
+      // Otherwise, update to the previous state.
+      this.updateState();
+    }
+
+    lazy.logConsole.error(error);
+    Glean.ipprotection.error.record({ source: "ProxyManager" });
+  }
+
+  /**
+   * @param {import("./GuardianClient.sys.mjs").ProxyUsage } usage
+   */
+  #setUsage(usage) {
+    this.#usage = usage;
+    const now = Temporal.Now.instant();
+    const daysUntilReset = now.until(usage.reset).total("days");
+    lazy.logConsole.debug("ProxyPass:", {
+      usage: `${usage.remaining} / ${usage.max}`,
+      resetsIn: `${daysUntilReset.toFixed(1)} days`,
+    });
+    this.#scheduleUsageCheck(usage);
+    this.dispatchEvent(
+      new CustomEvent("IPPProxyManager:UsageChanged", {
+        bubbles: true,
+        composed: true,
+        detail: {
+          usage,
+        },
+      })
+    );
+  }
+
+  #scheduleUsageCheck(usage) {
+    if (this.#usageRefreshAbortController) {
+      this.#usageRefreshAbortController.abort();
+      this.#usageRefreshAbortController = null;
+    }
+    if (usage.remaining > 0) {
+      return;
+    }
+    this.#usageRefreshAbortController = new AbortController();
+    scheduleCallback(
+      async () => {
+        await this.refreshUsage();
+      },
+      usage.reset,
+      this.#usageRefreshAbortController.signal
+    );
+  }
+
+  /**
+   * @param {IPPProxyState} state
+   */
+  #setState(state) {
+    if (state === this.#state) {
+      return;
+    }
+
+    this.#state = state;
+
+    this.dispatchEvent(
+      new CustomEvent("IPPProxyManager:StateChanged", {
+        bubbles: true,
+        composed: true,
+        detail: {
+          state,
+        },
+      })
+    );
+  }
 }
+
+const IPPProxyManager = new IPPProxyManagerSingleton();
 
 export { IPPProxyManager };

@@ -3,8 +3,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsProtocolProxyService_h__
-#define nsProtocolProxyService_h__
+#ifndef nsProtocolProxyService_h_
+#define nsProtocolProxyService_h_
 
 #include "nsString.h"
 #include "nsCOMPtr.h"
@@ -197,8 +197,8 @@ class nsProtocolProxyService final : public nsIProtocolProxyService2,
    *        The proxy host name (UTF-8 ok).
    * @param port
    *        The proxy port number.
-   * @param pathTemplate
-   *        The PathTemplate.
+   * @param masqueTemplate
+   *        The MasqueTemplate.
    * @param username
    *        The username for the proxy (ASCII). May be "", but not null.
    * @param password
@@ -215,7 +215,7 @@ class nsProtocolProxyService final : public nsIProtocolProxyService2,
    *        The resulting nsIProxyInfo object.
    */
   nsresult NewProxyInfo_Internal(const char* type, const nsACString& host,
-                                 int32_t port, const nsACString& pathTemplate,
+                                 int32_t port, const nsACString& masqueTemplate,
                                  const nsACString& username,
                                  const nsACString& password,
                                  const nsACString& aProxyAuthorizationHeader,
@@ -430,4 +430,4 @@ class nsProtocolProxyService final : public nsIProtocolProxyService2,
 }  // namespace net
 }  // namespace mozilla
 
-#endif  // !nsProtocolProxyService_h__
+#endif  // !nsProtocolProxyService_h_

@@ -13,9 +13,7 @@
 ## They should be moved to toolkit/branding/brandings.ftl if the feature is
 ## exposed for localization.
 
--mdn-brand-name = MDN Web Docs
 -mdn-brand-short-name = MDN
--yelp-brand-name = Yelp
 
 ## These strings are used in the urlbar panel.
 
@@ -28,22 +26,6 @@ urlbar-group-shortcuts =
 # A label shown above the top pick group in the urlbar results.
 urlbar-group-best-match =
   .label = Top pick
-
-# Label shown above an extension suggestion in the urlbar results (an
-# alternative phrasing is "Extension for Firefox"). It's singular since only one
-# suggested extension is displayed.
-urlbar-group-addon =
-  .label = { -brand-product-name } extension
-
-# Label shown above a MDN suggestion in the urlbar results.
-urlbar-group-mdn =
-  .label = Recommended resource
-
-# A label shown above urlbar suggestions for businesses and other locations
-# in the user's city or a city they included in their search string (e.g., Yelp
-# suggestions).
-urlbar-group-local =
-  .label = Local recommendations
 
 # A message that replaces a result when the user dismisses a single suggestion.
 firefox-suggest-dismissal-acknowledgment-one = Thanks for your feedback. You won’t see this suggestion again.
@@ -108,17 +90,8 @@ firefox-suggest-command-dont-show-this-suggestion =
   .label = Don’t show this suggestion
 firefox-suggest-command-dont-show-any-suggestions =
   .label = Don’t show any suggestions
-
-## These strings are used for add-on suggestions in the urlbar.
-
-# This string explaining that the add-on suggestion is a recommendation.
-firefox-suggest-addons-recommended = Recommended
-
-## These strings are used for MDN suggestions in the urlbar.
-
-# This string is shown in MDN suggestions and indicates the suggestion is from
-# MDN.
-firefox-suggest-mdn-bottom-text = { -mdn-brand-name }
+firefox-suggest-command-dont-show-addons =
+  .label = Don’t show { -brand-product-name } extension suggestions
 
 ## These strings are used for Yelp suggestions in the urlbar.
 
@@ -127,10 +100,6 @@ firefox-suggest-mdn-bottom-text = { -mdn-brand-name }
 # Variables:
 #   $service (string) - The title of the service, e.g., "coffee shops".
 firefox-suggest-yelp-service-title = Top results for { $service }
-
-# This string is shown in Yelp suggestions and indicates the suggestion is for
-# Yelp.
-firefox-suggest-yelp-bottom-text = { -yelp-brand-name } · Sponsored
 
 ## Used as title on the introduction pane. The text can be formatted to span
 ## multiple lines as needed (line breaks are significant).
@@ -285,6 +254,10 @@ urlbar-result-yelp-realtime-business-hours-closed =
 #   $review_count (integer) - The review count of this.
 urlbar-result-yelp-realtime-popularity = { $rating } ({ $review_count })
 
+# This a11y label is read by screen readers when an item in the row is selected.
+urlbar-result-aria-group-yelp-realtime =
+  .aria-label = { -yelp-brand-name } suggestions
+
 ## These strings are used for flight status suggestions in the urlbar.
 ## The flight status suggestions shows the flight time, origin and destination
 ## and the status like delayed, etc.
@@ -293,7 +266,7 @@ urlbar-result-yelp-realtime-popularity = { $rating } ({ $review_count })
 urlbar-result-menu-dont-show-flight-status =
   .label = Don’t show flight status suggestions
 
-# A message that replaces a result when the user dismisses Yelp realtime
+# A message that replaces a result when the user dismisses flight status
 # suggestions.
 urlbar-result-dismissal-acknowledgment-flight-status = Thanks for your feedback. You won’t see flight status suggestions anymore.
 
@@ -317,15 +290,11 @@ urlbar-result-flight-status-status-cancelled = Cancelled
 urlbar-result-flight-status-status-delayed =
     Delayed until { $departureEstimatedTime }
 
-# This string is shown as the time left minutes.
+# This string is shown as the time remaining in an in-progress flight.
 # e.g. 30 min left
 # Variables:
-#   $timeLeftMinutes (number) - The time left minutes.
-urlbar-result-flight-status-time-left-minutes =
-    { $timeLeftMinutes ->
-        [one] { $timeLeftMinutes } min left
-        *[other] { $timeLeftMinutes } mins left
-    }
+#   $timeLeft (string) - Localized duration string, e.g., "1 hr, 30 min"
+urlbar-result-flight-status-time-left = { $timeLeft } left
 
 # This string is shown as the airport.
 # e.g. Los Angeles (LAX) to New York (JFK)
@@ -340,3 +309,43 @@ urlbar-result-flight-status-airport = { $city } ({ $code })
 #   $flightNumber (string) - The flight number.
 #   $airlineName (string) - The airline name.
 urlbar-result-flight-status-flight-number-with-airline = { $flightNumber }, { $airlineName }
+
+# This a11y label is read by screen readers when an item in the row is selected.
+urlbar-result-aria-group-flight-status =
+  .aria-label = Flight status suggestions
+
+## These strings are used for sports suggestions in the urlbar. Sports
+## suggestions show team names, scores, game times, etc.
+
+# This string is shown for a scheduled future game. In English, "Team 1 at Team
+# 2" means the game is taking place at Team 2's home venue, and we say Team 1 is
+# the "away" team and Team 2 is the "home" team. If your language doesn't have a
+# similar phrase, use your equivalent of "vs." or even just "and".
+# Variables:
+#   $awayTeam (string) - Name of the visting team.
+#   $homeTeam (string) - Name of the home team.
+urlbar-result-sports-team-names = { $awayTeam } at { $homeTeam }
+
+# This string is shown when the game is today, in the near future, or in the
+# recent past.
+# Variables:
+#   $date (string) - Localized date string, e.g., "Today", "Oct 31"
+#   $time (string) - Localized time
+urlbar-result-sports-game-date-with-time = { $date } at { $time }
+
+# This status is shown when the game is in progress.
+urlbar-result-sports-status-live = Live
+
+# This status is shown when the game is over.
+urlbar-result-sports-status-final = Final
+
+# This string is shown in the result menu.
+urlbar-result-menu-dont-show-sports =
+  .label = Don’t show sports suggestions
+
+# A message that replaces a result when the user dismisses sports suggestions.
+urlbar-result-dismissal-acknowledgment-sports = Thanks for your feedback. You won’t see sports suggestions anymore.
+
+# This a11y label is read by screen readers when an item in the row is selected.
+urlbar-result-aria-group-sports =
+  .aria-label = Sports suggestions

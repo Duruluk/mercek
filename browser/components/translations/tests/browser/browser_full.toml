@@ -6,6 +6,16 @@ support-files = [
   "!/toolkit/components/translations/tests/browser/translations-test.mjs",
 ]
 
+["browser_translations_full_page_ai_feature_app_menu.js"]
+
+["browser_translations_full_page_ai_feature_auto_translate.js"]
+
+["browser_translations_full_page_ai_feature_mid_translation.js"]
+
+["browser_translations_full_page_ai_feature_navigation.js"]
+
+["browser_translations_full_page_ai_feature_urlbar_button.js"]
+
 ["browser_translations_full_page_intersection_content_eager.js"]
 
 ["browser_translations_full_page_intersection_find_bar.js"]
@@ -27,7 +37,9 @@ support-files = [
 ["browser_translations_full_page_moz_extension.js"]
 
 ["browser_translations_full_page_multiple_windows.js"]
-skip-if = ["os == 'linux' && os_version == '24.04' && processor == 'x86_64' && display == 'x11' && ccov"] # Bug 1893021
+skip-if = [
+  "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11' && ccov", # Bug 1893021
+]
 
 ["browser_translations_full_page_panel_a11y_focus.js"]
 
@@ -64,7 +76,9 @@ skip-if = ["os == 'linux' && os_version == '24.04' && processor == 'x86_64' && d
 ["browser_translations_full_page_panel_engine_destroy.js"]
 
 ["browser_translations_full_page_panel_engine_destroy_pending.js"]
-skip-if = ["os == 'linux' && os_version == '24.04' && processor == 'x86_64' && display == 'x11' && ccov"] # Bug 1893021
+skip-if = [
+  "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11' && ccov", # Bug 1893021
+]
 
 ["browser_translations_full_page_panel_engine_unsupported.js"]
 
@@ -75,7 +89,9 @@ skip-if = ["os == 'linux' && os_version == '24.04' && processor == 'x86_64' && d
 ["browser_translations_full_page_panel_flip_lexical_shortlist.js"]
 
 ["browser_translations_full_page_panel_fuzzing.js"]
-skip-if = ["true"]
+skip-if = [
+  "true",
+]
 
 ["browser_translations_full_page_panel_gear.js"]
 

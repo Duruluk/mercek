@@ -2,8 +2,8 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-import codecs
 import itertools
+import json
 import logging
 import os
 import pprint
@@ -17,9 +17,9 @@ sys.path.insert(0, os.path.join(base_dir, "python", "mozboot"))
 sys.path.insert(0, os.path.join(base_dir, "python", "mozbuild"))
 sys.path.insert(0, os.path.join(base_dir, "third_party", "python", "packaging"))
 sys.path.insert(0, os.path.join(base_dir, "testing", "mozbase", "mozfile"))
+sys.path.insert(0, os.path.join(base_dir, "testing", "mozbase", "mozshellutil"))
 sys.path.insert(0, os.path.join(base_dir, "third_party", "python", "six"))
 sys.path.insert(0, os.path.join(base_dir, "third_party", "python", "looseversion"))
-sys.path.insert(0, os.path.join(base_dir, "third_party", "python", "filelock"))
 import mozpack.path as mozpath
 from mach.requirements import MachEnvRequirements
 from mach.site import (
@@ -32,6 +32,7 @@ from mach.site import (
 from mozbuild.backend.configenvironment import PartialConfigEnvironment
 from mozbuild.configure import TRACE, ConfigureSandbox
 from mozbuild.pythonutil import iter_modules_in_path
+from mozbuild.util import FileAvoidWrite
 
 if "MOZ_CONFIGURE_BUILDSTATUS" in os.environ:
 
@@ -225,7 +226,7 @@ def config_status(config, execute=True):
     # Create config.status. Eventually, we'll want to just do the work it does
     # here, when we're able to skip configure tests/use cached results/not rely
     # on autoconf.
-    with codecs.open("config.status", "w", "utf-8") as fh:
+    with open("config.status", "w", encoding="utf-8") as fh:
         fh.write(
             textwrap.dedent(
                 """\
@@ -240,7 +241,7 @@ def config_status(config, execute=True):
             fh.write("%s = " % k)
             pprint.pprint(v, stream=fh, indent=4)
         fh.write(
-            "__all__ = ['topobjdir', 'topsrcdir', 'defines', " "'substs', 'mozconfig']"
+            "__all__ = ['topobjdir', 'topsrcdir', 'defines', 'substs', 'mozconfig']"
         )
 
         if execute:
@@ -258,9 +259,20 @@ def config_status(config, execute=True):
     partial_config = PartialConfigEnvironment(config["TOPOBJDIR"])
     partial_config.write_vars(sanitized_config)
 
+    mach_env = {
+        "topobjdir": sanitized_config["topobjdir"],
+        "topsrcdir": sanitized_config["topsrcdir"],
+        "defines": dict(sanitized_config["defines"]),
+        "substs": dict(sanitized_config["substs"]),
+    }
+    # Write config.status.json for fast Gradle configuration.
+    with FileAvoidWrite("config.status.json") as fh:
+        fh.write(json.dumps(mach_env, indent=2, sort_keys=True))
+
     # Write out a file so the build backend knows to re-run configure when
-    # relevant Python changes.
-    with open("config_status_deps.in", "w", encoding="utf-8", newline="\n") as fh:
+    # relevant Python changes. Use FileAvoidWrite to only write if the
+    # deps_content has changed to avoid invalidating Gradle's configuration cache
+    with FileAvoidWrite("config_status_deps.in") as fh:
         for f in sorted(
             itertools.chain(
                 config["CONFIG_STATUS_DEPS"],

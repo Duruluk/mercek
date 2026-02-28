@@ -21,6 +21,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   DefaultBrowserCheck:
     "moz-src:///browser/components/DefaultBrowserCheck.sys.mjs",
   LaterRun: "resource:///modules/LaterRun.sys.mjs",
+  SearchService: "moz-src:///toolkit/components/search/SearchService.sys.mjs",
   SearchStaticData:
     "moz-src:///toolkit/components/search/SearchStaticData.sys.mjs",
   UrlbarPrefs: "moz-src:///browser/components/urlbar/UrlbarPrefs.sys.mjs",
@@ -159,13 +160,11 @@ export class UrlbarProviderSearchTips extends UrlbarProvider {
   }
 
   /**
-   * Starts querying. Extended classes should return a Promise resolved when the
-   * provider is done searching AND returning results.
+   * Starts querying.
    *
-   * @param {UrlbarQueryContext} queryContext The query context object
-   * @param {Function} addCallback Callback invoked by the provider to add a new
-   *        result. A UrlbarResult should be passed to it.
-   * @returns {Promise}
+   * @param {UrlbarQueryContext} queryContext
+   * @param {(provider: UrlbarProvider, result: UrlbarResult) => void} addCallback
+   *   Callback invoked by the provider to add a new result.
    */
   async startQuery(queryContext, addCallback) {
     let instance = this.queryInstance;
@@ -174,7 +173,7 @@ export class UrlbarProviderSearchTips extends UrlbarProvider {
     this.showedTipTypeInCurrentEngagement = this.currentTip;
     this.currentTip = TIPS.NONE;
 
-    let defaultEngine = await Services.search.getDefault();
+    let defaultEngine = await lazy.SearchService.getDefault();
     let icon = await defaultEngine.getIconURL();
     if (instance != this.queryInstance) {
       return;
@@ -507,7 +506,7 @@ async function isBrowserShowingNotification(window) {
  * @returns {Promise<boolean>}
  */
 async function isDefaultEngineHomepage(urlStr) {
-  let defaultEngine = await Services.search.getDefault();
+  let defaultEngine = await lazy.SearchService.getDefault();
   if (!defaultEngine) {
     return false;
   }

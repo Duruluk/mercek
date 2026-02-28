@@ -21,7 +21,6 @@
 #include <stdint.h>
 
 #include <limits>
-#include <map>
 #include <memory>
 #include <string>
 #include <utility>
@@ -363,7 +362,7 @@ void WebrtcAudioConduit::OnControlConfigChange() {
               std::clamp(AssertedCast<int>(*maxBps), info->min_bitrate_bps,
                          info->max_bitrate_bps);
         }
-        mSendStreamConfig.send_codec_spec = spec;
+        mSendStreamConfig.send_codec_spec = std::move(spec);
 
         mDtmfEnabled = aConfig.mDtmfEnabled;
         sendStreamReconfigureNeeded = true;

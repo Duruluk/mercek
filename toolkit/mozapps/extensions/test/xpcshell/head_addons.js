@@ -341,17 +341,6 @@ var BootstrapMonitor = {
   },
 };
 
-function isNightlyChannel() {
-  var channel = Services.prefs.getCharPref("app.update.channel", "default");
-
-  return (
-    channel != "aurora" &&
-    channel != "beta" &&
-    channel != "release" &&
-    channel != "esr"
-  );
-}
-
 async function restartWithLocales(locales) {
   Services.locale.requestedLocales = locales;
   await promiseRestartManager();
@@ -420,6 +409,7 @@ function checkAddon(id, addon, expected) {
  * Tests that an add-on does appear in the crash report annotations, if
  * crash reporting is enabled. The test will fail if the add-on is not in the
  * annotation.
+ *
  * @param  aId
  *         The ID of the add-on
  * @param  aVersion
@@ -447,6 +437,7 @@ function do_check_in_crash_annotation(aId, aVersion) {
  * Tests that an add-on does not appear in the crash report annotations, if
  * crash reporting is enabled. The test will fail if the add-on is in the
  * annotation.
+ *
  * @param  aId
  *         The ID of the add-on
  * @param  aVersion

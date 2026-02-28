@@ -666,7 +666,7 @@ uint64_t ICInterpretOps(uint64_t arg0, uint64_t arg1, ICStub* stub,
     DECLARE_CACHEOP_CASE(CallInt32ToString);
     DECLARE_CACHEOP_CASE(CallScriptedFunction);
     DECLARE_CACHEOP_CASE(CallNativeFunction);
-    DECLARE_CACHEOP_CASE(MetaScriptedThisShape);
+    DECLARE_CACHEOP_CASE(MetaCreateThis);
     DECLARE_CACHEOP_CASE(LoadFixedSlotResult);
     DECLARE_CACHEOP_CASE(LoadDynamicSlotResult);
     DECLARE_CACHEOP_CASE(LoadDenseElementResult);
@@ -2326,8 +2326,11 @@ uint64_t ICInterpretOps(uint64_t arg0, uint64_t arg1, ICStub* stub,
               ReservedRooted<JSObject*> calleeObj(&ctx.state.obj0, callee);
               ReservedRooted<JSObject*> newTargetRooted(
                   &ctx.state.obj1, &origArgs[0].asValue().toObject());
-              ReservedRooted<Value> result(&ctx.state.value0);
-              if (!CreateThisFromIC(cx, calleeObj, newTargetRooted, &result)) {
+              ReservedRooted<Value> result(&ctx.state.value0,
+                                           MagicValue(JS_IS_CONSTRUCTING));
+              HandleFunction fun = calleeObj.as<JSFunction>();
+              if (!js::CreateThis(cx, fun, newTargetRooted, GenericObject,
+                                  &result)) {
                 ctx.error = PBIResult::Error;
                 return IC_ERROR_SENTINEL();
               }
@@ -2611,10 +2614,10 @@ uint64_t ICInterpretOps(uint64_t arg0, uint64_t arg1, ICStub* stub,
         DISPATCH_CACHEOP();
       }
 
-      CACHEOP_CASE(MetaScriptedThisShape) {
+      CACHEOP_CASE(MetaCreateThis) {
         // This op is only metadata for the Warp Transpiler and should be
         // ignored.
-        cacheIRReader.argsForMetaScriptedThisShape();
+        cacheIRReader.argsForMetaCreateThis();
         PREDICT_NEXT(CallScriptedFunction);
         DISPATCH_CACHEOP();
       }
@@ -7078,6 +7081,26 @@ PBIResult PortableBaselineInterpret(
         END_OP(DynamicImport);
       }
 
+#ifdef ENABLE_SOURCE_PHASE_IMPORTS
+      CASE(DynamicImportSource) {
+        {
+          ReservedRooted<Value> value0(&state.value0,
+                                       VIRTPOP().asValue());  // specifier
+          JSObject* promise;
+          {
+            PUSH_EXIT_FRAME();
+            ReservedRooted<JSScript*> script0(&state.script0, frame->script());
+            promise = StartDynamicModuleImportSource(cx, script0, value0);
+            if (!promise) {
+              GOTO_ERROR();
+            }
+          }
+          VIRTPUSH(StackVal(ObjectValue(*promise)));
+        }
+        END_OP(DynamicImportSource);
+      }
+#endif
+
       CASE(ImportMeta) {
         IC_ZERO_ARG(0);
         IC_ZERO_ARG(1);
@@ -8677,7 +8700,7 @@ PBIResult PortableBaselineInterpret(
       }
 
       CASE(EnvCallee) {
-        uint8_t numHops = GET_UINT8(pc);
+        uint16_t numHops = GET_ENVCOORD_HOPS(pc);
         JSObject* env = &frame->environmentChain()->as<EnvironmentObject>();
         for (unsigned i = 0; i < numHops; i++) {
           env = &env->as<EnvironmentObject>().enclosingEnvironment();

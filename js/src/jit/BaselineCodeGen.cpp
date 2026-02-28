@@ -144,6 +144,23 @@ bool BaselineCompilerHandler::init() {
   return true;
 }
 
+const SourceLocationIterator&
+BaselineCompilerHandler::sourceLocationIterAtCurrentPc() const {
+  if (!srcLocIter_) {
+    srcLocIter_.emplace(script_->sourceLocationIter());
+  }
+  srcLocIter_->advanceToPC(pc_);
+  return *srcLocIter_;
+}
+
+unsigned BaselineCompilerHandler::line() const {
+  return sourceLocationIterAtCurrentPc().line();
+}
+
+JS::LimitedColumnNumberOneOrigin BaselineCompilerHandler::column() const {
+  return sourceLocationIterAtCurrentPc().column();
+}
+
 bool BaselineCompiler::init() {
   if (!handler.init()) {
     return false;
@@ -248,6 +265,9 @@ MethodStatus BaselineCompiler::compile(JSContext* cx) {
   JitSpew(JitSpew_Codegen, "# Emitting baseline code for script %s:%u:%u",
           script->filename(), script->lineno(),
           script->column().oneOriginValue());
+  if (runtime->geckoProfiler().enabled()) {
+    masm.enableProfilingInstrumentation();
+  }
 
   MOZ_ASSERT(!script->hasBaselineScript());
 
@@ -771,8 +791,8 @@ bool BaselineInterpreterCodeGen::emitNextIC() {
   saveInterpreterPCReg();
   masm.loadPtr(frame.addressOfInterpreterICEntry(), ICStubReg);
   masm.loadPtr(Address(ICStubReg, ICEntry::offsetOfFirstStub()), ICStubReg);
-  masm.call(Address(ICStubReg, ICStub::offsetOfStubCode()));
-  uint32_t returnOffset = masm.currentOffset();
+  uint32_t returnOffset =
+      masm.call(Address(ICStubReg, ICStub::offsetOfStubCode())).offset();
   restoreInterpreterPCReg();
 
   // If this is an IC for a bytecode op where Ion may inline scripts, we need to
@@ -875,8 +895,7 @@ bool BaselineCodeGen<Handler>::callVMInternal(VMFunctionId id,
     masm.push(FrameDescriptor(FrameType::BaselineJS));
   }
   // Perform the call.
-  masm.call(code);
-  uint32_t callOffset = masm.currentOffset();
+  uint32_t callOffset = masm.callJit(code);
 
   // Pop arguments from framePushed.
   masm.implicitPop(argSize);
@@ -1977,6 +1996,15 @@ void BaselineCodeGen<Handler>::emitProfilerExitFrame() {
   // Store the start offset in the appropriate location.
   MOZ_ASSERT(!profilerExitFrameToggleOffset_.bound());
   profilerExitFrameToggleOffset_ = toggleOffset;
+}
+
+template <typename Handler>
+void BaselineCodeGen<Handler>::emitProfilerCallSiteInstrumentation() {
+  if (!handler.needsProfilerCallSiteInstrumentation()) {
+    return;
+  }
+
+  masm.instrumentProfilerCallSite();
 }
 
 template <typename Handler>
@@ -3907,9 +3935,9 @@ Address BaselineCodeGen<Handler>::getEnvironmentCoordinateAddress(
 // number of environment objects.
 static void LoadAliasedVarEnv(MacroAssembler& masm, Register env,
                               Register scratch) {
-  static_assert(ENVCOORD_HOPS_LEN == 1,
-                "Code assumes number of hops is stored in uint8 operand");
-  LoadUint8Operand(masm, scratch);
+  static_assert(ENVCOORD_HOPS_LEN == 2,
+                "Code assumes number of hops is stored in uint16 operand");
+  LoadUint16Operand(masm, scratch);
 
   Label top, done;
   masm.branchTest32(Assembler::Zero, scratch, scratch, &done);
@@ -4021,8 +4049,8 @@ bool BaselineCompilerCodeGen::emit_SetAliasedVar() {
   // R2.scratchReg() has the scope coordinate object.
 
   Label skipBarrier;
-  masm.branchPtrInNurseryChunk(Assembler::Equal, objReg, temp, &skipBarrier);
   masm.branchValueIsNurseryCell(Assembler::NotEqual, R0, temp, &skipBarrier);
+  masm.branchPtrInNurseryChunk(Assembler::Equal, objReg, temp, &skipBarrier);
 
   // Uses R2.scratchReg() as input
   masm.call(&postBarrierSlot_);  // Won't clobber R0
@@ -4088,9 +4116,9 @@ bool BaselineInterpreterCodeGen::emit_SetAliasedVar() {
 
   // Post barrier.
   Label skipBarrier;
-  masm.branchPtrInNurseryChunk(Assembler::Equal, env, scratch1, &skipBarrier);
   masm.branchValueIsNurseryCell(Assembler::NotEqual, R2, scratch1,
                                 &skipBarrier);
+  masm.branchPtrInNurseryChunk(Assembler::Equal, env, scratch1, &skipBarrier);
   {
     // Post barrier code expects the object in R2.
     masm.movePtr(env, R2.scratchReg());
@@ -4434,8 +4462,8 @@ bool BaselineCompilerCodeGen::emitFormalArgAccess(JSOp op) {
 
     Label skipBarrier;
 
-    masm.branchPtrInNurseryChunk(Assembler::Equal, reg, temp, &skipBarrier);
     masm.branchValueIsNurseryCell(Assembler::NotEqual, R0, temp, &skipBarrier);
+    masm.branchPtrInNurseryChunk(Assembler::Equal, reg, temp, &skipBarrier);
 
     masm.call(&postBarrierSlot_);
 
@@ -4486,8 +4514,8 @@ bool BaselineInterpreterCodeGen::emitFormalArgAccess(JSOp op) {
       masm.loadPtr(frame.addressOfArgsObj(), reg);
 
       Register temp = R1.scratchReg();
-      masm.branchPtrInNurseryChunk(Assembler::Equal, reg, temp, &done);
       masm.branchValueIsNurseryCell(Assembler::NotEqual, R0, temp, &done);
+      masm.branchPtrInNurseryChunk(Assembler::Equal, reg, temp, &done);
 
       masm.call(&postBarrierSlot_);
     }
@@ -4715,6 +4743,10 @@ template <>
 bool BaselineCompilerCodeGen::emitCall(JSOp op) {
   MOZ_ASSERT(IsInvokeOp(op));
 
+  // Record call site for profiler sampling. IC stub calls use raw masm.call()
+  // which doesn't automatically instrument, unlike callJit/callWithABI.
+  emitProfilerCallSiteInstrumentation();
+
   frame.syncStack(0);
 
   uint32_t argc = GET_ARGC(handler.pc());
@@ -4757,6 +4789,10 @@ bool BaselineInterpreterCodeGen::emitCall(JSOp op) {
 template <typename Handler>
 bool BaselineCodeGen<Handler>::emitSpreadCall(JSOp op) {
   MOZ_ASSERT(IsInvokeOp(op));
+
+  // Record call site for profiler sampling. IC stub calls use raw masm.call()
+  // which doesn't automatically instrument, unlike callJit/callWithABI.
+  emitProfilerCallSiteInstrumentation();
 
   frame.syncStack(0);
   masm.move32(Imm32(1), R0.scratchReg());
@@ -5918,7 +5954,7 @@ bool BaselineCodeGen<Handler>::emit_Callee() {
 template <>
 bool BaselineCompilerCodeGen::emit_EnvCallee() {
   frame.syncStack(0);
-  uint8_t numHops = GET_UINT8(handler.pc());
+  uint16_t numHops = GET_ENVCOORD_HOPS(handler.pc());
   Register scratch = R0.scratchReg();
 
   masm.loadPtr(frame.addressOfEnvironmentChain(), scratch);
@@ -5939,7 +5975,7 @@ bool BaselineInterpreterCodeGen::emit_EnvCallee() {
   Register env = R1.scratchReg();
 
   static_assert(JSOpLength_EnvCallee - sizeof(jsbytecode) == ENVCOORD_HOPS_LEN,
-                "op must have uint8 operand for LoadAliasedVarEnv");
+                "op must have uint16 operand for LoadAliasedVarEnv");
 
   // Load the right environment object.
   masm.loadPtr(frame.addressOfEnvironmentChain(), env);
@@ -6422,14 +6458,14 @@ bool BaselineCodeGen<Handler>::emit_Resume() {
   // generator returns.
   Label genStart, returnTarget;
 #ifdef JS_USE_LINK_REGISTER
-  masm.call(&genStart);
+  const CodeOffset retAddr = masm.call(&genStart);
 #else
   masm.callAndPushReturnAddress(&genStart);
+  const CodeOffset retAddr = CodeOffset(masm.currentOffset());
 #endif
 
   // Record the return address so the return offset -> pc mapping works.
-  if (!handler.recordCallRetAddr(RetAddrEntry::Kind::IC,
-                                 masm.currentOffset())) {
+  if (!handler.recordCallRetAddr(RetAddrEntry::Kind::IC, retAddr.offset())) {
     return false;
   }
 
@@ -6737,8 +6773,8 @@ bool BaselineCodeGen<Handler>::emit_InitHomeObject() {
   masm.storeValue(R0, addr);
 
   Label skipBarrier;
-  masm.branchPtrInNurseryChunk(Assembler::Equal, func, temp, &skipBarrier);
   masm.branchValueIsNurseryCell(Assembler::NotEqual, R0, temp, &skipBarrier);
+  masm.branchPtrInNurseryChunk(Assembler::Equal, func, temp, &skipBarrier);
   masm.call(&postBarrierSlot_);
   masm.bind(&skipBarrier);
 
@@ -6835,6 +6871,27 @@ bool BaselineCodeGen<Handler>::emit_DynamicImport() {
   frame.push(R0);
   return true;
 }
+
+#ifdef ENABLE_SOURCE_PHASE_IMPORTS
+template <typename Handler>
+bool BaselineCodeGen<Handler>::emit_DynamicImportSource() {
+  // Put specifier into R0
+  frame.popRegsAndSync(1);
+
+  prepareVMCall();
+  pushArg(R0);
+  pushScriptArg();
+
+  using Fn = JSObject* (*)(JSContext*, HandleScript, HandleValue);
+  if (!callVM<Fn, js::StartDynamicModuleImportSource>()) {
+    return false;
+  }
+
+  masm.tagValue(JSVAL_TYPE_OBJECT, ReturnReg, R0);
+  frame.push(R0);
+  return true;
+}
+#endif
 
 template <>
 bool BaselineCompilerCodeGen::emit_ForceInterpreter() {
@@ -6999,7 +7056,10 @@ bool BaselineCompiler::emitBody() {
       return false;
     }
 
-    perfSpewer_.recordInstruction(masm, handler.pc(), handler.script(), frame);
+    if (PerfEnabled()) {
+      perfSpewer_.recordInstruction(masm, handler.pc(), handler.line(),
+                                    handler.column(), frame);
+    }
 
 #define EMIT_OP(OP, ...)                                \
   case JSOp::OP: {                                      \

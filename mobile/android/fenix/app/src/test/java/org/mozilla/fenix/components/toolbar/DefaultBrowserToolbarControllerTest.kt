@@ -29,8 +29,6 @@ import mozilla.components.feature.search.SearchUseCases
 import mozilla.components.feature.session.SessionUseCases
 import mozilla.components.feature.tabs.TabsUseCases
 import mozilla.components.feature.top.sites.TopSitesUseCases
-import mozilla.components.support.test.ext.joinBlocking
-import mozilla.components.support.test.libstate.ext.waitUntilIdle
 import mozilla.components.support.test.middleware.CaptureActionsMiddleware
 import mozilla.components.support.test.robolectric.testContext
 import mozilla.components.ui.tabcounter.TabCounterMenu
@@ -55,10 +53,10 @@ import org.mozilla.fenix.R
 import org.mozilla.fenix.browser.BrowserAnimator
 import org.mozilla.fenix.browser.BrowserFragmentDirections
 import org.mozilla.fenix.browser.browsingmode.BrowsingMode
-import org.mozilla.fenix.browser.browsingmode.SimpleBrowsingModeManager
 import org.mozilla.fenix.browser.readermode.ReaderModeController
 import org.mozilla.fenix.components.AppStore
 import org.mozilla.fenix.components.appstate.AppAction.SnackbarAction
+import org.mozilla.fenix.components.appstate.AppState
 import org.mozilla.fenix.components.menu.MenuAccessPoint
 import org.mozilla.fenix.components.usecases.FenixBrowserUseCases
 import org.mozilla.fenix.ext.components
@@ -195,8 +193,6 @@ class DefaultBrowserToolbarControllerTest {
             searchUseCases.defaultSearch.invoke(pastedText, "1")
         }
 
-        store.waitUntilIdle()
-
         captureMiddleware.assertFirstAction(ContentAction.UpdateSearchTermsAction::class) { action ->
             assertEquals("1", action.sessionId)
             assertEquals(pastedText, action.searchTerms)
@@ -213,8 +209,6 @@ class DefaultBrowserToolbarControllerTest {
         verify {
             sessionUseCases.loadUrl(pastedText)
         }
-
-        store.waitUntilIdle()
 
         captureMiddleware.assertFirstAction(ContentAction.UpdateSearchTermsAction::class) { action ->
             assertEquals("1", action.sessionId)
@@ -283,7 +277,7 @@ class DefaultBrowserToolbarControllerTest {
     @Test
     fun handleToolbackClickWithSearchTerms() {
         val searchResultsTab = createTab("https://google.com?q=mozilla+website", searchTerms = "mozilla website")
-        store.dispatch(TabListAction.AddTabAction(searchResultsTab, select = true)).joinBlocking()
+        store.dispatch(TabListAction.AddTabAction(searchResultsTab, select = true))
 
         assertNull(Events.searchBarTapped.testGetValue())
 
@@ -326,8 +320,8 @@ class DefaultBrowserToolbarControllerTest {
         val item = TabCounterMenu.Item.CloseTab
 
         val testTab = createTab("https://www.firefox.com")
-        store.dispatch(TabListAction.AddTabAction(testTab)).joinBlocking()
-        store.dispatch(TabListAction.SelectTabAction(testTab.id)).joinBlocking()
+        store.dispatch(TabListAction.AddTabAction(testTab))
+        store.dispatch(TabListAction.SelectTabAction(testTab.id))
 
         val controller = createController()
         controller.handleTabCounterItemInteraction(item)
@@ -336,29 +330,27 @@ class DefaultBrowserToolbarControllerTest {
 
     @Test
     fun handleToolbarNewTabPress() {
-        val browsingModeManager = SimpleBrowsingModeManager(BrowsingMode.Private)
+        appStore = AppStore(AppState(mode = BrowsingMode.Private))
         val item = TabCounterMenu.Item.NewTab
 
-        every { activity.browsingModeManager } returns browsingModeManager
         every { navController.navigate(BrowserFragmentDirections.actionGlobalHome(focusOnAddressBar = true)) } just Runs
 
         val controller = createController()
         controller.handleTabCounterItemInteraction(item)
-        assertEquals(BrowsingMode.Normal, browsingModeManager.mode)
+        assertEquals(BrowsingMode.Normal, appStore.state.mode)
         verify { navController.navigate(BrowserFragmentDirections.actionGlobalHome(focusOnAddressBar = true)) }
     }
 
     @Test
     fun handleToolbarNewPrivateTabPress() {
-        val browsingModeManager = SimpleBrowsingModeManager(BrowsingMode.Normal)
+        appStore = AppStore(AppState(mode = BrowsingMode.Normal))
         val item = TabCounterMenu.Item.NewPrivateTab
 
-        every { activity.browsingModeManager } returns browsingModeManager
         every { navController.navigate(BrowserFragmentDirections.actionGlobalHome(focusOnAddressBar = true)) } just Runs
 
         val controller = createController()
         controller.handleTabCounterItemInteraction(item)
-        assertEquals(BrowsingMode.Private, browsingModeManager.mode)
+        assertEquals(BrowsingMode.Private, appStore.state.mode)
         verify { navController.navigate(BrowserFragmentDirections.actionGlobalHome(focusOnAddressBar = true)) }
     }
 

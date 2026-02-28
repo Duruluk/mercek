@@ -34,8 +34,7 @@ struct CSSAnimationMarker {
   static MarkerSchema MarkerTypeDisplay() {
     using MS = MarkerSchema;
     MS schema{MS::Location::MarkerChart, MS::Location::MarkerTable};
-    schema.AddKeyFormat("Name", MS::Format::String,
-                        MS::PayloadFlags::Searchable);
+    schema.AddKeyFormat("Name", MS::Format::String);
     schema.AddKeyLabelFormat("properties", "Animated Properties",
                              MS::Format::String);
     schema.AddKeyLabelFormat("oncompositor", "Can Run on Compositor",
@@ -164,7 +163,7 @@ void AnimationEventInfo::MaybeAddMarker() const {
     }
     nsAutoCString properties;
     nsAutoCString oncompositor;
-    for (const AnimatedPropertyID& property : propertySet) {
+    for (const CSSPropertyId& property : propertySet) {
       if (!properties.IsEmpty()) {
         properties.AppendLiteral(", ");
         oncompositor.AppendLiteral(", ");
@@ -174,7 +173,7 @@ void AnimationEventInfo::MaybeAddMarker() const {
       properties.Append(prop);
       oncompositor.Append(
           !property.IsCustom() &&
-                  nsCSSProps::PropHasFlags(property.mID,
+                  nsCSSProps::PropHasFlags(property.mId,
                                            CSSPropFlags::CanAnimateOnCompositor)
               ? "true"
               : "false");
@@ -218,7 +217,7 @@ void AnimationEventInfo::MaybeAddMarker() const {
   // probably.
   const bool onCompositor =
       !data.mProperty.IsCustom() &&
-      nsCSSProps::PropHasFlags(data.mProperty.mID,
+      nsCSSProps::PropHasFlags(data.mProperty.mId,
                                CSSPropFlags::CanAnimateOnCompositor);
   PROFILER_MARKER(
       "CSS transition", DOM,

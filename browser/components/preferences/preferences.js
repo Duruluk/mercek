@@ -7,7 +7,6 @@
 /* import-globals-from home.js */
 /* import-globals-from search.js */
 /* import-globals-from containers.js */
-/* import-globals-from translations.js */
 /* import-globals-from privacy.js */
 /* import-globals-from sync.js */
 /* import-globals-from experimental.js */
@@ -15,6 +14,12 @@
 /* import-globals-from findInPage.js */
 /* import-globals-from /browser/base/content/utilityOverlay.js */
 /* import-globals-from /toolkit/content/preferencesBindings.js */
+
+/** @import MozButton from "chrome://global/content/elements/moz-button.mjs" */
+/** @import {SettingConfig, SettingEmitChange} from "chrome://global/content/preferences/Setting.mjs" */
+/** @import {SettingControlConfig, SettingOptionConfig} from "chrome://browser/content/preferences/widgets/setting-control.mjs" */
+/** @import {SettingGroup} from "chrome://browser/content/preferences/widgets/setting-group.mjs" */
+/** @import {SettingPane, SettingPaneConfig} from "chrome://browser/content/preferences/widgets/setting-pane.mjs" */
 
 "use strict";
 
@@ -93,8 +98,6 @@ ChromeUtils.defineESModuleGetters(this, {
   LoginHelper: "resource://gre/modules/LoginHelper.sys.mjs",
   NimbusFeatures: "resource://nimbus/ExperimentAPI.sys.mjs",
   OSKeyStore: "resource://gre/modules/OSKeyStore.sys.mjs",
-  PlacesUtils: "resource://gre/modules/PlacesUtils.sys.mjs",
-  QuickSuggest: "moz-src:///browser/components/urlbar/QuickSuggest.sys.mjs",
   Region: "resource://gre/modules/Region.sys.mjs",
   SelectionChangedMenulist:
     "resource:///modules/SelectionChangedMenulist.sys.mjs",
@@ -103,8 +106,6 @@ ChromeUtils.defineESModuleGetters(this, {
   TransientPrefs: "resource:///modules/TransientPrefs.sys.mjs",
   UIState: "resource://services-sync/UIState.sys.mjs",
   UpdateUtils: "resource://gre/modules/UpdateUtils.sys.mjs",
-  UrlbarPrefs: "moz-src:///browser/components/urlbar/UrlbarPrefs.sys.mjs",
-  UrlbarUtils: "moz-src:///browser/components/urlbar/UrlbarUtils.sys.mjs",
 });
 
 ChromeUtils.defineLazyGetter(this, "gSubDialog", function () {
@@ -146,6 +147,7 @@ ChromeUtils.defineLazyGetter(this, "gSubDialog", function () {
   });
 });
 
+/** @type {Record<string, boolean>} */
 const srdSectionPrefs = {};
 XPCOMUtils.defineLazyPreferenceGetter(
   srdSectionPrefs,
@@ -154,6 +156,9 @@ XPCOMUtils.defineLazyPreferenceGetter(
   false
 );
 
+/**
+ * @param {string} section
+ */
 function srdSectionEnabled(section) {
   if (!(section in srdSectionPrefs)) {
     XPCOMUtils.defineLazyPreferenceGetter(
@@ -166,13 +171,110 @@ function srdSectionEnabled(section) {
   return srdSectionPrefs.all || srdSectionPrefs[section];
 }
 
-const CONFIG_PANES = {
-  containers2: {
-    parent: "general",
-    l10nId: "containers-section-header",
-    groupIds: ["containers"],
+var { SettingPaneManager, friendlyPrefCategoryNameToInternalName } =
+  ChromeUtils.importESModule(
+    "chrome://browser/content/preferences/config/SettingPaneManager.mjs",
+    {
+      global: "current",
+    }
+  );
+
+var SettingGroupManager = ChromeUtils.importESModule(
+  "chrome://browser/content/preferences/config/SettingGroupManager.mjs",
+  {
+    global: "current",
+  }
+).SettingGroupManager;
+
+/**
+ * Register initial config-based setting panes here. If you need to register a
+ * pane elsewhere, use {@link SettingPaneManager['registerPane']}.
+ *
+ * @type {Record<string, SettingPaneConfig>}
+ */
+const CONFIG_PANES = Object.freeze({
+  ai: {
+    l10nId: "preferences-ai-controls-header",
+    iconSrc: "chrome://global/skin/icons/highlights.svg",
+    groupIds: ["aiControlsDescription", "aiFeatures", "aiStatesDescription"],
+    module: "chrome://browser/content/preferences/config/aiFeatures.mjs",
+    visible: () =>
+      Services.prefs.getBoolPref("browser.preferences.aiControls", false),
   },
-};
+  customHomepage: {
+    parent: "home",
+    l10nId: "home-custom-homepage-subpage",
+    groupIds: ["customHomepage"],
+    module: "chrome://browser/content/preferences/config/home-startup.mjs",
+  },
+  dnsOverHttps: {
+    parent: "privacy",
+    l10nId: "preferences-doh-header2",
+    groupIds: ["dnsOverHttpsAdvanced"],
+  },
+  etp: {
+    parent: "privacy",
+    l10nId: "preferences-etp-header",
+    groupIds: ["etpBanner", "etpAdvanced"],
+  },
+  etpCustomize: {
+    parent: "etp",
+    l10nId: "preferences-etp-customize-header",
+    groupIds: ["etpCustomize", "etpReset"],
+  },
+  history: {
+    parent: "privacy",
+    l10nId: "history-header2",
+    groupIds: ["historyAdvanced"],
+  },
+  home: {
+    l10nId: "home-section",
+    iconSrc: "chrome://browser/skin/home.svg",
+    groupIds: ["defaultBrowserHome", "startupHome", "homepage", "home"],
+    module: "chrome://browser/content/preferences/config/home-startup.mjs",
+    replaces: "home",
+  },
+  manageAddresses: {
+    parent: "privacy",
+    l10nId: "autofill-addresses-manage-addresses-title",
+    groupIds: ["manageAddresses"],
+    iconSrc: "chrome://browser/skin/notification-icons/geo.svg",
+  },
+  manageMemories: {
+    parent: "personalizeSmartWindow",
+    l10nId: "ai-window-manage-memories-header",
+    groupIds: ["manageMemories"],
+    module: "chrome://browser/content/preferences/config/aiFeatures.mjs",
+    supportPage: "smart-window-memories",
+  },
+  managePayments: {
+    parent: "privacy",
+    l10nId: "autofill-payment-methods-manage-payments-title",
+    groupIds: ["managePayments"],
+    iconSrc: "chrome://browser/skin/payment-methods-16.svg",
+  },
+  paneProfiles: {
+    parent: "general",
+    l10nId: "preferences-profiles-group-header",
+    groupIds: ["profilePane"],
+  },
+  personalizeSmartWindow: {
+    parent: "ai",
+    l10nId: "ai-window-personalize-header",
+    iconSrc: "chrome://devtools/skin/images/globe.svg",
+    groupIds: ["assistantModelGroup", "memoriesGroup"],
+    module: "chrome://browser/content/preferences/config/aiFeatures.mjs",
+  },
+  translations: {
+    parent: "general",
+    l10nId: "settings-translations-subpage-header",
+    groupIds: [
+      "translationsAutomaticTranslation",
+      "translationsDownloadLanguages",
+    ],
+    iconSrc: "chrome://browser/skin/translations.svg",
+  },
+});
 
 var gLastCategory = { category: undefined, subcategory: undefined };
 const gXULDOMParser = new DOMParser();
@@ -226,23 +328,16 @@ function init_all() {
   register_module("panePrivacy", gPrivacyPane);
   register_module("paneContainers", gContainersPane);
 
-  for (let [subPane, config] of Object.entries(CONFIG_PANES)) {
-    subPane = friendlyPrefCategoryNameToInternalName(subPane);
-    let settingPane = document.createElement("setting-pane");
-    settingPane.name = subPane;
-    settingPane.config = config;
-    settingPane.isSubPane = config.parent;
-    document.getElementById("mainPrefPane").append(settingPane);
-    register_module(subPane, {
-      init() {
-        settingPane.init();
-      },
-    });
+  let redesignEnabled = Services.prefs.getBoolPref(
+    "browser.settings-redesign.enabled"
+  );
+  for (let [id, config] of Object.entries(CONFIG_PANES)) {
+    if (!redesignEnabled && config.replaces) {
+      continue;
+    }
+    SettingPaneManager.registerPane(id, config);
   }
 
-  if (Services.prefs.getBoolPref("browser.translations.newSettingsUI.enable")) {
-    register_module("paneTranslations", gTranslationsPane);
-  }
   if (ExperimentAPI.labsEnabled) {
     // Set hidden based on previous load's hidden value or if Nimbus is
     // disabled.
@@ -318,6 +413,12 @@ function onHashChange() {
   gotoPref(null, "Hash");
 }
 
+/**
+ * @param {string} [aCategory] The pane to show, defaults to the hash of URL or general
+ * @param {"Click"|"Initial"|"Hash"} [aShowReason]
+ *   What triggered the navigation. Defaults to "Click" if aCategory is provided,
+ *   otherwise "Initial".
+ */
 async function gotoPref(
   aCategory,
   aShowReason = aCategory ? "Click" : "Initial"
@@ -326,7 +427,7 @@ async function gotoPref(
   const kDefaultCategoryInternalName = "paneGeneral";
   const kDefaultCategory = "general";
   let hash = document.location.hash;
-  let category = aCategory || hash.substr(1) || kDefaultCategoryInternalName;
+  let category = aCategory || hash.substring(1) || kDefaultCategoryInternalName;
 
   let breakIndex = category.indexOf("-");
   // Subcategories allow for selecting smaller sections of the preferences
@@ -362,8 +463,8 @@ async function gotoPref(
       element.hidden = true;
     }
 
-    item = categories.querySelector(
-      ".category[value=" + CSS.escape(category) + "]"
+    item = /** @type {HTMLElement} */ (
+      categories.querySelector(".category[value=" + CSS.escape(category) + "]")
     );
     if (!item || item.hidden) {
       unknownCategory = true;
@@ -397,8 +498,10 @@ async function gotoPref(
   gLastCategory.category = category;
   gLastCategory.subcategory = subcategory;
   if (item) {
+    // @ts-ignore MozElements.RichListBox
     categories.selectedItem = item;
   } else {
+    // @ts-ignore MozElements.RichListBox
     categories.clearSelection();
   }
   window.history.replaceState(category, document.title);
@@ -443,7 +546,10 @@ async function gotoPref(
   }
 
   // Record which category is shown
-  Glean.aboutpreferences["show" + aShowReason].record({ value: category });
+  let gleanId = /** @type {"showClick" | "showHash" | "showInitial"} */ (
+    "show" + aShowReason
+  );
+  Glean.aboutpreferences[gleanId].record({ value: category });
 
   document.dispatchEvent(
     new CustomEvent("paneshown", {
@@ -456,9 +562,15 @@ async function gotoPref(
   );
 }
 
+/**
+ * @param {string} aQuery
+ * @param {string} aAttribute
+ */
 function search(aQuery, aAttribute) {
   let mainPrefPane = document.getElementById("mainPrefPane");
-  let elements = mainPrefPane.children;
+  let elements = /** @type {HTMLElement[]} */ (
+    Array.from(mainPrefPane.children)
+  );
   for (let element of elements) {
     // If the "data-hidden-from-search" is "true", the
     // element will not get considered during search.
@@ -495,23 +607,20 @@ function spotlight(subcategory, category) {
 }
 
 function scrollAndHighlight(subcategory) {
-  let element = document.querySelector(`[data-subcategory="${subcategory}"]`);
-  if (!element) {
+  let elements = document.querySelectorAll(
+    `[data-subcategory~="${subcategory}"]`
+  );
+  if (!elements.length) {
     return;
   }
 
-  element.scrollIntoView({
+  elements[0].scrollIntoView({
     behavior: "smooth",
     block: "center",
   });
-  element.classList.add("spotlight");
-}
-
-function friendlyPrefCategoryNameToInternalName(aName) {
-  if (aName.startsWith("pane")) {
-    return aName;
+  for (let element of elements) {
+    element.classList.add("spotlight");
   }
-  return "pane" + aName.substring(0, 1).toUpperCase() + aName.substr(1);
 }
 
 // This function is duplicated inside of utilityOverlay.js's openPreferences.

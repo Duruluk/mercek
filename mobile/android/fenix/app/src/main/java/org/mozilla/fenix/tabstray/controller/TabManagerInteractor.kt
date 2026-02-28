@@ -7,10 +7,10 @@ package org.mozilla.fenix.tabstray.controller
 import mozilla.components.browser.state.state.TabSessionState
 import mozilla.components.browser.storage.sync.Tab
 import mozilla.components.browser.tabstray.TabsTray
-import org.mozilla.fenix.tabstray.Page
 import org.mozilla.fenix.tabstray.SyncedTabsInteractor
 import org.mozilla.fenix.tabstray.browser.InactiveTabsInteractor
 import org.mozilla.fenix.tabstray.browser.TabsTrayFabInteractor
+import org.mozilla.fenix.tabstray.redux.state.Page
 
 /**
  * Interactor for responding to all user actions in the tab manager.

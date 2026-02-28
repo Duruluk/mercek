@@ -31,6 +31,7 @@ class AddNewDeviceFragment : Fragment(R.layout.fragment_add_new_device) {
 
         val binding = FragmentAddNewDeviceBinding.bind(view)
         binding.learnButton.setOnClickListener {
+            @Suppress("DEPRECATION")
             (activity as HomeActivity).openToBrowserAndLoad(
                 searchTermOrURL = SupportUtils.getSumoURLForTopic(
                     requireContext(),

@@ -2,8 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef ImageDecoderSupport_h__
-#define ImageDecoderSupport_h__
+#ifndef ImageDecoderSupport_h_
+#define ImageDecoderSupport_h_
 
 #include "imgINotificationObserver.h"
 
@@ -19,9 +19,14 @@ class ImageDecoderSupport final
  public:
   static void Decode(jni::String::Param aUri, int32_t aDesiredLength,
                      jni::Object::Param aResult);
+
+ private:
+  static nsresult DecodeInternal(const nsAString& aUri,
+                                 imgIContainerCallback* aCallback,
+                                 imgINotificationObserver* aObserver);
 };
 
 }  // namespace widget
 }  // namespace mozilla
 
-#endif  // ImageDecoderSupport_h__
+#endif  // ImageDecoderSupport_h_

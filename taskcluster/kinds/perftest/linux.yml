@@ -3,7 +3,12 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 ---
 task-defaults:
-    worker-type: t-linux-talos-1804
+    worker-type:
+        by-platform:
+            linux1804-64-shippable/opt: t-linux-talos-1804
+            linux2404-64-shippable/opt: t-linux-talos-2404
+            linux1804-64/opt: t-linux-talos-1804
+            linux2404-64/opt: t-linux-talos-2404
     fetches:
         toolchain:
             - linux64-node
@@ -17,9 +22,12 @@ task-defaults:
             - artifact: target.xpcshell.tests.tar.zst
             - artifact: target.mochitest.tests.tar.zst
             - artifact: target.tar.xz
-    platform: linux1804-64-shippable/opt
+    platform:
+        - linux1804-64-shippable/opt
+        - linux2404-64-shippable/opt
     require-build:
         linux1804-64-shippable/opt: build-linux64-shippable/opt
+        linux2404-64-shippable/opt: build-linux64-shippable/opt
     scopes:
         - secrets:get:project/releng/gecko/build/level-{level}/conditioned-profiles
 
@@ -347,9 +355,12 @@ perfstats:
 
 record-websites:
     description: Run mozperftest to record desktop websites
-    platform: linux1804-64/opt
+    platform:
+        - linux1804-64/opt
+        - linux2404-64/opt
     require-build:
         linux1804-64/opt: build-linux64/opt
+        linux2404-64/opt: build-linux64/opt
     treeherder:
         symbol: perftest(rec)
     attributes:
@@ -488,6 +499,32 @@ ml-llama-summarizer-perf:
             --output $MOZ_FETCHES_DIR/../artifacts
             --hooks toolkit/components/ml/tests/tools/hooks_local_hub.py
             toolkit/components/ml/tests/browser/browser_ml_llama_summarizer_perf.js
+
+
+ml-security-perf:
+    fetches:
+        fetch:
+            - wllama.wasm
+            - smollm2-360-instruct-gguf
+    description: Run ML Security Performance Tests
+    treeherder:
+        symbol: perftest(ml-security-perf)
+        tier: 2
+    attributes:
+        batch: false
+        cron: false
+    run-on-projects: [autoland, mozilla-central]
+    run:
+        command: >-
+            mkdir -p $MOZ_FETCHES_DIR/../artifacts &&
+            cd $MOZ_FETCHES_DIR &&
+            python3 python/mozperftest/mozperftest/runner.py
+            --mochitest-binary ${MOZ_FETCHES_DIR}/firefox/firefox-bin
+            --flavor mochitest
+            --mochitest-name-change
+            --output $MOZ_FETCHES_DIR/../artifacts
+            --hooks toolkit/components/ml/tests/tools/hooks_local_hub.py
+            toolkit/components/ml/tests/browser/browser_ml_security_perf.js
 
 ml-multi-perf:
     fetches:

@@ -604,8 +604,21 @@ ffi::WGPUDepthStencilState ConvertDepthStencilState(
     const dom::GPUDepthStencilState& aDesc) {
   ffi::WGPUDepthStencilState desc = {};
   desc.format = ConvertTextureFormat(aDesc.mFormat);
-  desc.depth_write_enabled = aDesc.mDepthWriteEnabled;
-  desc.depth_compare = ConvertCompareFunction(aDesc.mDepthCompare);
+  if (aDesc.mDepthWriteEnabled.WasPassed()) {
+    desc.depth_write_enabled.tag = ffi::WGPUFfiOption_bool_Some_bool;
+    desc.depth_write_enabled.some = aDesc.mDepthWriteEnabled.Value();
+  } else {
+    desc.depth_write_enabled.tag = ffi::WGPUFfiOption_bool_None_bool;
+  }
+  if (aDesc.mDepthCompare.WasPassed()) {
+    desc.depth_compare.tag =
+        ffi::WGPUFfiOption_CompareFunction_Some_CompareFunction;
+    desc.depth_compare.some =
+        ConvertCompareFunction(aDesc.mDepthCompare.Value());
+  } else {
+    desc.depth_compare.tag =
+        ffi::WGPUFfiOption_CompareFunction_None_CompareFunction;
+  }
   desc.stencil.front = ConvertStencilFaceState(aDesc.mStencilFront);
   desc.stencil.back = ConvertStencilFaceState(aDesc.mStencilBack);
   desc.stencil.read_mask = aDesc.mStencilReadMask;

@@ -58,8 +58,8 @@ JSObject* AudioListener::WrapObject(JSContext* aCx,
   return AudioListener_Binding::Wrap(aCx, this, aGivenProto);
 }
 
-void AudioListener::SetOrientation(double aX, double aY, double aZ, double aXUp,
-                                   double aYUp, double aZUp) {
+void AudioListener::SetOrientation(float aX, float aY, float aZ, float aXUp,
+                                   float aYUp, float aZUp) {
   ThreeDPoint front(aX, aY, aZ);
   // The panning effect and the azimuth and elevation calculation in the Web
   // Audio spec becomes undefined with linearly dependent vectors, so keep
@@ -92,10 +92,10 @@ void AudioListener::SetOrientation(double aX, double aY, double aZ, double aXUp,
   }
 }
 
-void AudioListener::SetPosition(double aX, double aY, double aZ) {
-  if (WebAudioUtils::FuzzyEqual(mPosition.x, aX) &&
-      WebAudioUtils::FuzzyEqual(mPosition.y, aY) &&
-      WebAudioUtils::FuzzyEqual(mPosition.z, aZ)) {
+void AudioListener::SetPosition(float aX, float aY, float aZ) {
+  if (WebAudioUtils::FuzzyEqual(mPosition.x, static_cast<double>(aX)) &&
+      WebAudioUtils::FuzzyEqual(mPosition.y, static_cast<double>(aY)) &&
+      WebAudioUtils::FuzzyEqual(mPosition.z, static_cast<double>(aZ))) {
     return;
   }
   mPosition.x = aX;

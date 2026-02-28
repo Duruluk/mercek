@@ -81,18 +81,18 @@ const TEST_DATA = [
       {
         declarations: { "vertical-align": "middle", top: "20px" },
         // The ::before rule in the pseudo-element section
-        ruleIndex: [1, 0],
+        ruleIndex: 0,
       },
     ],
     inactiveDeclarations: [
       {
         declaration: { height: "10px" },
         // The ::before rule in the pseudo-element section
-        ruleIndex: [1, 0],
+        ruleIndex: 0,
       },
       {
         declaration: { "vertical-align": "middle" },
-        ruleIndex: 4,
+        ruleIndex: 2,
       },
     ],
   },
@@ -160,7 +160,7 @@ add_task(async function () {
   await selectNode("button", inspector);
 
   info("Set an inactive property on the element style");
-  const inlineStyleRuleIndex = 3;
+  const inlineStyleRuleIndex = 1;
   await addProperty(view, inlineStyleRuleIndex, "left", "10px");
   await checkDeclarationIsInactive(view, inlineStyleRuleIndex, {
     left: "10px",

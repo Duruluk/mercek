@@ -11,6 +11,7 @@ const $ = document.querySelector.bind(document);
  * This returns the server endpoint URL to delete a profile.
  * The pref "toolkit.aboutlogging.deleteProfileUrl" can change it in case it is
  * needed. It's mostly used for tests.
+ *
  * @param {string} profileToken - The profile token to delete
  * @returns {string}
  */
@@ -24,6 +25,7 @@ function deleteProfileUrl(profileToken) {
 
 /**
  * Deletes a profile from the profiler server using the JWT token.
+ *
  * @param {string} profileToken - The profile token (hash) for the profile
  * @param {string} jwtToken - The JWT token for the profile
  * @throws {Error} Throws an error with meaningful message if deletion fails
@@ -119,6 +121,7 @@ export class UploadedProfilesManager {
 
   /**
    * Show an error message to the user.
+   *
    * @param {string} errorText - The error message to display
    */
   #showError(errorText) {
@@ -143,9 +146,8 @@ export class UploadedProfilesManager {
   async refresh() {
     try {
       this.#hideError();
-      const { getAllUploadedProfiles } = await import(
-        "chrome://global/content/aboutLogging/profileStorage.mjs"
-      );
+      const { getAllUploadedProfiles } =
+        await import("chrome://global/content/aboutLogging/profileStorage.mjs");
 
       const profiles = await getAllUploadedProfiles();
       this.#renderProfiles(profiles);
@@ -157,6 +159,7 @@ export class UploadedProfilesManager {
 
   /**
    * Render the list of profiles in the UI.
+   *
    * @param {Array} profiles - Array of profile objects
    */
   #renderProfiles(profiles) {
@@ -226,6 +229,7 @@ export class UploadedProfilesManager {
 
   /**
    * Handle click on delete button.
+   *
    * @param {Event} event
    */
   async #handleDeleteClick(event) {
@@ -257,9 +261,8 @@ export class UploadedProfilesManager {
       document.l10n.setAttributes(button, "about-logging-deleting-profile");
 
       // Get the profile info to get the JWT token
-      const { getUploadedProfile, deleteUploadedProfile } = await import(
-        "chrome://global/content/aboutLogging/profileStorage.mjs"
-      );
+      const { getUploadedProfile, deleteUploadedProfile } =
+        await import("chrome://global/content/aboutLogging/profileStorage.mjs");
 
       const profile = await getUploadedProfile(profileId);
       if (!profile) {

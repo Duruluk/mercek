@@ -21,6 +21,14 @@ const double DateTimeInputTypeBase::kMaximumMonthInMaximumYear = 9;
 const double DateTimeInputTypeBase::kMaximumWeekInMaximumYear = 37;
 const double DateTimeInputTypeBase::kMsPerDay = 24 * 60 * 60 * 1000;
 
+static double PositiveFmod(double aValue, double aModulus) {
+  double result = std::fmod(aValue, aModulus);
+  if (result < 0) {
+    result += aModulus;
+  }
+  return result;
+}
+
 bool DateTimeInputTypeBase::IsMutable() const {
   return !mInputElement->IsDisabledOrReadOnly();
 }
@@ -159,7 +167,8 @@ nsresult DateInputType::GetBadInputMessage(nsAString& aMessage) {
       mInputElement->OwnerDoc(), aMessage);
 }
 
-auto DateInputType::ConvertStringToNumber(const nsAString& aValue) const
+auto DateInputType::ConvertStringToNumber(const nsAString& aValue,
+                                          Localized) const
     -> StringToNumberResult {
   uint32_t year, month, day;
   if (!ParseDate(aValue, &year, &month, &day)) {
@@ -201,7 +210,8 @@ nsresult TimeInputType::GetBadInputMessage(nsAString& aMessage) {
       mInputElement->OwnerDoc(), aMessage);
 }
 
-auto TimeInputType::ConvertStringToNumber(const nsAString& aValue) const
+auto TimeInputType::ConvertStringToNumber(const nsAString& aValue,
+                                          Localized) const
     -> StringToNumberResult {
   uint32_t milliseconds;
   if (!ParseTime(aValue, &milliseconds)) {
@@ -216,12 +226,15 @@ bool TimeInputType::ConvertNumberToString(Decimal aValue, Localized,
 
   aResultString.Truncate();
 
-  aValue = aValue.floor();
   // Per spec, we need to truncate |aValue| and we should only represent
   // times inside a day [00:00, 24:00[, which means that we should do a
   // modulo on |aValue| using the number of milliseconds in a day (86400000).
-  uint32_t value =
-      NS_floorModulo(aValue, Decimal::fromDouble(kMsPerDay)).toDouble();
+  double value = PositiveFmod(std::floor(aValue.toDouble()), kMsPerDay);
+  // Technically value could be NaN here since Decimal has a wider range
+  // than double.
+  if (!std::isfinite(value)) {
+    return false;
+  }
 
   uint16_t milliseconds, seconds, minutes, hours;
   if (!GetTimeFromMs(value, &hours, &minutes, &seconds, &milliseconds)) {
@@ -315,7 +328,8 @@ nsresult WeekInputType::GetBadInputMessage(nsAString& aMessage) {
       mInputElement->OwnerDoc(), aMessage);
 }
 
-auto WeekInputType::ConvertStringToNumber(const nsAString& aValue) const
+auto WeekInputType::ConvertStringToNumber(const nsAString& aValue,
+                                          Localized) const
     -> StringToNumberResult {
   uint32_t year, week;
   if (!ParseWeek(aValue, &year, &week)) {
@@ -391,7 +405,8 @@ nsresult MonthInputType::GetBadInputMessage(nsAString& aMessage) {
       mInputElement->OwnerDoc(), aMessage);
 }
 
-auto MonthInputType::ConvertStringToNumber(const nsAString& aValue) const
+auto MonthInputType::ConvertStringToNumber(const nsAString& aValue,
+                                           Localized) const
     -> StringToNumberResult {
   uint32_t year, month;
   if (!ParseMonth(aValue, &year, &month)) {
@@ -445,8 +460,9 @@ nsresult DateTimeLocalInputType::GetBadInputMessage(nsAString& aMessage) {
       mInputElement->OwnerDoc(), aMessage);
 }
 
-auto DateTimeLocalInputType::ConvertStringToNumber(
-    const nsAString& aValue) const -> StringToNumberResult {
+auto DateTimeLocalInputType::ConvertStringToNumber(const nsAString& aValue,
+                                                   Localized) const
+    -> StringToNumberResult {
   uint32_t year, month, day, timeInMs;
   if (!ParseDateTimeLocal(aValue, &year, &month, &day, &timeInMs)) {
     return {};
@@ -465,19 +481,21 @@ bool DateTimeLocalInputType::ConvertNumberToString(
 
   aResultString.Truncate();
 
-  aValue = aValue.floor();
+  double value = std::floor(aValue.toDouble());
 
-  uint32_t timeValue =
-      NS_floorModulo(aValue, Decimal::fromDouble(kMsPerDay)).toDouble();
+  double timeValue = PositiveFmod(value, kMsPerDay);
+  if (!std::isfinite(timeValue)) {
+    return false;
+  }
 
   uint16_t milliseconds, seconds, minutes, hours;
   if (!GetTimeFromMs(timeValue, &hours, &minutes, &seconds, &milliseconds)) {
     return false;
   }
 
-  double year = JS::YearFromTime(aValue.toDouble());
-  double month = JS::MonthFromTime(aValue.toDouble());
-  double day = JS::DayFromTime(aValue.toDouble());
+  double year = JS::YearFromTime(value);
+  double month = JS::MonthFromTime(value);
+  double day = JS::DayFromTime(value);
 
   if (std::isnan(year) || std::isnan(month) || std::isnan(day)) {
     return false;

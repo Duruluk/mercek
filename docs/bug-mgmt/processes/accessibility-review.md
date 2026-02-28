@@ -28,8 +28,12 @@ what is needed to make user interfaces accessible. To make accessibility review
 faster, you may wish to try to verify and implement these guidelines prior to
 requesting accessibility review.
 
-For design reviews, please allow at least a week between review request and expected-engineering-handoff. The deadline for engineering review requests is Friday of the first week of nightly builds for the release in which the feature/change is expected to ship.
-This is the same date as the PI Request deadline.
+:::{attention}
+For *design reviews*, please allow at least a week between review request and expected-engineering-handoff.
+
+The deadline for *engineering review* requests is the Friday before the first week of nightly builds for the release in which the feature/change is expected to ship.
+This is the same date as the Manual QA Request deadline.
+:::
 
 ## Requesting Design Review
 Design review should be requested using the Accessibility Review Request

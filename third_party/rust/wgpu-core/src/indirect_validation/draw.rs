@@ -3,10 +3,12 @@ use super::{
     CreateIndirectValidationPipelineError,
 };
 use crate::{
+    command::RenderPassErrorInner,
     device::{queue::TempResource, Device, DeviceError},
+    hal_label,
     lock::{rank, Mutex},
     pipeline::{CreateComputePipelineError, CreateShaderModuleError},
-    resource::{StagingBuffer, Trackable},
+    resource::{RawResourceAccess as _, StagingBuffer, Trackable},
     snatch::SnatchGuard,
     track::TrackerIndex,
     FastHashMap,
@@ -32,7 +34,7 @@ use wgt::Limits;
 ///
 /// - 65535 [`wgt::DrawIndirectArgs`] / [`MetadataEntry`]
 /// - 52428 [`wgt::DrawIndexedIndirectArgs`]
-const BUFFER_SIZE: wgt::BufferSize = unsafe { wgt::BufferSize::new_unchecked(1_048_560) };
+const BUFFER_SIZE: wgt::BufferSize = wgt::BufferSize::new(1_048_560).unwrap();
 
 /// Holds all device-level resources that are needed to validate indirect draws.
 ///
@@ -41,7 +43,7 @@ const BUFFER_SIZE: wgt::BufferSize = unsafe { wgt::BufferSize::new_unchecked(1_0
 /// - max_bind_groups: 3,
 /// - max_dynamic_storage_buffers_per_pipeline_layout: 1,
 /// - max_storage_buffers_per_shader_stage: 3,
-/// - max_push_constant_size: 8,
+/// - max_immediate_size: 8,
 ///
 /// These are all indirectly satisfied by `DownlevelFlags::INDIRECT_EXECUTION`, which is also
 /// required for this module's functionality to work.
@@ -62,28 +64,54 @@ impl Draw {
     pub(super) fn new(
         device: &dyn hal::DynDevice,
         required_features: &wgt::Features,
+        instance_flags: wgt::InstanceFlags,
         backend: wgt::Backend,
     ) -> Result<Self, CreateIndirectValidationPipelineError> {
-        let module = create_validation_module(device)?;
+        let module = create_validation_module(device, instance_flags)?;
 
-        let metadata_bind_group_layout =
-            create_bind_group_layout(device, true, false, BUFFER_SIZE)?;
-        let src_bind_group_layout =
-            create_bind_group_layout(device, true, true, wgt::BufferSize::new(4 * 4).unwrap())?;
-        let dst_bind_group_layout = create_bind_group_layout(device, false, false, BUFFER_SIZE)?;
+        let metadata_bind_group_layout = create_bind_group_layout(
+            device,
+            true,
+            false,
+            BUFFER_SIZE,
+            hal_label(
+                Some("(wgpu internal) Indirect draw validation metadata bind group layout"),
+                instance_flags,
+            ),
+        )?;
+        let src_bind_group_layout = create_bind_group_layout(
+            device,
+            true,
+            true,
+            wgt::BufferSize::new(4 * 4).unwrap(),
+            hal_label(
+                Some("(wgpu internal) Indirect draw validation source bind group layout"),
+                instance_flags,
+            ),
+        )?;
+        let dst_bind_group_layout = create_bind_group_layout(
+            device,
+            false,
+            false,
+            BUFFER_SIZE,
+            hal_label(
+                Some("(wgpu internal) Indirect draw validation destination bind group layout"),
+                instance_flags,
+            ),
+        )?;
 
         let pipeline_layout_desc = hal::PipelineLayoutDescriptor {
-            label: None,
+            label: hal_label(
+                Some("(wgpu internal) Indirect draw validation pipeline layout"),
+                instance_flags,
+            ),
             flags: hal::PipelineLayoutFlags::empty(),
             bind_group_layouts: &[
-                metadata_bind_group_layout.as_ref(),
-                src_bind_group_layout.as_ref(),
-                dst_bind_group_layout.as_ref(),
+                Some(metadata_bind_group_layout.as_ref()),
+                Some(src_bind_group_layout.as_ref()),
+                Some(dst_bind_group_layout.as_ref()),
             ],
-            push_constant_ranges: &[wgt::PushConstantRange {
-                stages: wgt::ShaderStages::COMPUTE,
-                range: 0..8,
-            }],
+            immediate_size: 8,
         };
         let pipeline_layout = unsafe {
             device
@@ -100,6 +128,7 @@ impl Draw {
             pipeline_layout.as_ref(),
             supports_indirect_first_instance,
             write_d3d12_special_constants,
+            instance_flags,
         )?;
 
         Ok(Self {
@@ -122,13 +151,17 @@ impl Draw {
         limits: &Limits,
         buffer_size: u64,
         buffer: &dyn hal::DynBuffer,
+        instance_flags: wgt::InstanceFlags,
     ) -> Result<Option<Box<dyn hal::DynBindGroup>>, DeviceError> {
         let binding_size = calculate_src_buffer_binding_size(buffer_size, limits);
         let Some(binding_size) = NonZeroU64::new(binding_size) else {
             return Ok(None);
         };
         let hal_desc = hal::BindGroupDescriptor {
-            label: None,
+            label: hal_label(
+                Some("(wgpu internal) Indirect draw validation source bind group"),
+                instance_flags,
+            ),
             layout: self.src_bind_group_layout.as_ref(),
             entries: &[hal::BindGroupEntry {
                 binding: 0,
@@ -153,13 +186,20 @@ impl Draw {
     fn acquire_dst_entry(
         &self,
         device: &dyn hal::DynDevice,
+        instance_flags: wgt::InstanceFlags,
     ) -> Result<BufferPoolEntry, hal::DeviceError> {
         let mut free_buffers = self.free_indirect_entries.lock();
         match free_buffers.pop() {
             Some(buffer) => Ok(buffer),
             None => {
                 let usage = wgt::BufferUses::INDIRECT | wgt::BufferUses::STORAGE_READ_WRITE;
-                create_buffer_and_bind_group(device, usage, self.dst_bind_group_layout.as_ref())
+                create_buffer_and_bind_group(
+                    device,
+                    usage,
+                    self.dst_bind_group_layout.as_ref(),
+                    hal_label(Some("(wgpu internal) Indirect draw validation destination buffer"), instance_flags),
+                    hal_label(Some("(wgpu internal) Indirect draw validation destination bind group layout"), instance_flags),
+                )
             }
         }
     }
@@ -171,6 +211,7 @@ impl Draw {
     fn acquire_metadata_entry(
         &self,
         device: &dyn hal::DynDevice,
+        instance_flags: wgt::InstanceFlags,
     ) -> Result<BufferPoolEntry, hal::DeviceError> {
         let mut free_buffers = self.free_metadata_entries.lock();
         match free_buffers.pop() {
@@ -181,6 +222,14 @@ impl Draw {
                     device,
                     usage,
                     self.metadata_bind_group_layout.as_ref(),
+                    hal_label(
+                        Some("(wgpu internal) Indirect draw validation metadata buffer"),
+                        instance_flags,
+                    ),
+                    hal_label(
+                        Some("(wgpu internal) Indirect draw validation metadata bind group layout"),
+                        instance_flags,
+                    ),
                 )
             }
         }
@@ -199,7 +248,7 @@ impl Draw {
         temp_resources: &mut Vec<TempResource>,
         encoder: &mut dyn hal::DynCommandEncoder,
         batcher: DrawBatcher,
-    ) -> Result<(), DeviceError> {
+    ) -> Result<(), RenderPassErrorInner> {
         let mut batches = batcher.batches;
 
         if batches.is_empty() {
@@ -347,7 +396,10 @@ impl Draw {
             .encode(encoder);
 
         let desc = hal::ComputePassDescriptor {
-            label: None,
+            label: hal_label(
+                Some("(wgpu internal) Indirect draw validation pass"),
+                device.instance_flags,
+            ),
             timestamp_writes: None,
         };
         unsafe {
@@ -364,19 +416,17 @@ impl Draw {
                 (batch.metadata_buffer_offset / size_of::<MetadataEntry>() as u64) as u32;
             let metadata_count = batch.entries.len() as u32;
             unsafe {
-                encoder.set_push_constants(
-                    pipeline_layout,
-                    wgt::ShaderStages::COMPUTE,
-                    0,
-                    &[metadata_start, metadata_count],
-                );
+                encoder.set_immediates(pipeline_layout, 0, &[metadata_start, metadata_count]);
             }
 
             let metadata_bind_group =
                 resources.get_metadata_bind_group(batch.metadata_resource_index);
             unsafe {
-                encoder.set_bind_group(pipeline_layout, 0, Some(metadata_bind_group), &[]);
+                encoder.set_bind_group(pipeline_layout, 0, metadata_bind_group, &[]);
             }
+
+            // Make sure the indirect buffer is still valid.
+            batch.src_buffer.try_raw(snatch_guard)?;
 
             let src_bind_group = batch
                 .src_buffer
@@ -389,14 +439,14 @@ impl Draw {
                 encoder.set_bind_group(
                     pipeline_layout,
                     1,
-                    Some(src_bind_group),
+                    src_bind_group,
                     &[batch.src_dynamic_offset as u32],
                 );
             }
 
             let dst_bind_group = resources.get_dst_bind_group(batch.dst_resource_index);
             unsafe {
-                encoder.set_bind_group(pipeline_layout, 2, Some(dst_bind_group), &[]);
+                encoder.set_bind_group(pipeline_layout, 2, dst_bind_group, &[]);
             }
 
             unsafe {
@@ -467,6 +517,7 @@ impl Draw {
 
 fn create_validation_module(
     device: &dyn hal::DynDevice,
+    instance_flags: wgt::InstanceFlags,
 ) -> Result<Box<dyn hal::DynShaderModule>, CreateIndirectValidationPipelineError> {
     let src = include_str!("./validate_draw.wgsl");
 
@@ -483,7 +534,7 @@ fn create_validation_module(
     let module = panic!("Indirect validation requires the wgsl feature flag to be enabled!");
 
     let info = crate::device::create_validator(
-        wgt::Features::PUSH_CONSTANTS,
+        wgt::Features::IMMEDIATES,
         wgt::DownlevelFlags::empty(),
         naga::valid::ValidationFlags::all(),
     )
@@ -501,7 +552,10 @@ fn create_validation_module(
         debug_source: None,
     });
     let hal_desc = hal::ShaderModuleDescriptor {
-        label: None,
+        label: hal_label(
+            Some("(wgpu internal) Indirect draw validation shader module"),
+            instance_flags,
+        ),
         runtime_checks: wgt::ShaderRuntimeChecks::unchecked(),
     };
     let module = unsafe { device.create_shader_module(&hal_desc, hal_shader) }.map_err(
@@ -525,9 +579,13 @@ fn create_validation_pipeline(
     pipeline_layout: &dyn hal::DynPipelineLayout,
     supports_indirect_first_instance: bool,
     write_d3d12_special_constants: bool,
+    instance_flags: wgt::InstanceFlags,
 ) -> Result<Box<dyn hal::DynComputePipeline>, CreateIndirectValidationPipelineError> {
     let pipeline_desc = hal::ComputePipelineDescriptor {
-        label: None,
+        label: hal_label(
+            Some("(wgpu internal) Indirect draw validation pipeline"),
+            instance_flags,
+        ),
         layout: pipeline_layout,
         stage: hal::ProgrammableStage {
             module,
@@ -568,9 +626,10 @@ fn create_bind_group_layout(
     read_only: bool,
     has_dynamic_offset: bool,
     min_binding_size: wgt::BufferSize,
+    label: Option<&'static str>,
 ) -> Result<Box<dyn hal::DynBindGroupLayout>, CreateIndirectValidationPipelineError> {
     let bind_group_layout_desc = hal::BindGroupLayoutDescriptor {
-        label: None,
+        label,
         flags: hal::BindGroupLayoutFlags::empty(),
         entries: &[wgt::BindGroupLayoutEntry {
             binding: 0,
@@ -666,16 +725,18 @@ fn create_buffer_and_bind_group(
     device: &dyn hal::DynDevice,
     usage: wgt::BufferUses,
     bind_group_layout: &dyn hal::DynBindGroupLayout,
+    buffer_label: Option<&'static str>,
+    bind_group_label: Option<&'static str>,
 ) -> Result<BufferPoolEntry, hal::DeviceError> {
     let buffer_desc = hal::BufferDescriptor {
-        label: None,
+        label: buffer_label,
         size: BUFFER_SIZE.get(),
         usage,
         memory_flags: hal::MemoryFlags::empty(),
     };
     let buffer = unsafe { device.create_buffer(&buffer_desc) }?;
     let bind_group_desc = hal::BindGroupDescriptor {
-        label: None,
+        label: bind_group_label,
         layout: bind_group_layout,
         entries: &[hal::BindGroupEntry {
             binding: 0,
@@ -757,7 +818,8 @@ impl DrawResources {
         let indirect_draw_validation = &self.device.indirect_validation.as_ref().unwrap().draw;
         let ensure_entry = |index: usize| {
             if self.dst_entries.len() <= index {
-                let entry = indirect_draw_validation.acquire_dst_entry(self.device.raw())?;
+                let entry = indirect_draw_validation
+                    .acquire_dst_entry(self.device.raw(), self.device.instance_flags)?;
                 self.dst_entries.push(entry);
             }
             Ok(())
@@ -774,7 +836,8 @@ impl DrawResources {
         let indirect_draw_validation = &self.device.indirect_validation.as_ref().unwrap().draw;
         let ensure_entry = |index: usize| {
             if self.metadata_entries.len() <= index {
-                let entry = indirect_draw_validation.acquire_metadata_entry(self.device.raw())?;
+                let entry = indirect_draw_validation
+                    .acquire_metadata_entry(self.device.raw(), self.device.instance_flags)?;
                 self.metadata_entries.push(entry);
             }
             Ok(())

@@ -122,9 +122,17 @@ PublicKeyCredential::IsUserVerifyingPlatformAuthenticatorAvailable(
     return nullptr;
   }
 
+  RefPtr<Promise> promise =
+      Promise::Create(xpc::CurrentNativeGlobal(aGlobal.Context()), aError);
+  if (aError.Failed()) {
+    return nullptr;
+  }
+
   RefPtr<WebAuthnHandler> handler =
       window->Navigator()->Credentials()->GetWebAuthnHandler();
-  return handler->IsUVPAA(aGlobal, aError);
+  handler->IsUVPAA(promise);
+
+  return promise.forget();
 }
 
 /* static */
@@ -368,6 +376,32 @@ void PublicKeyCredential::ToJSON(JSContext* aCx,
       if (mClientExtensionOutputs.mPrf.Value().mEnabled.WasPassed()) {
         json.mClientExtensionResults.mPrf.Value().mEnabled.Construct(
             mClientExtensionOutputs.mPrf.Value().mEnabled.Value());
+      }
+      if (mPrfResultsFirst.isSome()) {
+        AuthenticationExtensionsPRFValuesJSON& dest =
+            json.mClientExtensionResults.mPrf.Value().mResults.Construct();
+        nsCString prfFirst;
+        nsresult rv = mozilla::Base64URLEncode(
+            mPrfResultsFirst->Length(), mPrfResultsFirst->Elements(),
+            Base64URLEncodePaddingPolicy::Omit, prfFirst);
+        if (NS_FAILED(rv)) {
+          aError.ThrowEncodingError(
+              "could not encode first prf output as urlsafe base64");
+          return;
+        }
+        dest.mFirst.Assign(NS_ConvertUTF8toUTF16(prfFirst));
+        if (mPrfResultsSecond.isSome()) {
+          nsCString prfSecond;
+          nsresult rv = mozilla::Base64URLEncode(
+              mPrfResultsSecond->Length(), mPrfResultsSecond->Elements(),
+              Base64URLEncodePaddingPolicy::Omit, prfSecond);
+          if (NS_FAILED(rv)) {
+            aError.ThrowEncodingError(
+                "could not encode second prf output as urlsafe base64");
+            return;
+          }
+          dest.mSecond.Construct(NS_ConvertUTF8toUTF16(prfSecond));
+        }
       }
     }
     if (mClientExtensionOutputs.mLargeBlob.WasPassed()) {

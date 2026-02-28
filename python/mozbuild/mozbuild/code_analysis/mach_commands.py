@@ -2,6 +2,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, # You can obtain one at http://mozilla.org/MPL/2.0/.
 import concurrent.futures
+import functools
 import json
 import logging
 import ntpath
@@ -17,14 +18,13 @@ import xml.etree.ElementTree as ET
 from types import SimpleNamespace
 
 import mozpack.path as mozpath
-import yaml
 from mach.decorators import Command, CommandArgument, SubCommand
 from mach.main import Mach
 from mozversioncontrol import get_repository_object
 
 from mozbuild import build_commands
 from mozbuild.controller.clobber import Clobberer
-from mozbuild.util import cpu_count, memoize
+from mozbuild.util import cpu_count
 
 
 # Function used to run clang-format on a batch of files. It is a helper function
@@ -295,16 +295,16 @@ def static_analysis(command_context):
 )
 def check(
     command_context,
-    source=None,
-    jobs=2,
-    strip=1,
-    verbose=False,
-    checks="-*",
-    fix=False,
-    header_filter="",
-    output=None,
-    format="text",
-    outgoing=False,
+    source,
+    jobs,
+    strip,
+    verbose,
+    checks,
+    fix,
+    header_filter,
+    output,
+    format,
+    outgoing,
 ):
     from mozbuild.controller.building import (
         StaticAnalysisFooter,
@@ -355,16 +355,13 @@ def check(
 
     if not total or not source:
         command_context.log(
-            logging.INFO,
+            logging.WARNING,
             "static-analysis",
             {},
             "There are no files eligible for analysis. Please note that 'header' files "
             "cannot be used for analysis since they do not consist compilation units.",
         )
         return 0
-
-    # Escape the files from source
-    source = [re.escape(f) for f in source]
 
     cwd = command_context.topobjdir
 
@@ -393,6 +390,7 @@ def check(
                 sources=source[i : (i + batch_size)],
                 jobs=jobs,
                 fix=fix,
+                verbose=verbose,
             )
             rc = command_context.run_process(
                 args=args,
@@ -444,7 +442,7 @@ def get_files_with_commands(command_context, compile_db, source):
     return commands_list
 
 
-@memoize
+@functools.cache
 def get_clang_tidy_config(command_context):
     from mozbuild.code_analysis.utils import ClangTidyConfig
 
@@ -531,6 +529,7 @@ def _get_clang_tidy_command(
     sources,
     jobs,
     fix,
+    verbose=True,
 ):
     if checks == "-*":
         checks = ",".join(get_clang_tidy_config(command_context).checks)
@@ -558,10 +557,13 @@ def _get_clang_tidy_command(
     # the checkers to our code.
     cfg = get_clang_tidy_config(command_context).checks_config
     if cfg:
-        common_args += ["-config=%s" % yaml.dump(cfg)]
+        common_args += [f"-config={json.dumps(cfg)}"]
 
     if fix:
         common_args += ["-fix"]
+
+    if not verbose:
+        common_args += ["-quiet"]
 
     return (
         [
@@ -575,15 +577,14 @@ def _get_clang_tidy_command(
         + common_args
         # run-clang-tidy expects regexps, not paths, so we need to escape
         # backslashes.
-        + [os.path.normpath(s).replace("\\", "\\\\") for s in sources]
+        + [re.escape(os.path.normpath(s)) for s in sources]
     )
 
 
 @StaticAnalysisSubCommand(
     "static-analysis",
     "autotest",
-    "Run the auto-test suite in order to determine that"
-    " the analysis did not regress.",
+    "Run the auto-test suite in order to determine that the analysis did not regress.",
 )
 @CommandArgument(
     "--dump-results",
@@ -619,7 +620,6 @@ def autotest(
     # do this on a local trusted clang-tidy package.
     command_context._set_log_level(verbose)
     command_context.activate_virtualenv()
-    dump_results = dump_results
 
     force_download = not dump_results
 
@@ -1047,7 +1047,7 @@ def print_checks(command_context, verbose=False):
     args = [
         clang_paths._clang_tidy_path,
         "-list-checks",
-        "-checks=%s" % get_clang_tidy_config(command_context).checks,
+        f"-checks={','.join(get_clang_tidy_config(command_context).checks)}",
     ]
 
     return command_context.run_process(args=args, pass_thru=True)
@@ -1400,28 +1400,20 @@ def _build_export(command_context, jobs, verbose=False):
         command_context.log(logging.INFO, "build_output", {"line": line}, "{line}")
 
     # First install what we can through install manifests.
-    rc = command_context._run_make(
-        directory=command_context.topobjdir,
-        target="pre-export",
-        line_handler=None,
-        silent=not verbose,
-    )
-    if rc != 0:
-        return rc
-
     # Then build the rest of the build dependencies by running the full
     # export target, because we can't do anything better.
-    for target in ("export", "pre-compile"):
+    for target in ("pre-export", "export", "pre-compile"):
         rc = command_context._run_make(
             directory=command_context.topobjdir,
             target=target,
             line_handler=None,
+            print_directory=verbose,
+            log=verbose,
             silent=not verbose,
             num_jobs=jobs,
         )
         if rc != 0:
             return rc
-
     return 0
 
 
@@ -1630,10 +1622,9 @@ def _generate_path_list(command_context, paths, verbose=True):
                     ):
                         # Supported extension and accepted path
                         path_list.append(f_in_dir)
-        else:
-            # Make sure that the file exists and it has a supported extension
-            if os.path.isfile(f) and f.endswith(extensions):
-                path_list.append(f)
+        # Make sure that the file exists and it has a supported extension
+        elif os.path.isfile(f) and f.endswith(extensions):
+            path_list.append(f)
 
     return path_list
 

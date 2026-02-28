@@ -1822,9 +1822,8 @@ static void ReportRealmStats(const JS::RealmStats& realmStats,
   ZRREPORT_BYTES(realmJSPathPrefix + "realm-object"_ns, realmStats.realmObject,
                  "The JS::Realm object itself.");
 
-  ZRREPORT_BYTES(
-      realmJSPathPrefix + "realm-tables"_ns, realmStats.realmTables,
-      "Realm-wide tables storing object group information and wasm instances.");
+  ZRREPORT_BYTES(realmJSPathPrefix + "realm-tables"_ns, realmStats.realmTables,
+                 "Realm-wide tables storing wasm instances.");
 
   ZRREPORT_BYTES(realmJSPathPrefix + "inner-views"_ns,
                  realmStats.innerViewsTable,
@@ -2876,18 +2875,6 @@ static void SetUseCounterCallback(JSObject* obj, JSUseCounter counter) {
     case JSUseCounter::OPTIMIZE_PROMISE_LOOKUP_FUSE:
       SetUseCounter(obj, eUseCounter_custom_JS_optimizePromiseLookup_fuse);
       return;
-    case JSUseCounter::THENABLE_USE:
-      SetUseCounter(obj, eUseCounter_custom_JS_thenable);
-      return;
-    case JSUseCounter::THENABLE_USE_PROTO:
-      SetUseCounter(obj, eUseCounter_custom_JS_thenable_proto);
-      return;
-    case JSUseCounter::THENABLE_USE_STANDARD_PROTO:
-      SetUseCounter(obj, eUseCounter_custom_JS_thenable_standard_proto);
-      return;
-    case JSUseCounter::THENABLE_USE_OBJECT_PROTO:
-      SetUseCounter(obj, eUseCounter_custom_JS_thenable_object_proto);
-      return;
     case JSUseCounter::LEGACY_LANG_SUBTAG:
       SetUseCounter(obj, eUseCounter_custom_JS_legacy_lang_subtag);
       return;
@@ -2902,10 +2889,6 @@ static void SetUseCounterCallback(JSObject* obj, JSUseCounter counter) {
       return;
     case JSUseCounter::DATEPARSE_IMPL_DEF:
       SetUseCounter(obj, eUseCounter_custom_JS_dateparse_impl_def);
-      return;
-    case JSUseCounter::REGEXP_SYMBOL_PROTOCOL_ON_PRIMITIVE:
-      SetUseCounter(obj,
-                    eUseCounter_custom_JS_regexp_symbol_protocol_on_primitive);
       return;
     case JSUseCounter::COUNT:
       break;
@@ -3281,7 +3264,7 @@ bool XPCJSRuntime::InitializeStrings(JSContext* cx) {
 }
 
 bool XPCJSRuntime::DescribeCustomObjects(JSObject* obj, const JSClass* clasp,
-                                         char (&name)[72]) const {
+                                         char (&name)[512]) const {
   if (clasp != &XPC_WN_Proto_JSClass) {
     return false;
   }

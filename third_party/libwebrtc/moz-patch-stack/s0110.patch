@@ -1,40 +1,23 @@
-From: Andreas Pehrson <apehrson@mozilla.com>
-Date: Tue, 28 Jan 2025 21:45:00 +0000
-Subject: Bug 1938047 - Link adapted_video_track_source.cc and generate webrtc
- moz.build files. r=ng,webrtc-reviewers
+From: Michael Froman <mfroman@mozilla.com>
+Date: Wed, 5 Feb 2025 18:03:00 +0000
+Subject: Bug 1942171 - add builtin_audio_processing_builder to the libwebrtc
+ build. r=pehrsons,webrtc-reviewers
 
-Differential Revision: https://phabricator.services.mozilla.com/D234863
-Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/b6dd815fc9d2df718a1b48b96f58f99c0cfb7e19
+Differential Revision: https://phabricator.services.mozilla.com/D234594
+Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/27c29807e6f46562d2b6bae4b7b06a5966290afe
 ---
- media/BUILD.gn | 11 -----------
- 1 file changed, 11 deletions(-)
+ BUILD.gn | 1 +
+ 1 file changed, 1 insertion(+)
 
-diff --git a/media/BUILD.gn b/media/BUILD.gn
-index b9792deabc..e79c00b05d 100644
---- a/media/BUILD.gn
-+++ b/media/BUILD.gn
-@@ -54,11 +54,6 @@ rtc_library("rtc_media_base") {
-     "base/video_broadcaster.h",  # Used downstream
-     "base/video_common.h",  # Used downstream
-   ]
--  if (build_with_mozilla) {
--    sources -= [
--      "base/adapted_video_track_source.h",
--    ]
--  }
-   deps = [
-     ":adapted_video_track_source",
-     ":codec",
-@@ -139,12 +134,6 @@ rtc_library("adapted_video_track_source") {
-     "base/adapted_video_track_source.cc",
-     "base/adapted_video_track_source.h",
-   ]
--  if (build_with_mozilla) {
--    sources -= [
--      "base/adapted_video_track_source.cc",
--      "base/adapted_video_track_source.h",
--    ]
--  }
-   deps = [
-     ":video_adapter",
-     ":video_broadcaster",
+diff --git a/BUILD.gn b/BUILD.gn
+index 9869b771b3..c24536af90 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -620,6 +620,7 @@ if (!build_with_chromium) {
+ 
+     if (build_with_mozilla) {
+       deps += [
++        "api/audio:builtin_audio_processing_builder",
+         "api/environment:environment_factory",
+         "api/video:video_frame",
+         "api/video:video_rtp_headers",

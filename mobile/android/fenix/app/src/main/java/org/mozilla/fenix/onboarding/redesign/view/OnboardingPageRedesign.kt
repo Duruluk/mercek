@@ -4,69 +4,60 @@
 
 package org.mozilla.fenix.onboarding.redesign.view
 
-import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.LocalOverscrollFactory
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.tooling.preview.PreviewLightDark
 import androidx.compose.ui.unit.dp
 import mozilla.components.compose.base.button.FilledButton
-import mozilla.components.compose.base.button.TextButton
+import mozilla.components.compose.base.button.OutlinedButton
 import org.mozilla.fenix.R
-import org.mozilla.fenix.onboarding.redesign.view.defaultbrowser.SetToDefaultMainImage
-import org.mozilla.fenix.onboarding.redesign.view.sync.SyncMainImage
+import org.mozilla.fenix.compose.ScrollIndicator
 import org.mozilla.fenix.onboarding.view.Action
 import org.mozilla.fenix.onboarding.view.OnboardingPageState
 import org.mozilla.fenix.theme.FirefoxTheme
 
-const val TITLE_TOP_SPACER_WEIGHT = 0.3f
-const val BODY_BUTTON_SPACER_WEIGHT = 1f
+const val TITLE_TOP_SPACER_WEIGHT = 0.1f
+const val CONTENT_WEIGHT = 1f
+
+val CONTENT_IMAGE_HEIGHT = 176.dp
 
 /**
  * A composable for displaying onboarding page content.
  *
  * @param pageState [OnboardingPageState] The page content that's displayed.
- * @param mainImage A [Composable] for displaying the main image.
+ * @param isSmallDevice Whether to apply layout optimizations for constrained screen heights.
  */
 @Composable
 fun OnboardingPageRedesign(
     pageState: OnboardingPageState,
-    mainImage: @Composable () -> Unit = {},
+    isSmallDevice: Boolean = false,
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        CardView(
-            modifier = Modifier.weight(1f),
-            pageState = pageState,
-            mainImage = mainImage,
-        )
-
-        pageState.secondaryButton?.let {
-            SecondaryButton(title = pageState.title, secondaryButton = it)
-        }
-    }
+    CardView(pageState, isSmallDevice)
 
     LaunchedEffect(pageState) {
         pageState.onRecordImpressionEvent()
@@ -78,7 +69,7 @@ private fun SecondaryButton(
     title: String,
     secondaryButton: Action,
 ) {
-    TextButton(
+    OutlinedButton(
         modifier = Modifier
             .width(width = FirefoxTheme.layout.size.maxWidth.small)
             .semantics {
@@ -86,71 +77,98 @@ private fun SecondaryButton(
             },
         text = secondaryButton.text,
         onClick = secondaryButton.onClick,
-        colors = ButtonDefaults.textButtonColors(
-            contentColor = FirefoxTheme.colors.textActionPrimary,
-        ),
     )
 }
 
 @Composable
 private fun CardView(
-    modifier: Modifier = Modifier,
     pageState: OnboardingPageState,
-    mainImage: @Composable () -> Unit,
-) {
-    Card(
-        modifier = modifier,
-        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+    isSmallDevice: Boolean,
     ) {
-        Column(
-            modifier = Modifier
-                .background(FirefoxTheme.colors.layer1)
-                .padding(horizontal = 16.dp, vertical = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Spacer(modifier = Modifier.weight(TITLE_TOP_SPACER_WEIGHT))
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(if (pageState.shouldShowElevation) 6.dp else 0.dp),
+    ) {
+            Column(
+                modifier = Modifier.padding(
+                    horizontal = 16.dp,
+                    vertical = if (isSmallDevice) 0.dp else 24.dp,
+                ),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Spacer(Modifier.weight(TITLE_TOP_SPACER_WEIGHT)).takeIf { !isSmallDevice }
 
-            Content(pageState) { mainImage() }
+                Content(pageState, isSmallDevice)
 
-            Spacer(modifier = Modifier.weight(BODY_BUTTON_SPACER_WEIGHT))
+                FilledButton(
+                    modifier = Modifier
+                        .width(width = FirefoxTheme.layout.size.maxWidth.small)
+                        .semantics {
+                            testTag = pageState.title + "onboarding_card_redesign.positive_button"
+                        },
+                    text = pageState.primaryButton.text,
+                    onClick = pageState.primaryButton.onClick,
+                )
 
-            FilledButton(
-                modifier = Modifier
-                    .width(width = FirefoxTheme.layout.size.maxWidth.small)
-                    .semantics {
-                        testTag = pageState.title + "onboarding_card_redesign.positive_button"
-                    },
-                text = pageState.primaryButton.text,
-                onClick = pageState.primaryButton.onClick,
-            )
+                pageState.secondaryButton?.let {
+                    SecondaryButton(title = pageState.title, secondaryButton = it)
+                }
+            }
         }
     }
-}
 
 @Composable
-private fun Content(
+private fun ColumnScope.Content(
     pageState: OnboardingPageState,
-    mainImage: @Composable () -> Unit,
+    isSmallDevice: Boolean,
 ) {
-    Column(
+    val scrollState = rememberScrollState()
+
+    // Use a Box to overlay the scrollbar on top of the content column, aligned to the right.
+    Box(
         modifier = Modifier
-            .background(FirefoxTheme.colors.layer1)
-            .padding(horizontal = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+            .weight(CONTENT_WEIGHT)
+            .fillMaxWidth(),
     ) {
-        Text(
-            text = pageState.title,
-            color = FirefoxTheme.colors.textPrimary,
-            style = MaterialTheme.typography.headlineMedium,
-        )
+        CompositionLocalProvider(
+            LocalOverscrollFactory provides null,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(scrollState)
+                    .padding(start = 20.dp, end = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(36.dp),
+            ) {
+                Text(
+                    text = pageState.title,
+                    style = MaterialTheme.typography.headlineSmall,
+                )
 
-        mainImage()
+                Box(
+                    modifier = Modifier
+                        .height(CONTENT_IMAGE_HEIGHT)
+                        .fillMaxWidth(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Image(
+                        painter = painterResource(pageState.imageRes),
+                        contentDescription = null, // Decorative only
+                    )
+                }
 
-        Text(
-            text = pageState.description,
-            color = FirefoxTheme.colors.textSecondary,
-            style = FirefoxTheme.typography.body1,
+                Text(
+                    text = pageState.description,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = FirefoxTheme.typography.subtitle1,
+                )
+            }
+        }
+
+        ScrollIndicator(
+            scrollState = scrollState,
+            modifier = Modifier.align(Alignment.CenterEnd),
+            enabled = isSmallDevice,
         )
     }
 }
@@ -161,20 +179,20 @@ private fun OnboardingPageSetToDefaultPreview() {
     FirefoxTheme {
         OnboardingPageRedesign(
             pageState = OnboardingPageState(
-                imageRes = R.drawable.ic_notification_permission,
-                title = stringResource(R.string.onboarding_redesign_set_default_browser_title),
-                description = stringResource(R.string.onboarding_redesign_set_default_browser_body),
+                imageRes = R.drawable.nova_onboarding_set_to_default,
+                title = stringResource(R.string.nova_onboarding_set_to_default_title_2),
+                description = stringResource(R.string.nova_onboarding_set_to_default_subtitle),
                 primaryButton = Action(
-                    text = stringResource(R.string.juno_onboarding_default_browser_positive_button),
+                    text = stringResource(R.string.nova_onboarding_set_to_default_button),
                     onClick = {},
                 ),
                 secondaryButton = Action(
-                    text = stringResource(R.string.juno_onboarding_default_browser_negative_button),
+                    text = stringResource(R.string.nova_onboarding_negative_button),
                     onClick = {},
                 ),
                 onRecordImpressionEvent = {},
             ),
-            mainImage = { SetToDefaultMainImage() },
+            isSmallDevice = false,
         )
     }
 }
@@ -185,20 +203,68 @@ private fun OnboardingPageSyncPreview() {
     FirefoxTheme {
         OnboardingPageRedesign(
             pageState = OnboardingPageState(
-                imageRes = R.drawable.ic_notification_permission, // Unused in the redesign.
-                title = stringResource(R.string.onboarding_redesign_sync_title),
-                description = stringResource(R.string.onboarding_redesign_sync_body),
+                imageRes = R.drawable.nova_onboarding_sync,
+                title = stringResource(R.string.nova_onboarding_sync_title),
+                description = stringResource(R.string.nova_onboarding_sync_subtitle),
                 primaryButton = Action(
-                    text = stringResource(R.string.onboarding_redesign_sync_positive_button),
+                    text = stringResource(R.string.nova_onboarding_sync_button),
                     onClick = {},
                 ),
                 secondaryButton = Action(
-                    text = stringResource(R.string.onboarding_redesign_sync_negative_button),
+                    text = stringResource(R.string.nova_onboarding_negative_button),
                     onClick = {},
                 ),
                 onRecordImpressionEvent = {},
             ),
-            mainImage = { SyncMainImage() },
+            isSmallDevice = false,
+        )
+    }
+}
+
+@PreviewLightDark
+@Composable
+private fun OnboardingPageNotificationPreview() {
+    FirefoxTheme {
+        OnboardingPageRedesign(
+            pageState = OnboardingPageState(
+                imageRes = R.drawable.nova_onboarding_notifications,
+                title = stringResource(R.string.nova_onboarding_add_search_widget_title),
+                description = stringResource(R.string.nova_onboarding_add_search_widget_subtitle),
+                primaryButton = Action(
+                    text = stringResource(R.string.nova_onboarding_notifications_button),
+                    onClick = {},
+                ),
+                secondaryButton = Action(
+                    text = stringResource(R.string.nova_onboarding_negative_button),
+                    onClick = {},
+                ),
+                onRecordImpressionEvent = {},
+            ),
+            isSmallDevice = false,
+        )
+    }
+}
+
+@PreviewLightDark
+@Composable
+private fun OnboardingPageSearchWidgetPreview() {
+    FirefoxTheme {
+        OnboardingPageRedesign(
+            pageState = OnboardingPageState(
+                imageRes = R.drawable.nova_onboarding_widget,
+                title = stringResource(R.string.nova_onboarding_add_search_widget_title),
+                description = stringResource(R.string.nova_onboarding_add_search_widget_subtitle),
+                primaryButton = Action(
+                    text = stringResource(R.string.nova_onboarding_add_search_widget_button),
+                    onClick = {},
+                ),
+                secondaryButton = Action(
+                    text = stringResource(R.string.nova_onboarding_negative_button),
+                    onClick = {},
+                ),
+                onRecordImpressionEvent = {},
+            ),
+            isSmallDevice = false,
         )
     }
 }

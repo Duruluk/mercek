@@ -105,19 +105,17 @@ void pattern_vertex(PrimitiveInfo info) {
     vec4[3] gradient = fetch_from_gpu_buffer_3f(address);
     ivec4 header = decode_gradient_header(address + 2, gradient[2]);
 
-    vec2 pos = info.local_pos - info.local_prim_rect.p0;
-
     switch (header.x) {
         case GRADIENT_KIND_LINEAR: {
-            linear_gradient_vertex(pos, gradient[0]);
+            linear_gradient_vertex(info.local_pos, gradient[0]);
             break;
         }
         case GRADIENT_KIND_RADIAL: {
-            radial_gradient_vertex(pos, gradient[0], gradient[1]);
+            radial_gradient_vertex(info.local_pos, gradient[0], gradient[1]);
             break;
         }
         case GRADIENT_KIND_CONIC: {
-            conic_gradient_vertex(pos, gradient[0], gradient[1]);
+            conic_gradient_vertex(info.local_pos, gradient[0], gradient[1]);
             break;
         }
         default: {
@@ -193,7 +191,7 @@ vec4 sample_gradient_stops_tree(float offset) {
     // The index distance between consecutive stop offsets at
     // the current level. At the last level, the stride is 1.
     // each has a 5 times more stride than the next (so the
-    // index stride starts high and is devided by 5 at each
+    // index stride starts high and is divided by 5 at each
     // iteration).
     int index_stride = 1;
     while (index_stride * 5 <= count) {
@@ -398,7 +396,7 @@ void swgl_drawSpanRGBA8() {
 
 #ifdef WR_FEATURE_DITHERING
       swgl_commitDitheredRadialGradientFromStopsRGBA8(sGpuBufferF, offsets_addr, colors_addr,
-          stop_count, repeat, pos, start_radius, gl_FragCoord);
+          stop_count, repeat, pos, start_radius);
 #else
       swgl_commitRadialGradientFromStopsRGBA8(sGpuBufferF, offsets_addr, colors_addr,
           stop_count, repeat, pos, start_radius);

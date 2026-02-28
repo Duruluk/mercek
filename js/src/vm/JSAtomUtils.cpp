@@ -14,8 +14,6 @@
 #include "mozilla/RangedPtr.h"
 
 #include <charconv>
-#include <iterator>
-#include <string.h>
 
 #include "jstypes.h"
 

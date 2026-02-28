@@ -11,7 +11,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.Dp
 import mozilla.components.browser.state.state.TabSessionState
 import org.mozilla.fenix.R
-import org.mozilla.fenix.tabstray.Page
+import org.mozilla.fenix.tabstray.redux.state.Page
 
 /**
  * An abstraction for handling the shared element transition within the Tab Manager.

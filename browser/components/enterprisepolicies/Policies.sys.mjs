@@ -28,6 +28,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
     "moz-src:///browser/components/customizableui/CustomizableUI.sys.mjs",
   FileUtils: "resource://gre/modules/FileUtils.sys.mjs",
   ProxyPolicies: "resource:///modules/policies/ProxyPolicies.sys.mjs",
+  SearchService: "moz-src:///toolkit/components/search/SearchService.sys.mjs",
   QuickSuggest: "moz-src:///browser/components/urlbar/QuickSuggest.sys.mjs",
   WebsiteFilter: "resource:///modules/policies/WebsiteFilter.sys.mjs",
 });
@@ -1059,6 +1060,14 @@ export var Policies = {
     },
   },
 
+  DisableRemoteImprovements: {
+    onBeforeAddons(manager, param) {
+      if (param) {
+        manager.disallowFeature("NimbusRollouts");
+      }
+    },
+  },
+
   DisableSafeMode: {
     onBeforeUIStartup(manager, param) {
       if (param) {
@@ -1658,17 +1667,34 @@ export var Policies = {
       const defaultValue = "Enabled" in param ? param.Enabled : undefined;
 
       const features = [
-        ["Chatbot", ["browser.ml.chat.enabled", "browser.ml.chat.page"]],
-        ["LinkPreviews", ["browser.ml.linkPreview.optin"]],
-        ["TabGroups", ["browser.tabs.groups.smart.userEnabled"]],
+        [
+          "Chatbot",
+          ["browser.ml.chat.enabled", "browser.ml.chat.page"],
+          "browser.ai.control.sidebarChatbot",
+        ],
+        [
+          "LinkPreviews",
+          ["browser.ml.linkPreview.optin"],
+          "browser.ai.control.linkPreviewKeyPoints",
+        ],
+        [
+          "TabGroups",
+          ["browser.tabs.groups.smart.userEnabled"],
+          "browser.ai.control.smartTabGroups",
+        ],
       ];
 
-      for (const [key, prefs] of features) {
+      for (const [key, prefs, aiControlPref] of features) {
         const value = key in param ? param[key] : defaultValue;
         if (value !== undefined) {
           for (const pref of prefs) {
             PoliciesUtils.setDefaultPref(pref, value, param.Locked);
           }
+          PoliciesUtils.setDefaultPref(
+            aiControlPref,
+            value ? "enabled" : "blocked",
+            param.Locked
+          );
         }
       }
     },
@@ -2623,7 +2649,7 @@ export var Policies = {
       }
     },
     onAllWindowsRestored(manager, param) {
-      Services.search.init().then(async () => {
+      lazy.SearchService.init().then(async () => {
         // Adding of engines is handled by the SearchService in the init().
         // Remove can happen after those are added - no engines are allowed
         // to replace the application provided engines, even if they have been
@@ -2635,12 +2661,12 @@ export var Policies = {
             JSON.stringify(param.Remove),
             async function () {
               for (let engineName of param.Remove) {
-                let engine = Services.search.getEngineByName(engineName);
+                let engine = lazy.SearchService.getEngineByName(engineName);
                 if (engine) {
                   try {
-                    await Services.search.removeEngine(
+                    await lazy.SearchService.removeEngine(
                       engine,
-                      Ci.nsISearchService.CHANGE_REASON_ENTERPRISE
+                      lazy.SearchService.CHANGE_REASON.ENTERPRISE
                     );
                   } catch (ex) {
                     lazy.log.error("Unable to remove the search engine", ex);
@@ -2657,7 +2683,9 @@ export var Policies = {
             async () => {
               let defaultEngine;
               try {
-                defaultEngine = Services.search.getEngineByName(param.Default);
+                defaultEngine = lazy.SearchService.getEngineByName(
+                  param.Default
+                );
                 if (!defaultEngine) {
                   throw new Error("No engine by that name could be found");
                 }
@@ -2671,9 +2699,9 @@ export var Policies = {
               }
               if (defaultEngine) {
                 try {
-                  await Services.search.setDefault(
+                  await lazy.SearchService.setDefault(
                     defaultEngine,
-                    Ci.nsISearchService.CHANGE_REASON_ENTERPRISE
+                    lazy.SearchService.CHANGE_REASON.ENTERPRISE
                   );
                 } catch (ex) {
                   lazy.log.error("Unable to set the default search engine", ex);
@@ -2689,7 +2717,7 @@ export var Policies = {
             async () => {
               let defaultPrivateEngine;
               try {
-                defaultPrivateEngine = Services.search.getEngineByName(
+                defaultPrivateEngine = lazy.SearchService.getEngineByName(
                   param.DefaultPrivate
                 );
                 if (!defaultPrivateEngine) {
@@ -2705,9 +2733,9 @@ export var Policies = {
               }
               if (defaultPrivateEngine) {
                 try {
-                  await Services.search.setDefaultPrivate(
+                  await lazy.SearchService.setDefaultPrivate(
                     defaultPrivateEngine,
-                    Ci.nsISearchService.CHANGE_REASON_ENTERPRISE
+                    lazy.SearchService.CHANGE_REASON.ENTERPRISE
                   );
                 } catch (ex) {
                   lazy.log.error(
@@ -2731,7 +2759,7 @@ export var Policies = {
   },
 
   SecurityDevices: {
-    onProfileAfterChange(manager, param) {
+    async onProfileAfterChange(manager, param) {
       let pkcs11db = Cc["@mozilla.org/security/pkcs11moduledb;1"].getService(
         Ci.nsIPKCS11ModuleDB
       );
@@ -2742,7 +2770,7 @@ export var Policies = {
         if (param.Delete) {
           for (let deviceName of param.Delete) {
             try {
-              pkcs11db.deleteModule(deviceName);
+              await pkcs11db.deleteModule(deviceName);
             } catch (e) {
               // Ignoring errors here since it might stick around in policy
               // after removing. Alternative would be to listModules and
@@ -2759,7 +2787,7 @@ export var Policies = {
       }
       for (let deviceName in securityDevices) {
         let foundModule = false;
-        for (let module of pkcs11db.listModules()) {
+        for (let module of await pkcs11db.listModules()) {
           if (module && module.libName === securityDevices[deviceName]) {
             foundModule = true;
             break;
@@ -2769,7 +2797,12 @@ export var Policies = {
           continue;
         }
         try {
-          pkcs11db.addModule(deviceName, securityDevices[deviceName], 0, 0);
+          await pkcs11db.addModule(
+            deviceName,
+            securityDevices[deviceName],
+            0,
+            0
+          );
         } catch (ex) {
           lazy.log.error(`Unable to add security device ${deviceName}`);
           lazy.log.debug(ex);
@@ -2869,6 +2902,10 @@ export var Policies = {
   TranslateEnabled: {
     onBeforeAddons(manager, param) {
       setAndLockPref("browser.translations.enable", param);
+      setAndLockPref(
+        "browser.ai.control.translations",
+        param ? "enabled" : "blocked"
+      );
     },
   },
 
@@ -3177,6 +3214,8 @@ export function runOnce(actionName, callback) {
  *        A promise that will resolve once the callback finishes running.
  */
 async function runOncePerModification(actionName, policyValue, callback) {
+  // Stringify the value so that it matches what we'd get from getStringPref.
+  policyValue = policyValue + "";
   let prefName = `browser.policies.runOncePerModification.${actionName}`;
   let oldPolicyValue = Services.prefs.getStringPref(prefName, undefined);
   if (policyValue === oldPolicyValue) {

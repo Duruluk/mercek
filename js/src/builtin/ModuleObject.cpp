@@ -66,6 +66,17 @@ static JS::ModuleType ValueToModuleType(const Value& value) {
   return static_cast<JS::ModuleType>(i);
 }
 
+static Value ImportPhaseToValue(ImportPhase phase) {
+  static_assert(size_t(ImportPhase::Limit) <= INT32_MAX);
+  return Int32Value(int32_t(phase));
+}
+
+static ImportPhase ValueToImportPhase(const Value& value) {
+  int32_t i = value.toInt32();
+  MOZ_ASSERT(i >= 0 && i <= int32_t(ImportPhase::Limit));
+  return static_cast<ImportPhase>(i);
+}
+
 #define DEFINE_ATOM_ACCESSOR_METHOD(cls, name, slot) \
   JSAtom* cls::name() const {                        \
     Value value = getReservedSlot(slot);             \
@@ -212,6 +223,10 @@ JS::ModuleType ModuleRequestObject::moduleType() const {
   return ValueToModuleType(getReservedSlot(ModuleTypeSlot));
 }
 
+ImportPhase ModuleRequestObject::phase() const {
+  return ValueToImportPhase(getReservedSlot(PhaseSlot));
+}
+
 static bool GetModuleType(JSContext* cx,
                           Handle<ImportAttributeVector> maybeAttributes,
                           JS::ModuleType& moduleType) {
@@ -227,6 +242,8 @@ static bool GetModuleType(JSContext* cx,
         moduleType = JS::ModuleType::JSON;
       } else if (js::EqualStrings(typeStr, cx->names().css)) {
         moduleType = JS::ModuleType::CSS;
+      } else if (js::EqualStrings(typeStr, cx->names().bytes)) {
+        moduleType = JS::ModuleType::Bytes;
       } else {
         moduleType = JS::ModuleType::Unknown;
       }
@@ -247,19 +264,20 @@ bool ModuleRequestObject::isInstance(HandleValue value) {
 /* static */
 ModuleRequestObject* ModuleRequestObject::create(
     JSContext* cx, Handle<JSAtom*> specifier,
-    Handle<ImportAttributeVector> maybeAttributes) {
+    Handle<ImportAttributeVector> maybeAttributes, ImportPhase phase) {
   JS::ModuleType moduleType = JS::ModuleType::JavaScript;
   if (!GetModuleType(cx, maybeAttributes, moduleType)) {
     return nullptr;
   }
 
-  return create(cx, specifier, moduleType);
+  return create(cx, specifier, moduleType, phase);
 }
 
 /* static */
 ModuleRequestObject* ModuleRequestObject::create(JSContext* cx,
                                                  Handle<JSAtom*> specifier,
-                                                 JS::ModuleType moduleType) {
+                                                 JS::ModuleType moduleType,
+                                                 ImportPhase phase) {
   ModuleRequestObject* self =
       NewObjectWithGivenProto<ModuleRequestObject>(cx, nullptr);
   if (!self) {
@@ -268,6 +286,7 @@ ModuleRequestObject* ModuleRequestObject::create(JSContext* cx,
 
   self->initReservedSlot(SpecifierSlot, StringOrNullValue(specifier));
   self->initReservedSlot(ModuleTypeSlot, ModuleTypeToValue(moduleType));
+  self->initReservedSlot(PhaseSlot, ImportPhaseToValue(phase));
 
   return self;
 }
@@ -922,8 +941,9 @@ bool ModuleObject::isInstance(HandleValue value) {
 }
 
 bool ModuleObject::hasCyclicModuleFields() const {
-  // This currently only returns false if we GC during initialization.
-  return !getReservedSlot(CyclicModuleFieldsSlot).isUndefined();
+  bool result = !getReservedSlot(CyclicModuleFieldsSlot).isUndefined();
+  MOZ_ASSERT_IF(result, !hasSyntheticModuleFields());
+  return result;
 }
 
 CyclicModuleFields* ModuleObject::cyclicModuleFields() {
@@ -1463,7 +1483,9 @@ bool ModuleObject::createSyntheticEnvironment(JSContext* cx,
     return false;
   }
 
-  MOZ_ASSERT(env->shape()->propMapLength() == values.length());
+  // We expect one property per synthetic value plus one for the *namespace*
+  // binding.
+  MOZ_ASSERT(env->shape()->propMapLength() == values.length() + 1);
 
   for (uint32_t i = 0; i < values.length(); i++) {
     env->setAliasedBinding(env->firstSyntheticValueSlot() + i, values[i]);
@@ -1696,13 +1718,17 @@ bool ModuleBuilder::buildTables(frontend::StencilModuleMetadata& metadata) {
           return false;
         }
       } else {
+        // All names should have already been marked as used-by-stencil.
         if (!importEntry->importName) {
-          if (!metadata.localExportEntries.append(exp)) {
+          // This is a re-export of an imported module namespace object.
+          auto entry = frontend::StencilModuleEntry::exportNamespaceFromEntry(
+              importEntry->moduleRequest, exp.exportName, exp.lineno,
+              exp.column);
+          if (!metadata.indirectExportEntries.append(entry)) {
             js::ReportOutOfMemory(fc_);
             return false;
           }
         } else {
-          // All names should have already been marked as used-by-stencil.
           auto entry = frontend::StencilModuleEntry::exportFromEntry(
               importEntry->moduleRequest, importEntry->importName,
               exp.exportName, exp.lineno, exp.column);
@@ -2067,6 +2093,19 @@ bool ModuleBuilder::processImport(frontend::BinaryNode* importNode) {
 
   return true;
 }
+
+#ifdef ENABLE_SOURCE_PHASE_IMPORTS
+bool ModuleBuilder::processImportSource(frontend::BinaryNode* importNode) {
+  using namespace js::frontend;
+
+  MOZ_ASSERT(importNode->isKind(ParseNodeKind::ImportSourceDecl));
+
+  // TODO: Support for import source will be added in Bug 2011284.
+  // For now, we'll return true rather than signal an error, so we
+  // can write tests for parsing.
+  return true;
+}
+#endif
 
 bool ModuleBuilder::processExport(frontend::ParseNode* exportNode) {
   using namespace js::frontend;

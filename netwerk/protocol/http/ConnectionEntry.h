@@ -3,8 +3,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef ConnectionEntry_h__
-#define ConnectionEntry_h__
+#ifndef ConnectionEntry_h_
+#define ConnectionEntry_h_
 
 #include "PendingTransactionInfo.h"
 #include "PendingTransactionQueue.h"
@@ -39,6 +39,7 @@ class ConnectionEntry : public SupportsWeakPtr {
                          bool aInsertAsFirstForTheSamePriority = false);
 
   size_t UrgentStartQueueLength();
+  bool UrgentStartQueueIsEmpty() const;
 
   void PrintPendingQ();
 
@@ -74,6 +75,9 @@ class ConnectionEntry : public SupportsWeakPtr {
   void RemoveExtendedCONNECTConns(HttpConnectionBase* conn);
 
   HttpConnectionBase* GetH2orH3ActiveConn();
+  // Find an H2 tunnel connection (nsHttpConnection with UsingSpdy()) in active
+  // connections. This is used for WebSocket/WebTransport through H3 proxy.
+  already_AddRefed<nsHttpConnection> GetH2TunnelActiveConn();
   // Make an active spdy connection DontReuse.
   // TODO: this is a helper function and should nbe improved.
   bool MakeFirstActiveSpdyConnDontReuse();
@@ -115,8 +119,8 @@ class ConnectionEntry : public SupportsWeakPtr {
                                   bool aIsHttp3 = false);
 
   nsresult CreateDnsAndConnectSocket(nsAHttpTransaction* trans, uint32_t caps,
-                                     bool speculative, bool isFromPredictor,
-                                     bool urgentStart, bool allow1918,
+                                     bool speculative, bool urgentStart,
+                                     bool allow1918,
                                      PendingTransactionInfo* pendingTransInfo);
 
   // Spdy sometimes resolves the address in the socket manager in order
@@ -125,7 +129,7 @@ class ConnectionEntry : public SupportsWeakPtr {
   // to build the hash key for hosts in the same ip pool.
   //
 
-  nsTArray<nsCString> mCoalescingKeys;
+  nsTArray<HashNumber> mCoalescingKeys;
 
   // This is a list of addresses matching the coalescing keys.
   // This is necessary to check if the origin's DNS entries
@@ -176,6 +180,7 @@ class ConnectionEntry : public SupportsWeakPtr {
   // Return the count of pending transactions for all window ids.
   size_t PendingQueueLength() const;
   size_t PendingQueueLengthForWindow(uint64_t windowId) const;
+  bool PendingQueueIsEmpty() const;
 
   void AppendPendingUrgentStartQ(
       nsTArray<RefPtr<PendingTransactionInfo>>& result);
@@ -216,7 +221,7 @@ class ConnectionEntry : public SupportsWeakPtr {
 
   const nsTArray<RefPtr<nsIWebTransportHash>>& GetServerCertHashes();
 
-  const nsCString& OriginFrameHashKey();
+  const HashNumber& OriginFrameHashKey();
 
  private:
   void InsertIntoIdleConnections_internal(nsHttpConnection* conn);
@@ -244,7 +249,7 @@ class ConnectionEntry : public SupportsWeakPtr {
   PendingTransactionQueue mPendingQ;
   ~ConnectionEntry();
 
-  nsCString mOriginFrameHashKey;
+  Maybe<HashNumber> mOriginFrameHashKey;
 
   bool mRetriedDifferentIPFamilyForHttp3 = false;
 };
@@ -252,4 +257,4 @@ class ConnectionEntry : public SupportsWeakPtr {
 }  // namespace net
 }  // namespace mozilla
 
-#endif  // !ConnectionEntry_h__
+#endif  // !ConnectionEntry_h_

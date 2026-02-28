@@ -29,8 +29,6 @@
 #include <cstdlib>
 #include <ctime>
 #include <functional>
-#include <initializer_list>
-#include <iterator>
 #include <utility>
 
 #if defined(XP_UNIX) && !defined(XP_DARWIN)
@@ -589,12 +587,30 @@ static bool GetBuildConfiguration(JSContext* cx, unsigned argc, Value* vp) {
     return false;
   }
 
+#ifdef ENABLE_SOURCE_PHASE_IMPORTS
+  value = BooleanValue(true);
+#else
+  value = BooleanValue(false);
+#endif
+  if (!JS_SetProperty(cx, info, "source-phase-imports", value)) {
+    return false;
+  }
+
 #ifdef FUZZING
   value = BooleanValue(true);
 #else
   value = BooleanValue(false);
 #endif
   if (!JS_SetProperty(cx, info, "fuzzing-defined", value)) {
+    return false;
+  }
+
+#ifdef JS_JITSPEW
+  value = BooleanValue(true);
+#else
+  value = BooleanValue(false);
+#endif
+  if (!JS_SetProperty(cx, info, "jitspew", value)) {
     return false;
   }
 
@@ -897,6 +913,7 @@ static bool RelazifyFunctions(JSContext* cx, unsigned argc, Value* vp) {
 
   cx->runtime()->allowRelazificationForTesting = true;
 
+  js::gc::FinishGC(cx, JS::GCReason::API);
   JS::PrepareForFullGC(cx);
   JS::NonIncrementalGC(cx, JS::GCOptions::Shrink, JS::GCReason::API);
 
@@ -976,14 +993,22 @@ static bool WasmMaxMemoryPages(JSContext* cx, unsigned argc, Value* vp) {
   if (!ls) {
     return false;
   }
+  wasm::PageSize pageSize = wasm::PageSize::Standard;
+  if (argc > 1 && args.get(1).isInt32()) {
+    uint32_t pageSizeBytes = args.get(1).toInt32();
+    if (pageSizeBytes != PageSizeInBytes(wasm::PageSize::Standard)) {
+      JS_ReportErrorASCII(cx, "bad page size");
+      return false;
+    }
+  }
   if (StringEqualsLiteral(ls, "i32")) {
-    args.rval().setInt32(
-        int32_t(wasm::MaxMemoryPages(wasm::AddressType::I32).value()));
+    wasm::Pages pages = wasm::MaxMemoryPages(wasm::AddressType::I32, pageSize);
+    args.rval().setInt32(pages.pageCount());
     return true;
   }
   if (StringEqualsLiteral(ls, "i64")) {
-    args.rval().setInt32(
-        int32_t(wasm::MaxMemoryPages(wasm::AddressType::I64).value()));
+    wasm::Pages pages = wasm::MaxMemoryPages(wasm::AddressType::I64, pageSize);
+    args.rval().setNumber(pages.pageCount());
     return true;
   }
   JS_ReportErrorASCII(cx, "bad address type");
@@ -1026,13 +1051,7 @@ static bool WasmCompilersPresent(JSContext* cx, unsigned argc, Value* vp) {
     strcat(buf, "ion");
   }
 
-  JSString* result = JS_NewStringCopyZ(cx, buf);
-  if (!result) {
-    return false;
-  }
-
-  args.rval().setString(result);
-  return true;
+  return ReturnStringCopy(cx, args, buf);
 }
 
 static bool WasmCompileMode(JSContext* cx, unsigned argc, Value* vp) {
@@ -1595,8 +1614,7 @@ static bool WasmGlobalToString(JSContext* cx, unsigned argc, Value* vp) {
       MOZ_ASSERT_UNREACHABLE();
   }
 
-  args.rval().setString(JS_NewStringCopyZ(cx, result.get()));
-  return true;
+  return ReturnStringCopy(cx, args, result.get());
 }
 
 static bool WasmLosslessInvoke(JSContext* cx, unsigned argc, Value* vp) {
@@ -2173,13 +2191,7 @@ static bool WasmFunctionTier(JSContext* cx, unsigned argc, Value* vp) {
       return false;
     }
     wasm::Tier tier = instance.code().funcTier(funcIndex);
-    RootedString tierString(cx, JS_NewStringCopyZ(cx, wasm::ToString(tier)));
-    if (!tierString) {
-      ReportOutOfMemory(cx);
-      return false;
-    }
-    args.rval().set(StringValue(tierString));
-    return true;
+    return ReturnStringCopy(cx, args, wasm::ToString(tier));
   }
   JS_ReportErrorASCII(cx, "argument is not an exported wasm function");
   return false;
@@ -3212,7 +3224,7 @@ static bool GetAtomMarkIndex(JSContext* cx, unsigned argc, Value* vp) {
   RootedObject callee(cx, &args.callee());
 
   if (args.length() != 1 || !args[0].isGCThing() ||
-      !args[0].toGCThing()->zone()->isAtomsZone()) {
+      !args[0].toGCThing()->zoneFromAnyThread()->isAtomsZone()) {
     ReportUsageErrorASCII(cx, callee,
                           "Expected an atom as the single argument");
     return false;
@@ -3612,7 +3624,7 @@ static bool NewObjectWithAddPropertyHook(JSContext* cx, unsigned argc,
       return true;
     }
     val.setInt32(val.toInt32() + 1);
-    return JS_DefinePropertyById(cx, obj, propId, val, 0);
+    return JS_DefinePropertyById(cx, obj, propId, val, JSPROP_PERMANENT);
   };
 
   static const JSClassOps classOps = {
@@ -3645,7 +3657,7 @@ static bool NewObjectWithAddPropertyHook(JSContext* cx, unsigned argc,
   }
   RootedId propId(cx, AtomToId(propName));
   RootedValue val(cx, Int32Value(0));
-  if (!JS_DefinePropertyById(cx, obj, propId, val, 0)) {
+  if (!JS_DefinePropertyById(cx, obj, propId, val, JSPROP_PERMANENT)) {
     return false;
   }
 
@@ -4857,7 +4869,7 @@ static bool SettlePromiseNow(JSContext* cx, unsigned argc, Value* vp) {
   }
 
   int32_t flags = promise->flags();
-  promise->setFixedSlot(
+  promise->setNeverGCThingFixedSlot(
       PromiseSlot_Flags,
       Int32Value(flags | PROMISE_FLAG_RESOLVED | PROMISE_FLAG_FULFILLED));
   promise->setFixedSlot(PromiseSlot_ReactionsOrResult, UndefinedValue());
@@ -5117,10 +5129,13 @@ static bool ReadGeckoProfilingStack(JSContext* cx, unsigned argc, Value* vp) {
   }
 
   struct InlineFrameInfo {
-    InlineFrameInfo(const char* kind, UniqueChars label)
-        : kind(kind), label(std::move(label)) {}
+    InlineFrameInfo(const char* kind, UniqueChars label, uint32_t line,
+                    uint32_t column)
+        : kind(kind), label(std::move(label)), line(line), column(column) {}
     const char* kind;
     UniqueChars label;
+    uint32_t line;
+    uint32_t column;
   };
 
   Vector<Vector<InlineFrameInfo, 0, TempAllocPolicy>, 0, TempAllocPolicy>
@@ -5165,7 +5180,8 @@ static bool ReadGeckoProfilingStack(JSContext* cx, unsigned argc, Value* vp) {
         return false;
       }
 
-      if (!frameInfo.back().emplaceBack(frameKindStr, std::move(label))) {
+      if (!frameInfo.back().emplaceBack(frameKindStr, std::move(label),
+                                        frames[i].line, frames[i].column)) {
         return false;
       }
     }
@@ -5210,6 +5226,16 @@ static bool ReadGeckoProfilingStack(JSContext* cx, unsigned argc, Value* vp) {
       }
 
       if (!JS_DefineProperty(cx, inlineFrameInfo, "label", frameLabel,
+                             propAttrs)) {
+        return false;
+      }
+
+      if (!JS_DefineProperty(cx, inlineFrameInfo, "line", inlineFrame.line,
+                             propAttrs)) {
+        return false;
+      }
+
+      if (!JS_DefineProperty(cx, inlineFrameInfo, "column", inlineFrame.column,
                              propAttrs)) {
         return false;
       }
@@ -6365,6 +6391,14 @@ static bool Deserialize(JSContext* cx, unsigned argc, Value* vp) {
 
       scope = *maybeScope;
     }
+  }
+
+  if (scope > JS::StructuredCloneScope::SameProcess &&
+      (policy.areIntraClusterClonableSharedObjectsAllowed() ||
+       policy.areSharedMemoryObjectsAllowed())) {
+    JS_ReportErrorASCII(
+        cx, "deserialize in DifferentProcess scope cannot allow shared memory");
+    return false;
   }
 
   // Clone buffer was already consumed?
@@ -9072,18 +9106,14 @@ static bool GetEnvironmentObjectType(JSContext* cx, unsigned argc, Value* vp) {
 
   if (envObj->is<EnvironmentObject>()) {
     EnvironmentObject* env = &envObj->as<EnvironmentObject>();
-    JSString* str = JS_NewStringCopyZ(cx, env->typeString());
-    args.rval().setString(str);
-    return true;
+    return ReturnStringCopy(cx, args, env->typeString());
   }
   if (envObj->is<DebugEnvironmentProxy>()) {
     DebugEnvironmentProxy* envProxy = &envObj->as<DebugEnvironmentProxy>();
     EnvironmentObject* env = &envProxy->environment();
     char buf[256] = {'\0'};
     SprintfLiteral(buf, "[DebugProxy] %s", env->typeString());
-    JSString* str = JS_NewStringCopyZ(cx, buf);
-    args.rval().setString(str);
-    return true;
+    return ReturnStringCopy(cx, args, buf);
   }
 
   args.rval().setUndefined();
@@ -9806,9 +9836,9 @@ static bool GetAvailableLocalesOf(JSContext* cx, unsigned argc, Value* vp) {
 
   ArrayObject* result;
 #ifdef JS_HAS_INTL_API
-  using SupportedLocaleKind = js::intl::SharedIntlData::SupportedLocaleKind;
+  using AvailableLocaleKind = js::intl::AvailableLocaleKind;
 
-  SupportedLocaleKind kind;
+  AvailableLocaleKind kind;
   {
     JSLinearString* typeStr = arg.toString()->ensureLinear(cx);
     if (!typeStr) {
@@ -9816,23 +9846,23 @@ static bool GetAvailableLocalesOf(JSContext* cx, unsigned argc, Value* vp) {
     }
 
     if (StringEqualsLiteral(typeStr, "Collator")) {
-      kind = SupportedLocaleKind::Collator;
+      kind = AvailableLocaleKind::Collator;
     } else if (StringEqualsLiteral(typeStr, "DateTimeFormat")) {
-      kind = SupportedLocaleKind::DateTimeFormat;
+      kind = AvailableLocaleKind::DateTimeFormat;
     } else if (StringEqualsLiteral(typeStr, "DisplayNames")) {
-      kind = SupportedLocaleKind::DisplayNames;
+      kind = AvailableLocaleKind::DisplayNames;
     } else if (StringEqualsLiteral(typeStr, "DurationFormat")) {
-      kind = SupportedLocaleKind::DurationFormat;
+      kind = AvailableLocaleKind::DurationFormat;
     } else if (StringEqualsLiteral(typeStr, "ListFormat")) {
-      kind = SupportedLocaleKind::ListFormat;
+      kind = AvailableLocaleKind::ListFormat;
     } else if (StringEqualsLiteral(typeStr, "NumberFormat")) {
-      kind = SupportedLocaleKind::NumberFormat;
+      kind = AvailableLocaleKind::NumberFormat;
     } else if (StringEqualsLiteral(typeStr, "PluralRules")) {
-      kind = SupportedLocaleKind::PluralRules;
+      kind = AvailableLocaleKind::PluralRules;
     } else if (StringEqualsLiteral(typeStr, "RelativeTimeFormat")) {
-      kind = SupportedLocaleKind::RelativeTimeFormat;
+      kind = AvailableLocaleKind::RelativeTimeFormat;
     } else if (StringEqualsLiteral(typeStr, "Segmenter")) {
-      kind = SupportedLocaleKind::Segmenter;
+      kind = AvailableLocaleKind::Segmenter;
     } else {
       ReportUsageErrorASCII(cx, callee, "Unsupported Intl constructor name");
       return false;
@@ -10051,6 +10081,30 @@ static bool TestingFunc_SupportDifferentialTesting(JSContext* cx, unsigned argc,
                                                    Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
   args.rval().setBoolean(SupportDifferentialTesting());
+  return true;
+}
+
+static bool GetLastOOMStackTrace(JSContext* cx, unsigned argc, Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+
+  if (!cx->hasOOMStackTrace()) {
+    args.rval().setNull();
+    return true;
+  }
+
+  const char* stackTrace = cx->getOOMStackTrace();
+  MOZ_ASSERT(stackTrace);
+
+  // The stackTrace persists, so we can clear the flag here in case copying the
+  // string fails
+  cx->unsetOOMStackTrace();
+
+  JSString* str = JS_NewStringCopyZ(cx, stackTrace);
+  if (!str) {
+    return false;
+  }
+
+  args.rval().setString(str);
   return true;
 }
 
@@ -11172,6 +11226,12 @@ JS_FN_HELP("isSmallFunction", IsSmallFunction, 1, 0,
   "popAllFusesInRealm()",
   " Pops all the fuses in the current realm"),
 
+    JS_FN_HELP("getLastOOMStackTrace", GetLastOOMStackTrace, 0, 0,
+"getLastOOMStackTrace()",
+"  Returns the stack trace captured from the most recent out-of-memory exception,\n"
+"  or null if no OOM stack trace is available. The stack trace shows the JavaScript\n"
+"  call stack at the time the out-of-memory condition occurred."),
+
   JS_FN_HELP("popAllFusesInRuntime", PopAllFusesInRuntime, 0, 0,
   "popAllFusesInRuntime()",
   " Pops all the fuses in the runtime"),
@@ -11332,13 +11392,10 @@ JS_FN_HELP("getFuseState", GetFuseState, 0, 0,
 "  Converts a compiled wasm module to the wasm text format.\n"),
 
     JS_FN_HELP("wasmDumpIon", WasmDumpIon, 2, 0,
-"wasmDumpIon(bytecode, funcIndex, [, contents])\n",
-"wasmDumpIon(bytecode, funcIndex, [, contents])"
-"  Returns a dump of compiling a function in the specified module with Ion."
-"  The `contents` flag controls what is dumped. one of:"
-"    `mir` | `unopt-mir`: Unoptimized MIR (the default)"
-"    `opt-mir`: Optimized MIR"
-"    `lir`: LIR"),
+"wasmDumpIon(bytecode, funcIndex)\n",
+"wasmDumpIon(bytecode, funcIndex)"
+"  Returns a dump of compiling a function in the specified module with Ion, in"
+"  the iongraph JSON format."),
 
     JS_FN_HELP("wasmFunctionTier", WasmFunctionTier, 1, 0,
 "wasmFunctionTier(wasmFunc)\n",

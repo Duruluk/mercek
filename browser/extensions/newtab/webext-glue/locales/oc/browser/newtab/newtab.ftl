@@ -317,7 +317,7 @@ newtab-wallpaper-abstract-blue = Fòrmas blavas
 newtab-wallpaper-abstract-purple = Fòrmas violetas
 newtab-wallpaper-abstract-orange = Fòrmas iranjas
 
-## Celestial
+## Firefox
 
 newtab-wallpaper-category-title-photographs = Fotografias
 newtab-wallpaper-beach-at-sunrise = Plaja a l’alba
@@ -361,6 +361,11 @@ newtab-weather-menu-temperature-option-celsius = Celsius
 newtab-weather-menu-change-temperature-units-fahrenheit = Passar en Fahrenheit
 newtab-weather-menu-change-temperature-units-celsius = Passar en Celsius
 newtab-weather-menu-learn-more = Ne saber mai
+# Variables:
+#   $provider (string) - Service provider for weather data
+newtab-weather-see-forecast-description =
+    .title = Mostrar la prevision metèo de { $provider }
+    .aria-description = { $provider } ∙ Esponsorizat
 
 ## Topic Labels
 

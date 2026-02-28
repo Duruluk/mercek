@@ -19,6 +19,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -41,6 +42,7 @@
 #include "api/media_types.h"
 #include "api/peer_connection_interface.h"
 #include "api/rtc_error.h"
+#include "api/rtc_event_log/rtc_event_log.h"
 #include "api/rtc_event_log_output.h"
 #include "api/rtp_parameters.h"
 #include "api/rtp_receiver_interface.h"
@@ -73,7 +75,6 @@
 #include "p2p/base/connection_info.h"
 #include "p2p/base/ice_transport_internal.h"
 #include "p2p/base/p2p_constants.h"
-#include "p2p/base/p2p_transport_channel.h"
 #include "p2p/base/port.h"
 #include "p2p/base/port_allocator.h"
 #include "p2p/base/transport_description.h"
@@ -87,6 +88,7 @@
 #include "pc/ice_server_parsing.h"
 #include "pc/jsep_transport_controller.h"
 #include "pc/legacy_stats_collector.h"
+#include "pc/media_session.h"
 #include "pc/rtc_stats_collector.h"
 #include "pc/rtp_receiver.h"
 #include "pc/rtp_receiver_proxy.h"
@@ -98,11 +100,13 @@
 #include "pc/sctp_data_channel.h"
 #include "pc/sctp_transport.h"
 #include "pc/sdp_offer_answer.h"
+#include "pc/sdp_state_provider.h"
 #include "pc/session_description.h"
 #include "pc/transceiver_list.h"
 #include "pc/transport_stats.h"
 #include "pc/usage_pattern.h"
 #include "rtc_base/checks.h"
+#include "rtc_base/containers/flat_map.h"
 #include "rtc_base/copy_on_write_buffer.h"
 #include "rtc_base/crypto_random.h"
 #include "rtc_base/ip_address.h"
@@ -131,7 +135,7 @@ class CodecLookupHelperForPeerConnection : public CodecLookupHelper {
       : self_(self),
         codec_vendor_(self_->context()->media_engine(),
                       self_->context()->use_rtx(),
-                      self_->context()->env().field_trials()) {}
+                      self_->trials()) {}
 
   webrtc::PayloadTypeSuggester* PayloadTypeSuggester() override {
     return self_->transport_controller_s();
@@ -161,8 +165,8 @@ uint32_t ConvertIceTransportTypeToCandidateFilter(
   return CF_NONE;
 }
 
-IceCandidatePairType GetIceCandidatePairCounter(const Candidate& local,
-                                                const Candidate& remote) {
+IceCandidatePairType GetIceCandidatePairType(const Candidate& local,
+                                             const Candidate& remote) {
   if (local.is_local() && remote.is_local()) {
     bool local_hostname =
         !local.address().hostname().empty() && local.address().IsUnresolvedIP();
@@ -295,9 +299,13 @@ RTCErrorOr<PeerConnectionInterface::RTCConfiguration> ApplyConfiguration(
     const PeerConnectionInterface::RTCConfiguration& existing_configuration) {
   PeerConnectionInterface::RTCConfiguration modified_config =
       existing_configuration;
-  modified_config.servers = configuration.servers;
   modified_config.type = configuration.type;
   modified_config.crypto_options = configuration.crypto_options;
+  modified_config.always_negotiate_data_channels =
+      configuration.always_negotiate_data_channels;
+
+  // ICE configuration.
+  modified_config.servers = configuration.servers;
   modified_config.ice_candidate_pool_size =
       configuration.ice_candidate_pool_size;
   modified_config.prune_turn_ports = configuration.prune_turn_ports;
@@ -317,11 +325,10 @@ RTCErrorOr<PeerConnectionInterface::RTCConfiguration> ApplyConfiguration(
       configuration.stun_candidate_keepalive_interval;
   modified_config.turn_customizer = configuration.turn_customizer;
   modified_config.network_preference = configuration.network_preference;
-  modified_config.active_reset_srtp_params =
-      configuration.active_reset_srtp_params;
   modified_config.turn_logging_id = configuration.turn_logging_id;
   modified_config.stable_writable_connection_ping_interval_ms =
       configuration.stable_writable_connection_ping_interval_ms;
+
   if (configuration != modified_config) {
     LOG_AND_RETURN_ERROR(RTCErrorType::INVALID_MODIFICATION,
                          "Modifying the configuration in an unsupported way.");
@@ -358,6 +365,63 @@ void NoteServerUsage(UsagePattern& usage_pattern,
   if (!turn_servers.empty()) {
     usage_pattern.NoteUsageEvent(UsageEvent::TURN_SERVER_ADDED);
   }
+}
+
+template <typename Observer,
+          typename std::enable_if_t<
+              std::is_same_v<Observer, SetSessionDescriptionObserver*>,
+              bool> = true>
+absl::AnyInvocable<void() &&> ReportFailure(Observer& o, RTCError error) {
+  return [o = scoped_refptr<SetSessionDescriptionObserver>(o),
+          error = std::move(error)]() { o->OnFailure(error); };
+}
+
+template <
+    typename Observer,
+    typename std::enable_if_t<
+        std::is_same_v<Observer,
+                       scoped_refptr<SetLocalDescriptionObserverInterface>>,
+        bool> = true>
+absl::AnyInvocable<void() &&> ReportFailure(Observer& o, RTCError error) {
+  return [o = std::move(o), error = std::move(error)]() {
+    o->OnSetLocalDescriptionComplete(error);
+  };
+}
+
+template <
+    typename Observer,
+    typename std::enable_if_t<
+        std::is_same_v<Observer,
+                       scoped_refptr<SetRemoteDescriptionObserverInterface>>,
+        bool> = true>
+absl::AnyInvocable<void() &&> ReportFailure(Observer& o, RTCError error) {
+  return [o = std::move(o), error = std::move(error)]() {
+    o->OnSetRemoteDescriptionComplete(error);
+  };
+}
+
+// Checks if the observer and description pointers are valid.
+// If there's an error, the function will return false and optionally
+// notify the observer asynchronously of the error.
+// If both are valid, the function will reset the thread ownership of
+// the description object and return true.
+template <typename Observer, typename Description>
+bool CheckValidSetDescription(Observer& observer,
+                              Description& desc,
+                              Thread* signaling) {
+  if (!observer) {
+    RTC_LOG(LS_ERROR) << "Observer is NULL.";
+    return false;
+  } else if (!desc) {
+    signaling->PostTask(
+        ReportFailure(observer, RTCError(RTCErrorType::INVALID_PARAMETER,
+                                         "SessionDescription is NULL.")));
+    return false;
+  }
+  // Make sure the description object now considers the current thread its home
+  // by detaching from any potential previous thread.
+  desc->RelinquishThreadOwnership();
+  return true;
 }
 
 }  // namespace
@@ -403,8 +467,7 @@ bool PeerConnectionInterface::RTCConfiguration::operator==(
     TurnCustomizer* turn_customizer;
     SdpSemantics sdp_semantics;
     std::optional<AdapterType> network_preference;
-    bool active_reset_srtp_params;
-    std::optional<CryptoOptions> crypto_options;
+    CryptoOptions crypto_options;
     bool offer_extmap_allow_mixed;
     std::string turn_logging_id;
     bool enable_implicit_rollback;
@@ -414,6 +477,7 @@ bool PeerConnectionInterface::RTCConfiguration::operator==(
     std::vector<NetworkMask> vpn_list;
     PortAllocatorConfig port_allocator_config;
     std::optional<TimeDelta> pacer_burst_interval;
+    bool always_negotiate_datachannel;
   };
   static_assert(sizeof(stuff_being_tested_for_equality) == sizeof(*this),
                 "Did you add something to RTCConfiguration and forget to "
@@ -463,7 +527,6 @@ bool PeerConnectionInterface::RTCConfiguration::operator==(
          turn_customizer == o.turn_customizer &&
          sdp_semantics == o.sdp_semantics &&
          network_preference == o.network_preference &&
-         active_reset_srtp_params == o.active_reset_srtp_params &&
          crypto_options == o.crypto_options &&
          offer_extmap_allow_mixed == o.offer_extmap_allow_mixed &&
          turn_logging_id == o.turn_logging_id &&
@@ -475,7 +538,8 @@ bool PeerConnectionInterface::RTCConfiguration::operator==(
          port_allocator_config.min_port == o.port_allocator_config.min_port &&
          port_allocator_config.max_port == o.port_allocator_config.max_port &&
          port_allocator_config.flags == o.port_allocator_config.flags &&
-         pacer_burst_interval == o.pacer_burst_interval;
+         pacer_burst_interval == o.pacer_burst_interval &&
+         always_negotiate_data_channels == o.always_negotiate_data_channels;
 }
 
 bool PeerConnectionInterface::RTCConfiguration::operator!=(
@@ -530,6 +594,7 @@ PeerConnection::PeerConnection(
       port_allocator_(std::move(dependencies.allocator)),
       lna_permission_factory_(std::move(dependencies.lna_permission_factory)),
       ice_transport_factory_(std::move(dependencies.ice_transport_factory)),
+      dtls_transport_factory_(std::move(dependencies.dtls_transport_factory)),
       tls_cert_verifier_(std::move(dependencies.tls_cert_verifier)),
       call_(std::move(call)),
       network_thread_safety_(
@@ -539,7 +604,7 @@ PeerConnection::PeerConnection(
           /*alive=*/call_ != nullptr,
           worker_thread())),
       call_ptr_(call_.get()),
-      legacy_stats_(std::make_unique<LegacyStatsCollector>(this)),
+      legacy_stats_(std::make_unique<LegacyStatsCollector>(this, env_.clock())),
       stats_collector_(RTCStatsCollector::Create(this, env_)),
       // RFC 3264: The numeric value of the session id and version in the
       // o line MUST be representable with a "64 bit signed integer".
@@ -560,12 +625,16 @@ PeerConnection::PeerConnection(
   if (call_ptr_) {
     worker_thread()->BlockingCall([this, tc = transport_controller_copy_] {
       RTC_DCHECK_RUN_ON(worker_thread());
+      if (context_->is_configured_for_media()) {
+        media_engine_ref_ =
+            std::make_unique<ConnectionContext::MediaEngineReference>(context_);
+      }
       call_->SetPayloadTypeSuggester(tc);
     });
   }
 
   sdp_handler_ = SdpOfferAnswerHandler::Create(
-      this, configuration_, std::move(dependencies.cert_generator),
+      env_, this, configuration_, std::move(dependencies.cert_generator),
       std::move(dependencies.video_bitrate_allocator_factory), context_.get(),
       codec_lookup_helper_.get());
   rtp_manager_ = std::make_unique<RtpTransmissionManager>(
@@ -575,16 +644,16 @@ PeerConnection::PeerConnection(
         sdp_handler_->UpdateNegotiationNeeded();
       });
   // Add default audio/video transceivers for Plan B SDP.
-  if (!IsUnifiedPlan()) {
+  if (!IsUnifiedPlan() && ConfiguredForMedia()) {
     rtp_manager_->transceivers()->Add(
         RtpTransceiverProxyWithInternal<RtpTransceiver>::Create(
             signaling_thread(), make_ref_counted<RtpTransceiver>(
-                                    webrtc::MediaType::AUDIO, context_.get(),
+                                    env_, MediaType::AUDIO, context_.get(),
                                     codec_lookup_helper_.get())));
     rtp_manager_->transceivers()->Add(
         RtpTransceiverProxyWithInternal<RtpTransceiver>::Create(
             signaling_thread(), make_ref_counted<RtpTransceiver>(
-                                    webrtc::MediaType::VIDEO, context_.get(),
+                                    env_, MediaType::VIDEO, context_.get(),
                                     codec_lookup_helper_.get())));
   }
 
@@ -634,25 +703,14 @@ PeerConnection::~PeerConnection() {
     sdp_handler_->ResetSessionDescFactory();
   }
 
-  // port_allocator_ and transport_controller_ live on the network thread and
-  // should be destroyed there.
-  transport_controller_copy_ = nullptr;
-  network_thread()->BlockingCall([this] {
-    RTC_DCHECK_RUN_ON(network_thread());
-    TeardownDataChannelTransport_n(RTCError::OK());
-    transport_controller_.reset();
-    port_allocator_.reset();
-    if (network_thread_safety_)
-      network_thread_safety_->SetNotAlive();
-  });
-  sctp_mid_s_.reset();
-  SetSctpTransportName("");
+  CloseOnNetworkThread();
 
   // call_ must be destroyed on the worker thread.
   worker_thread()->BlockingCall([this] {
     RTC_DCHECK_RUN_ON(worker_thread());
     worker_thread_safety_->SetNotAlive();
     call_.reset();
+    media_engine_ref_.reset();
   });
 
   data_channel_controller_.PrepareForShutdown();
@@ -664,7 +722,120 @@ JsepTransportController* PeerConnection::InitializeNetworkThread(
   RTC_DCHECK_RUN_ON(signaling_thread());
 
   NoteServerUsage(usage_pattern_, stun_servers, turn_servers);
-  return network_thread()->BlockingCall([&, config = &configuration_] {
+
+  JsepTransportController::Config config;
+  config.redetermine_role_on_ice_restart =
+      configuration_.redetermine_role_on_ice_restart;
+  config.ssl_max_version = options_.ssl_max_version;
+  config.disable_encryption = options_.disable_encryption;
+  config.bundle_policy = configuration_.bundle_policy;
+  config.rtcp_mux_policy = configuration_.rtcp_mux_policy;
+  config.crypto_options = configuration_.crypto_options;
+
+  // Maybe enable or disable PQC from FieldTrials
+  config.crypto_options.ephemeral_key_exchange_cipher_groups.Update(&trials());
+  config.transport_observer = this;
+  config.rtcp_handler = InitializeRtcpCallback();
+  config.un_demuxable_packet_handler = InitializeUnDemuxablePacketHandler();
+#if defined(ENABLE_EXTERNAL_AUTH)
+  config.enable_external_auth = true;
+#endif
+
+  // DTLS has to be enabled to use SCTP.
+  if (dtls_enabled_) {
+    config.sctp_factory = context_->sctp_transport_factory();
+  }
+
+  config.ice_transport_factory = ice_transport_factory_.get();
+  config.dtls_transport_factory = dtls_transport_factory_.get();
+  config.on_dtls_handshake_error =
+      [weak_ptr = weak_factory_.GetWeakPtr()](SSLHandshakeError s) {
+        if (weak_ptr) {
+          weak_ptr->OnTransportControllerDtlsHandshakeError(s);
+        }
+      };
+  config.signal_ice_candidates_gathered =
+      [this](absl::string_view transport,
+             const std::vector<Candidate>& candidates) {
+        RTC_DCHECK_RUN_ON(network_thread());
+        signaling_thread()->PostTask(
+            SafeTask(signaling_thread_safety_.flag(),
+                     [this, t = std::string(transport), c = candidates]() {
+                       RTC_DCHECK_RUN_ON(signaling_thread());
+                       OnTransportControllerCandidatesGathered(t, c);
+                     }));
+      };
+  config.signal_ice_connection_state = [this](webrtc::IceConnectionState s) {
+    RTC_DCHECK_RUN_ON(network_thread());
+    signaling_thread()->PostTask(
+        SafeTask(signaling_thread_safety_.flag(), [this, s]() {
+          RTC_DCHECK_RUN_ON(signaling_thread());
+          OnTransportControllerConnectionState(s);
+        }));
+  };
+  config.signal_connection_state =
+      [this](PeerConnectionInterface::PeerConnectionState s) {
+        RTC_DCHECK_RUN_ON(network_thread());
+        signaling_thread()->PostTask(
+            SafeTask(signaling_thread_safety_.flag(), [this, s]() {
+              RTC_DCHECK_RUN_ON(signaling_thread());
+              SetConnectionState(s);
+            }));
+      };
+  config.signal_standardized_ice_connection_state =
+      [this](PeerConnectionInterface::IceConnectionState s) {
+        RTC_DCHECK_RUN_ON(network_thread());
+        signaling_thread()->PostTask(
+            SafeTask(signaling_thread_safety_.flag(), [this, s]() {
+              RTC_DCHECK_RUN_ON(signaling_thread());
+              SetStandardizedIceConnectionState(s);
+            }));
+      };
+  config.signal_ice_gathering_state = [this](::webrtc::IceGatheringState s) {
+    RTC_DCHECK_RUN_ON(network_thread());
+    signaling_thread()->PostTask(
+        SafeTask(signaling_thread_safety_.flag(), [this, s]() {
+          RTC_DCHECK_RUN_ON(signaling_thread());
+          OnTransportControllerGatheringState(s);
+        }));
+  };
+  config.signal_ice_candidate_error =
+      [this](const IceCandidateErrorEvent& event) {
+        RTC_DCHECK_RUN_ON(network_thread());
+        signaling_thread()->PostTask(
+            SafeTask(signaling_thread_safety_.flag(), [this, event = event]() {
+              RTC_DCHECK_RUN_ON(signaling_thread());
+              OnTransportControllerCandidateError(event);
+            }));
+      };
+  config.signal_ice_candidates_removed =
+      [this](IceTransportInternal* transport, const std::vector<Candidate>& c) {
+        RTC_DCHECK_RUN_ON(network_thread());
+        std::string mid = transport->transport_name();
+        signaling_thread()->PostTask(SafeTask(
+            signaling_thread_safety_.flag(), [this, mid = mid, c = c]() {
+              RTC_DCHECK_RUN_ON(signaling_thread());
+              OnTransportControllerCandidatesRemoved(mid, c);
+            }));
+      };
+  config.signal_ice_candidate_pair_changed =
+      [this](const CandidatePairChangeEvent& event) {
+        RTC_DCHECK_RUN_ON(network_thread());
+        signaling_thread()->PostTask(
+            SafeTask(signaling_thread_safety_.flag(), [this, event = event]() {
+              RTC_DCHECK_RUN_ON(signaling_thread());
+              OnTransportControllerCandidateChanged(event);
+            }));
+      };
+
+  auto transport_controller = std::make_unique<JsepTransportController>(
+      env_, signaling_thread(), network_thread(), port_allocator_.get(),
+      async_dns_resolver_factory_.get(), lna_permission_factory_.get(),
+      payload_type_picker_, std::move(config));
+
+  return network_thread()->BlockingCall([&, config = &configuration_,
+                                         controller = std::move(
+                                             transport_controller)]() mutable {
     RTC_DCHECK_RUN_ON(network_thread());
     RTC_DCHECK(network_thread_safety_->alive());
     InitializePortAllocatorResult pa_result =
@@ -674,128 +845,36 @@ JsepTransportController* PeerConnection::InitializeNetworkThread(
         pa_result.enable_ipv6 ? kPeerConnection_IPv6 : kPeerConnection_IPv4;
     RTC_HISTOGRAM_ENUMERATION("WebRTC.PeerConnection.IPMetrics", address_family,
                               kPeerConnectionAddressFamilyCounter_Max);
-    return InitializeTransportController_n(*config);
+    return InitializeTransportController_n(std::move(controller), *config);
   });
 }
 
-JsepTransportController* PeerConnection::InitializeTransportController_n(
-    const RTCConfiguration& configuration) {
-  JsepTransportController::Config config;
-  config.redetermine_role_on_ice_restart =
-      configuration.redetermine_role_on_ice_restart;
-  config.ssl_max_version = options_.ssl_max_version;
-  config.disable_encryption = options_.disable_encryption;
-  config.bundle_policy = configuration.bundle_policy;
-  config.rtcp_mux_policy = configuration.rtcp_mux_policy;
-  config.crypto_options = configuration.crypto_options.has_value()
-                              ? *configuration.crypto_options
-                              : CryptoOptions();
-
-  // Maybe enable PQC from FieldTrials
-  config.crypto_options.ephemeral_key_exchange_cipher_groups.Update(
-      &context_->env().field_trials());
-  config.transport_observer = this;
-  config.rtcp_handler = InitializeRtcpCallback();
-  config.un_demuxable_packet_handler = InitializeUnDemuxablePacketHandler();
-  config.event_log = &env_.event_log();
-#if defined(ENABLE_EXTERNAL_AUTH)
-  config.enable_external_auth = true;
-#endif
-  config.active_reset_srtp_params = configuration.active_reset_srtp_params;
-
-  // DTLS has to be enabled to use SCTP.
-  if (dtls_enabled_) {
-    config.sctp_factory = context_->sctp_transport_factory();
+void PeerConnection::CloseOnNetworkThread() {
+  RTC_DCHECK_RUN_ON(signaling_thread());
+  if (!transport_controller_copy_) {
+    RTC_DCHECK(!sctp_mid_s_.has_value()) << "Should already be reset.";
+    return;
   }
+  // port_allocator_ and transport_controller_ live on the network thread and
+  // should be destroyed there.
+  transport_controller_copy_ = nullptr;
+  network_thread()->BlockingCall([this] {
+    RTC_DCHECK_RUN_ON(network_thread());
+    RTC_DCHECK(network_thread_safety_->alive());
+    TeardownDataChannelTransport_n(RTCError::OK());
+    port_allocator_->DiscardCandidatePool();
+    transport_controller_.reset();
+    port_allocator_.reset();
+    network_thread_safety_->SetNotAlive();
+  });
+  sctp_mid_s_.reset();
+  SetSctpTransportName("");
+}
 
-  config.ice_transport_factory = ice_transport_factory_.get();
-  config.on_dtls_handshake_error_ =
-      [weak_ptr = weak_factory_.GetWeakPtr()](SSLHandshakeError s) {
-        if (weak_ptr) {
-          weak_ptr->OnTransportControllerDtlsHandshakeError(s);
-        }
-      };
-
-  transport_controller_.reset(new JsepTransportController(
-      env_, network_thread(), port_allocator_.get(),
-      async_dns_resolver_factory_.get(), lna_permission_factory_.get(),
-      payload_type_picker_, std::move(config)));
-
-  transport_controller_->SubscribeIceConnectionState(
-      [this](::webrtc::IceConnectionState s) {
-        RTC_DCHECK_RUN_ON(network_thread());
-        signaling_thread()->PostTask(
-            SafeTask(signaling_thread_safety_.flag(), [this, s]() {
-              RTC_DCHECK_RUN_ON(signaling_thread());
-              OnTransportControllerConnectionState(s);
-            }));
-      });
-  transport_controller_->SubscribeConnectionState(
-      [this](PeerConnectionInterface::PeerConnectionState s) {
-        RTC_DCHECK_RUN_ON(network_thread());
-        signaling_thread()->PostTask(
-            SafeTask(signaling_thread_safety_.flag(), [this, s]() {
-              RTC_DCHECK_RUN_ON(signaling_thread());
-              SetConnectionState(s);
-            }));
-      });
-  transport_controller_->SubscribeStandardizedIceConnectionState(
-      [this](PeerConnectionInterface::IceConnectionState s) {
-        RTC_DCHECK_RUN_ON(network_thread());
-        signaling_thread()->PostTask(
-            SafeTask(signaling_thread_safety_.flag(), [this, s]() {
-              RTC_DCHECK_RUN_ON(signaling_thread());
-              SetStandardizedIceConnectionState(s);
-            }));
-      });
-  transport_controller_->SubscribeIceGatheringState(
-      [this](::webrtc::IceGatheringState s) {
-        RTC_DCHECK_RUN_ON(network_thread());
-        signaling_thread()->PostTask(
-            SafeTask(signaling_thread_safety_.flag(), [this, s]() {
-              RTC_DCHECK_RUN_ON(signaling_thread());
-              OnTransportControllerGatheringState(s);
-            }));
-      });
-  transport_controller_->SubscribeIceCandidateGathered(
-      [this](const std::string& transport,
-             const std::vector<Candidate>& candidates) {
-        RTC_DCHECK_RUN_ON(network_thread());
-        signaling_thread()->PostTask(
-            SafeTask(signaling_thread_safety_.flag(),
-                     [this, t = transport, c = candidates]() {
-                       RTC_DCHECK_RUN_ON(signaling_thread());
-                       OnTransportControllerCandidatesGathered(t, c);
-                     }));
-      });
-  transport_controller_->SubscribeIceCandidateError(
-      [this](const IceCandidateErrorEvent& event) {
-        RTC_DCHECK_RUN_ON(network_thread());
-        signaling_thread()->PostTask(
-            SafeTask(signaling_thread_safety_.flag(), [this, event = event]() {
-              RTC_DCHECK_RUN_ON(signaling_thread());
-              OnTransportControllerCandidateError(event);
-            }));
-      });
-  transport_controller_->SubscribeIceCandidatesRemoved(
-      [this](IceTransportInternal* transport, const std::vector<Candidate>& c) {
-        RTC_DCHECK_RUN_ON(network_thread());
-        std::string mid = transport->transport_name();
-        signaling_thread()->PostTask(SafeTask(
-            signaling_thread_safety_.flag(), [this, mid = mid, c = c]() {
-              RTC_DCHECK_RUN_ON(signaling_thread());
-              OnTransportControllerCandidatesRemoved(mid, c);
-            }));
-      });
-  transport_controller_->SubscribeIceCandidatePairChanged(
-      [this](const CandidatePairChangeEvent& event) {
-        RTC_DCHECK_RUN_ON(network_thread());
-        signaling_thread()->PostTask(
-            SafeTask(signaling_thread_safety_.flag(), [this, event = event]() {
-              RTC_DCHECK_RUN_ON(signaling_thread());
-              OnTransportControllerCandidateChanged(event);
-            }));
-      });
+JsepTransportController* PeerConnection::InitializeTransportController_n(
+    std::unique_ptr<JsepTransportController> controller,
+    const RTCConfiguration& configuration) {
+  transport_controller_ = std::move(controller);
 
   IceConfig ice_config(configuration);
   ice_config.dtls_handshake_in_stun = CanAttemptDtlsStunPiggybacking();
@@ -1089,8 +1168,7 @@ PeerConnection::AddTransceiver(webrtc::MediaType media_type,
   std::vector<Codec> codecs;
   // Gather the current codec capabilities to allow checking scalabilityMode and
   // codec selection against supported values.
-  CodecVendor codec_vendor(context_->media_engine(), false,
-                           context_->env().field_trials());
+  CodecVendor codec_vendor(context_->media_engine(), false, trials());
   if (media_type == webrtc::MediaType::VIDEO) {
     codecs = codec_vendor.video_send_codecs().codecs();
   } else {
@@ -1366,7 +1444,7 @@ std::optional<bool> PeerConnection::can_trickle_ice_candidates() {
     return std::nullopt;
   }
   // TODO(bugs.webrtc.org/7443): Change to retrieve from session-level option.
-  if (description->description()->transport_infos().size() < 1) {
+  if (description->description()->transport_infos().empty()) {
     return std::nullopt;
   }
   return description->description()->transport_infos()[0].description.HasOption(
@@ -1399,6 +1477,7 @@ PeerConnection::CreateDataChannelOrError(const std::string& label,
     return ret.MoveError();
   }
 
+  ClearStatsCache();
   scoped_refptr<DataChannelInterface> channel = ret.MoveValue();
 
   // Check the onRenegotiationNeeded event (with plan-b backward compat)
@@ -1430,16 +1509,28 @@ void PeerConnection::CreateAnswer(CreateSessionDescriptionObserver* observer,
 
 void PeerConnection::SetLocalDescription(
     SetSessionDescriptionObserver* observer,
-    SessionDescriptionInterface* desc_ptr) {
-  RTC_DCHECK_RUN_ON(signaling_thread());
-  sdp_handler_->SetLocalDescription(observer, desc_ptr);
+    SessionDescriptionInterface* desc) {
+  if (!CheckValidSetDescription(observer, desc, signaling_thread()))
+    return;
+
+  RunOnSignalingThread([this, desc, observer]() mutable {
+    RTC_DCHECK_RUN_ON(signaling_thread());
+    sdp_handler_->SetLocalDescription(observer, desc);
+  });
 }
 
+// This method bypasses the proxy, so can be called from any thread.
 void PeerConnection::SetLocalDescription(
     std::unique_ptr<SessionDescriptionInterface> desc,
     scoped_refptr<SetLocalDescriptionObserverInterface> observer) {
-  RTC_DCHECK_RUN_ON(signaling_thread());
-  sdp_handler_->SetLocalDescription(std::move(desc), observer);
+  if (!CheckValidSetDescription(observer, desc, signaling_thread()))
+    return;
+
+  RunOnSignalingThread(
+      [this, desc = std::move(desc), observer = std::move(observer)]() mutable {
+        RTC_DCHECK_RUN_ON(signaling_thread());
+        sdp_handler_->SetLocalDescription(std::move(desc), observer);
+      });
 }
 
 void PeerConnection::SetLocalDescription(
@@ -1456,16 +1547,27 @@ void PeerConnection::SetLocalDescription(
 
 void PeerConnection::SetRemoteDescription(
     SetSessionDescriptionObserver* observer,
-    SessionDescriptionInterface* desc_ptr) {
-  RTC_DCHECK_RUN_ON(signaling_thread());
-  sdp_handler_->SetRemoteDescription(observer, desc_ptr);
+    SessionDescriptionInterface* desc) {
+  if (!CheckValidSetDescription(observer, desc, signaling_thread()))
+    return;
+
+  RunOnSignalingThread([this, desc, observer]() mutable {
+    RTC_DCHECK_RUN_ON(signaling_thread());
+    sdp_handler_->SetRemoteDescription(observer, desc);
+  });
 }
 
 void PeerConnection::SetRemoteDescription(
     std::unique_ptr<SessionDescriptionInterface> desc,
     scoped_refptr<SetRemoteDescriptionObserverInterface> observer) {
-  RTC_DCHECK_RUN_ON(signaling_thread());
-  sdp_handler_->SetRemoteDescription(std::move(desc), observer);
+  if (!CheckValidSetDescription(observer, desc, signaling_thread()))
+    return;
+
+  RunOnSignalingThread(
+      [this, desc = std::move(desc), observer = std::move(observer)]() mutable {
+        RTC_DCHECK_RUN_ON(signaling_thread());
+        sdp_handler_->SetRemoteDescription(std::move(desc), observer);
+      });
 }
 
 PeerConnectionInterface::RTCConfiguration PeerConnection::GetConfiguration() {
@@ -1494,15 +1596,14 @@ RTCError PeerConnection::SetConfiguration(
   }
 
   if (has_local_description &&
-      configuration.crypto_options.value_or(CryptoOptions()) !=
-          configuration_.crypto_options) {
+      configuration.crypto_options != configuration_.crypto_options) {
     LOG_AND_RETURN_ERROR(RTCErrorType::INVALID_MODIFICATION,
                          "Can't change crypto_options after calling "
                          "SetLocalDescription.");
   }
 
-  // Create a new, configuration object whose Ice config will have been
-  // validated..
+  // Create a new, configuration object whose peerconnection config
+  // will have been validated.
   RTCErrorOr<RTCConfiguration> validated_config =
       ApplyConfiguration(configuration, configuration_);
   if (!validated_config.ok()) {
@@ -1544,8 +1645,6 @@ RTCError PeerConnection::SetConfiguration(
               transport_controller_->SetNeedsIceRestartFlag();
 
             transport_controller_->SetIceConfig(ice_config);
-            transport_controller_->SetActiveResetSrtpParams(
-                modified_config.active_reset_srtp_params);
             return ReconfigurePortAllocator_n(
                 stun_servers, turn_servers, modified_config.type,
                 modified_config.ice_candidate_pool_size,
@@ -1584,18 +1683,16 @@ bool PeerConnection::RemoveIceCandidate(const IceCandidate* candidate) {
   return sdp_handler_->RemoveIceCandidate(candidate);
 }
 
-bool PeerConnection::RemoveIceCandidates(
-    const std::vector<Candidate>& candidates) {
-  TRACE_EVENT0("webrtc", "PeerConnection::RemoveIceCandidates");
-  RTC_DCHECK_RUN_ON(signaling_thread());
-  return sdp_handler_->RemoveIceCandidates(candidates);
-}
-
 RTCError PeerConnection::SetBitrate(const BitrateSettings& bitrate) {
   if (!worker_thread()->IsCurrent()) {
     return worker_thread()->BlockingCall([&]() { return SetBitrate(bitrate); });
   }
   RTC_DCHECK_RUN_ON(worker_thread());
+
+  if (!call_) {
+    LOG_AND_RETURN_ERROR(RTCErrorType::INVALID_STATE,
+                         "PeerConnection is closed.");
+  }
 
   const bool has_min = bitrate.min_bitrate_bps.has_value();
   const bool has_start = bitrate.start_bitrate_bps.has_value();
@@ -1626,7 +1723,6 @@ RTCError PeerConnection::SetBitrate(const BitrateSettings& bitrate) {
     }
   }
 
-  RTC_DCHECK(call_.get());
   call_->SetClientBitratePreferences(bitrate);
 
   return RTCError::OK();
@@ -1642,22 +1738,26 @@ void PeerConnection::ReconfigureBandwidthEstimation(
 }
 
 void PeerConnection::SetAudioPlayout(bool playout) {
+  RTC_DCHECK(ConfiguredForMedia());
   if (!worker_thread()->IsCurrent()) {
     worker_thread()->BlockingCall(
         [this, playout] { SetAudioPlayout(playout); });
     return;
   }
-  auto audio_state = context_->media_engine()->voice().GetAudioState();
+  RTC_DCHECK_RUN_ON(worker_thread());
+  auto audio_state = media_engine()->voice().GetAudioState();
   audio_state->SetPlayout(playout);
 }
 
 void PeerConnection::SetAudioRecording(bool recording) {
+  RTC_DCHECK(ConfiguredForMedia());
   if (!worker_thread()->IsCurrent()) {
     worker_thread()->BlockingCall(
         [this, recording] { SetAudioRecording(recording); });
     return;
   }
-  auto audio_state = context_->media_engine()->voice().GetAudioState();
+  RTC_DCHECK_RUN_ON(worker_thread());
+  auto audio_state = media_engine()->voice().GetAudioState();
   audio_state->SetRecording(recording);
 }
 
@@ -1675,7 +1775,7 @@ void PeerConnection::AddAdaptationResource(scoped_refptr<Resource> resource) {
 }
 
 bool PeerConnection::ConfiguredForMedia() const {
-  return context_->media_engine();
+  return context_->is_configured_for_media();
 }
 
 bool PeerConnection::StartRtcEventLog(std::unique_ptr<RtcEventLogOutput> output,
@@ -1734,37 +1834,41 @@ scoped_refptr<SctpTransportInterface> PeerConnection::GetSctpTransport() const {
 }
 
 const SessionDescriptionInterface* PeerConnection::local_description() const {
-  RTC_DCHECK_RUN_ON(signaling_thread());
-  return sdp_handler_->local_description();
+  return HandleSessionDescriptionAccessor<&SdpStateProvider::local_description>(
+      local_description_clone_);
 }
 
 const SessionDescriptionInterface* PeerConnection::remote_description() const {
-  RTC_DCHECK_RUN_ON(signaling_thread());
-  return sdp_handler_->remote_description();
+  return HandleSessionDescriptionAccessor<
+      &SdpStateProvider::remote_description>(remote_description_clone_);
 }
 
 const SessionDescriptionInterface* PeerConnection::current_local_description()
     const {
-  RTC_DCHECK_RUN_ON(signaling_thread());
-  return sdp_handler_->current_local_description();
+  return HandleSessionDescriptionAccessor<
+      &SdpStateProvider::current_local_description>(
+      current_local_description_clone_);
 }
 
 const SessionDescriptionInterface* PeerConnection::current_remote_description()
     const {
-  RTC_DCHECK_RUN_ON(signaling_thread());
-  return sdp_handler_->current_remote_description();
+  return HandleSessionDescriptionAccessor<
+      &SdpStateProvider::current_remote_description>(
+      current_remote_description_clone_);
 }
 
 const SessionDescriptionInterface* PeerConnection::pending_local_description()
     const {
-  RTC_DCHECK_RUN_ON(signaling_thread());
-  return sdp_handler_->pending_local_description();
+  return HandleSessionDescriptionAccessor<
+      &SdpStateProvider::pending_local_description>(
+      pending_local_description_clone_);
 }
 
 const SessionDescriptionInterface* PeerConnection::pending_remote_description()
     const {
-  RTC_DCHECK_RUN_ON(signaling_thread());
-  return sdp_handler_->pending_remote_description();
+  return HandleSessionDescriptionAccessor<
+      &SdpStateProvider::pending_remote_description>(
+      pending_remote_description_clone_);
 }
 
 void PeerConnection::Close() {
@@ -1829,18 +1933,7 @@ void PeerConnection::Close() {
     rtp_manager_->Close();
   }
 
-  network_thread()->BlockingCall([this] {
-    RTC_DCHECK_RUN_ON(network_thread());
-    TeardownDataChannelTransport_n({});
-    transport_controller_.reset();
-    port_allocator_->DiscardCandidatePool();
-    if (network_thread_safety_) {
-      network_thread_safety_->SetNotAlive();
-    }
-  });
-
-  sctp_mid_s_.reset();
-  SetSctpTransportName("");
+  CloseOnNetworkThread();
 
   worker_thread()->BlockingCall([this] {
     RTC_DCHECK_RUN_ON(worker_thread());
@@ -2012,6 +2105,25 @@ void PeerConnection::ReportFirstConnectUsageMetrics() {
       // Rollback does not have SDP so can not be munged.
       break;
   }
+  bool negotiated_sctp_snap = false;
+  const SessionDescription* desc = nullptr;
+  if (local_description()->GetType() == SdpType::kAnswer) {
+    desc = local_description()->description();
+  } else if (remote_description()->GetType() == SdpType::kAnswer) {
+    desc = remote_description()->description();
+  }
+  if (desc) {
+    const ContentInfo* sctp_content = GetFirstDataContent(desc);
+    if (sctp_content && !sctp_content->rejected) {
+      const SctpDataContentDescription* sctp_desc =
+          sctp_content->media_description()->as_sctp();
+      if (sctp_desc) {
+        negotiated_sctp_snap |= sctp_desc->sctp_init().has_value();
+      }
+    }
+  }
+  RTC_HISTOGRAM_BOOLEAN("WebRTC.PeerConnection.NegotiatedSctpSnap",
+                        negotiated_sctp_snap);
 }
 
 void PeerConnection::ReportCloseUsageMetrics() {
@@ -2083,19 +2195,11 @@ void PeerConnection::OnIceCandidatesRemoved(
   if (IsClosed()) {
     return;
   }
-  // Since this callback is based on the Candidate type, and not IceCandidate,
-  // all candidate instances should have the transport_name() property set to
-  // `mid`. See BasicPortAllocatorSession::PrunePortsAndRemoveCandidates for
-  // where the list of candidates is initially gathered.
-  std::vector<Candidate> candidates_for_notification;
-  candidates_for_notification.reserve(candidates.size());
-  for (Candidate candidate : candidates) {  // Create a copy.
-    candidate.set_transport_name(mid);
-    candidates_for_notification.push_back(candidate);
+
+  for (const Candidate& candidate : candidates) {
+    IceCandidate c(mid, -1, candidate);
+    RunWithObserver([&](auto o) { o->OnIceCandidateRemoved(&c); });
   }
-  RunWithObserver([&](auto observer) {
-    observer->OnIceCandidatesRemoved(candidates_for_notification);
-  });
 }
 
 void PeerConnection::OnSelectedCandidatePairChanged(
@@ -2135,6 +2239,13 @@ bool PeerConnection::CreateDataChannelTransport(absl::string_view mid) {
 
 void PeerConnection::DestroyDataChannelTransport(RTCError error) {
   RTC_DCHECK_RUN_ON(signaling_thread());
+
+  if (!sctp_mid_s_.has_value()) {
+    RTC_LOG(LS_INFO) << "Data channel not configured.";
+    RTC_DCHECK(sctp_transport_name_s_.empty());
+    return;
+  }
+
   network_thread()->BlockingCall([&] {
     RTC_DCHECK_RUN_ON(network_thread());
     TeardownDataChannelTransport_n(error);
@@ -2269,10 +2380,7 @@ bool PeerConnection::GetSslRole(const std::string& content_name,
     return false;
   }
 
-  auto dtls_role = network_thread()->BlockingCall([this, content_name]() {
-    RTC_DCHECK_RUN_ON(network_thread());
-    return transport_controller_->GetDtlsRole(content_name);
-  });
+  auto dtls_role = transport_controller_s()->GetDtlsRole(content_name);
   if (dtls_role) {
     *role = *dtls_role;
     return true;
@@ -2312,6 +2420,12 @@ void PeerConnection::SetSctpTransportName(std::string sctp_transport_name) {
   RTC_DCHECK_RUN_ON(signaling_thread());
   sctp_transport_name_s_ = std::move(sctp_transport_name);
   ClearStatsCache();
+}
+
+// RTC_RUN_ON(worker_thread())
+MediaEngineInterface* PeerConnection::media_engine() const {
+  RTC_DCHECK(media_engine_ref_);
+  return media_engine_ref_->media_engine();
 }
 
 std::optional<std::string> PeerConnection::sctp_mid() const {
@@ -2374,16 +2488,14 @@ bool PeerConnection::IceRestartPending(const std::string& content_name) const {
 }
 
 bool PeerConnection::NeedsIceRestart(const std::string& content_name) const {
-  return network_thread()->BlockingCall([this, &content_name] {
-    RTC_DCHECK_RUN_ON(network_thread());
-    return transport_controller_->NeedsIceRestart(content_name);
-  });
+  RTC_DCHECK_RUN_ON(signaling_thread());
+  return transport_controller_s()->NeedsIceRestart(content_name);
 }
 
 void PeerConnection::OnTransportControllerConnectionState(
-    ::webrtc::IceConnectionState state) {
+    webrtc::IceConnectionState state) {
   switch (state) {
-    case ::webrtc::kIceConnectionConnecting:
+    case webrtc::kIceConnectionConnecting:
       // If the current state is Connected or Completed, then there were
       // writable channels but now there are not, so the next state must
       // be Disconnected.
@@ -2398,10 +2510,10 @@ void PeerConnection::OnTransportControllerConnectionState(
             PeerConnectionInterface::kIceConnectionDisconnected);
       }
       break;
-    case ::webrtc::kIceConnectionFailed:
+    case webrtc::kIceConnectionFailed:
       SetIceConnectionState(PeerConnectionInterface::kIceConnectionFailed);
       break;
-    case ::webrtc::kIceConnectionConnected:
+    case webrtc::kIceConnectionConnected:
       RTC_LOG(LS_INFO) << "Changing to ICE connected state because "
                           "all transports are writable.";
       {
@@ -2421,7 +2533,7 @@ void PeerConnection::OnTransportControllerConnectionState(
       SetIceConnectionState(PeerConnectionInterface::kIceConnectionConnected);
       NoteUsageEvent(UsageEvent::ICE_STATE_CONNECTED);
       break;
-    case ::webrtc::kIceConnectionCompleted:
+    case webrtc::kIceConnectionCompleted:
       RTC_LOG(LS_INFO) << "Changing to ICE completed state because "
                           "all transports are complete.";
       if (ice_connection_state_ !=
@@ -2440,7 +2552,7 @@ void PeerConnection::OnTransportControllerConnectionState(
 }
 
 void PeerConnection::OnTransportControllerCandidatesGathered(
-    const std::string& transport_name,
+    absl::string_view transport_name,
     const Candidates& candidates) {
   // TODO(bugs.webrtc.org/12427): Expect this to come in on the network thread
   // (not signaling as it currently does), handle appropriately.
@@ -2489,9 +2601,8 @@ void PeerConnection::OnTransportControllerDtlsHandshakeError(
 }
 
 // Returns the media index for a local ice candidate given the content name.
-bool PeerConnection::GetLocalCandidateMediaIndex(
-    const std::string& content_name,
-    int* sdp_mline_index) {
+bool PeerConnection::GetLocalCandidateMediaIndex(absl::string_view content_name,
+                                                 int* sdp_mline_index) {
   if (!local_description() || !sdp_mline_index) {
     return false;
   }
@@ -2522,8 +2633,9 @@ Call::Stats PeerConnection::GetCallStats() {
 }
 
 std::optional<AudioDeviceModule::Stats> PeerConnection::GetAudioDeviceStats() {
-  if (context_->media_engine()) {
-    return context_->media_engine()->voice().GetAudioDeviceStats();
+  RTC_DCHECK_RUN_ON(worker_thread());
+  if (context_->is_configured_for_media()) {
+    return media_engine()->voice().GetAudioDeviceStats();
   }
   return std::nullopt;
 }
@@ -2745,13 +2857,13 @@ bool PeerConnection::SrtpRequired() const {
 }
 
 void PeerConnection::OnTransportControllerGatheringState(
-    ::webrtc::IceGatheringState state) {
+    webrtc::IceGatheringState state) {
   RTC_DCHECK(signaling_thread()->IsCurrent());
-  if (state == ::webrtc::kIceGatheringGathering) {
+  if (state == webrtc::kIceGatheringGathering) {
     OnIceGatheringChange(PeerConnectionInterface::kIceGatheringGathering);
-  } else if (state == ::webrtc::kIceGatheringComplete) {
+  } else if (state == webrtc::kIceGatheringComplete) {
     OnIceGatheringChange(PeerConnectionInterface::kIceGatheringComplete);
-  } else if (state == ::webrtc::kIceGatheringNew) {
+  } else if (state == webrtc::kIceGatheringNew) {
     OnIceGatheringChange(PeerConnectionInterface::kIceGatheringNew);
   } else {
     RTC_LOG(LS_ERROR) << "Unknown state received: " << state;
@@ -2764,12 +2876,12 @@ void PeerConnection::ReportTransportStats(
     std::vector<RtpTransceiverProxyRefPtr> transceivers) {
   TRACE_EVENT0("webrtc", "PeerConnection::ReportTransportStats");
   Thread::ScopedDisallowBlockingCalls no_blocking_calls;
-  std::map<std::string, std::set<webrtc::MediaType>>
+  flat_map<absl::string_view, std::set<webrtc::MediaType>>
       media_types_by_transport_name;
   for (const auto& transceiver : transceivers) {
     if (transceiver->internal()->channel()) {
-      std::string transport_name(
-          transceiver->internal()->channel()->transport_name());
+      const absl::string_view transport_name =
+          transceiver->internal()->channel()->transport_name();
       media_types_by_transport_name[transport_name].insert(
           transceiver->media_type());
     }
@@ -2785,7 +2897,7 @@ void PeerConnection::ReportTransportStats(
   }
 
   for (const auto& entry : media_types_by_transport_name) {
-    const std::string& transport_name = entry.first;
+    const absl::string_view transport_name = entry.first;
     const std::set<webrtc::MediaType> media_types = entry.second;
     TransportStats stats;
     if (transport_controller_->GetStats(transport_name, &stats)) {
@@ -2813,14 +2925,15 @@ void PeerConnection::ReportBestConnectionState(const TransportStats& stats) {
       if (local.protocol() == TCP_PROTOCOL_NAME ||
           (local.is_relay() && local.relay_protocol() == TCP_PROTOCOL_NAME)) {
         RTC_HISTOGRAM_ENUMERATION("WebRTC.PeerConnection.CandidatePairType_TCP",
-                                  GetIceCandidatePairCounter(local, remote),
+                                  GetIceCandidatePairType(local, remote),
                                   kIceCandidatePairMax);
       } else if (local.protocol() == UDP_PROTOCOL_NAME) {
         RTC_HISTOGRAM_ENUMERATION("WebRTC.PeerConnection.CandidatePairType_UDP",
-                                  GetIceCandidatePairCounter(local, remote),
+                                  GetIceCandidatePairType(local, remote),
                                   kIceCandidatePairMax);
       } else {
-        RTC_CHECK_NOTREACHED();
+        RTC_LOG(LS_WARNING) << "ReportBestConnectionState: No histogram for "
+                            << local.protocol();
       }
 
       // Increment the counter for IP type.
@@ -2912,7 +3025,7 @@ void PeerConnection::ReportNegotiatedCiphers(
 }
 
 bool PeerConnection::OnTransportChanged(
-    const std::string& mid,
+    absl::string_view mid,
     RtpTransportInternal* rtp_transport,
     scoped_refptr<DtlsTransport> dtls_transport,
     DataChannelTransportInterface* data_channel_transport) {
@@ -2973,10 +3086,7 @@ RTCError PeerConnection::StartSctpTransport(const SctpOptions& options) {
 
 CryptoOptions PeerConnection::GetCryptoOptions() {
   RTC_DCHECK_RUN_ON(signaling_thread());
-  if (!configuration_.crypto_options) {
-    configuration_.crypto_options = CryptoOptions();
-  }
-  return *configuration_.crypto_options;
+  return configuration_.crypto_options;
 }
 
 void PeerConnection::ClearStatsCache() {
@@ -3007,21 +3117,20 @@ void PeerConnection::RequestUsagePatternReportForTesting() {
 int PeerConnection::FeedbackAccordingToRfc8888CountForTesting() const {
   return worker_thread()->BlockingCall([this]() {
     RTC_DCHECK_RUN_ON(worker_thread());
-    return call_->FeedbackAccordingToRfc8888Count();
+    return call_->FeedbackAccordingToRfc8888Count().value_or(0);
   });
 }
 
 int PeerConnection::FeedbackAccordingToTransportCcCountForTesting() const {
   return worker_thread()->BlockingCall([this]() {
     RTC_DCHECK_RUN_ON(worker_thread());
-    return call_->FeedbackAccordingToTransportCcCount();
+    return call_->FeedbackAccordingToTransportCcCount().value_or(0);
   });
 }
 
-std::function<void(const webrtc::CopyOnWriteBuffer& packet,
-                   int64_t packet_time_us)>
+absl::AnyInvocable<void(const CopyOnWriteBuffer& packet, int64_t packet_time_us)
+                       const>
 PeerConnection::InitializeRtcpCallback() {
-  RTC_DCHECK_RUN_ON(network_thread());
   return [this](const CopyOnWriteBuffer& packet, int64_t /*packet_time_us*/) {
     worker_thread()->PostTask(SafeTask(worker_thread_safety_, [this, packet]() {
       call_ptr_->Receiver()->DeliverRtcpPacket(packet);
@@ -3029,9 +3138,8 @@ PeerConnection::InitializeRtcpCallback() {
   };
 }
 
-std::function<void(const RtpPacketReceived& parsed_packet)>
+absl::AnyInvocable<void(const RtpPacketReceived& parsed_packet) const>
 PeerConnection::InitializeUnDemuxablePacketHandler() {
-  RTC_DCHECK_RUN_ON(network_thread());
   return [this](const RtpPacketReceived& parsed_packet) {
     worker_thread()->PostTask(
         SafeTask(worker_thread_safety_, [this, parsed_packet]() {
@@ -3049,6 +3157,19 @@ PeerConnection::InitializeUnDemuxablePacketHandler() {
 bool PeerConnection::CanAttemptDtlsStunPiggybacking() {
   return dtls_enabled_ &&
          env_.field_trials().IsEnabled("WebRTC-IceHandshakeDtls");
+}
+
+void PeerConnection::RunOnSignalingThread(absl::AnyInvocable<void() &&> task) {
+  if (signaling_thread()->IsCurrent()) {
+    std::move(task)();
+  } else {
+    // Consider if we can use PostTask instead in some situations:
+    //   signaling_thread()->PostTask(
+    //      SafeTask(signaling_thread_safety_.flag(), std::move(task)));
+    // Currently we use BlockingCall() to be compatible with how the
+    // api proxies work by default.
+    signaling_thread()->BlockingCall([&] { std::move(task)(); });
+  }
 }
 
 }  // namespace webrtc

@@ -7,8 +7,6 @@ import os
 # ruff linter deprecates Dict required for Python 3.8 compatibility
 from typing import Any, Dict, Optional  # noqa UP035
 
-import yaml
-
 DictAny = Dict[str, Any]  # noqa UP006
 DictStr = Dict[str, str]  # noqa UP006
 OptTestSettings = Optional[DictAny]
@@ -60,7 +58,6 @@ def android_api_to_os_version(api_version: str):
 
 
 class PlatformInfo:
-
     variant_data = {}
 
     buildmap = {
@@ -134,6 +131,8 @@ class PlatformInfo:
         if build is not None and self.os == "win":
             if build == "24h2":
                 version += ".26100"
+            elif build == "25h2":
+                version += ".26200"
             else:
                 version += "." + build
         return version
@@ -177,6 +176,8 @@ class PlatformInfo:
         return build_type
 
     def get_variant_data(self):
+        import yaml
+
         if PlatformInfo.variant_data:
             return PlatformInfo.variant_data
 
@@ -184,6 +185,7 @@ class PlatformInfo:
         filename = (
             os.environ.get("GECKO_PATH", ".") + "/taskcluster/test_configs/variants.yml"
         )
+
         with open(filename) as f:
             PlatformInfo.variant_data = yaml.safe_load(f.read())
 

@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsProxyInfo_h__
-#define nsProxyInfo_h__
+#ifndef nsProxyInfo_h_
+#define nsProxyInfo_h_
 
 #include "nsIProxyInfo.h"
 #include "nsString.h"
@@ -36,7 +36,7 @@ class nsProxyInfo final : public nsIProxyInfo {
   // Cheap accessors for use within Necko
   const nsCString& Host() const { return mHost; }
   int32_t Port() const { return mPort; }
-  const nsCString& PathTemplate() const { return mPathTemplate; }
+  const nsCString& MasqueTemplate() const { return mMasqueTemplate; }
   const char* Type() const { return mType; }
   uint32_t Flags() const { return mFlags; }
   const nsCString& Username() const { return mUsername; }
@@ -87,7 +87,7 @@ class nsProxyInfo final : public nsIProxyInfo {
   nsCString mProxyAuthorizationHeader;
   nsCString mConnectionIsolationKey;
   nsCString mSourceId;
-  nsCString mPathTemplate;
+  nsCString mMasqueTemplate;
   int32_t mPort{-1};
   uint32_t mFlags{0};
   // We need to read on multiple threads, but don't need to sync on anything
@@ -100,4 +100,4 @@ class nsProxyInfo final : public nsIProxyInfo {
 }  // namespace net
 }  // namespace mozilla
 
-#endif  // nsProxyInfo_h__
+#endif  // nsProxyInfo_h_

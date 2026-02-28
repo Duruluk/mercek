@@ -71,8 +71,9 @@ export const NavigationState = {
 /**
  * @typedef {object} NavigationInfo
  * @property {boolean} committed - Whether the navigation was ever committed.
- * @property {string} navigationId - The UUID for the navigation.
+ * @property {string} contextId - ID of the browsing context.
  * @property {string} navigable - The UUID for the navigable.
+ * @property {string} navigationId - The UUID for the navigation.
  * @property {NavigationState} state - The navigation state.
  * @property {string} url - The target url for the navigation.
  */
@@ -216,6 +217,7 @@ class NavigationRegistry extends EventEmitter {
 
     const navigationId = this.#getOrCreateNavigationId(navigableId);
     const navigation = this.#createNavigationObject({
+      contextId: context.id,
       state: NavigationState.Finished,
       navigationId,
       url,
@@ -265,7 +267,11 @@ class NavigationRegistry extends EventEmitter {
     const navigableId = lazy.NavigableManager.getIdForBrowsingContext(context);
 
     // History updates are immediately done, fire a single event.
-    this.emit(NAVIGATION_EVENTS.HistoryUpdated, { navigableId, url });
+    this.emit(NAVIGATION_EVENTS.HistoryUpdated, {
+      contextId: context.id,
+      navigableId,
+      url,
+    });
   }
 
   /**
@@ -319,12 +325,13 @@ class NavigationRegistry extends EventEmitter {
   }
 
   /**
-   * Called when a navigation-committed event is recorded from the
-   * WebProgressListener actors.
+   * Called when a `document-inserted` event is recorded from the
+   * WebDriverDocumentInserted actors.
    *
    * This entry point is only intended to be called from
-   * WebProgressListenerParent, to avoid setting up observers or listeners,
-   * which are unnecessary since NavigationManager has to be a singleton.
+   * WebDriverDocumentInsertedParent, to avoid setting up
+   * observers or listeners, which are unnecessary since
+   * NavigationManager has to be a singleton.
    *
    * @param {object} data
    * @param {BrowsingContextDetails} data.contextDetails
@@ -341,7 +348,6 @@ class NavigationRegistry extends EventEmitter {
 
     const context = this.#getContextFromContextDetails(contextDetails);
     const navigableId = lazy.NavigableManager.getIdForBrowsingContext(context);
-
     const navigation = this.#navigations.get(navigableId);
 
     if (!navigation) {
@@ -543,6 +549,7 @@ class NavigationRegistry extends EventEmitter {
     );
 
     this.emit(NAVIGATION_EVENTS.NavigationStarted, {
+      contextId: context.id,
       navigationId,
       navigableId,
       url,
@@ -661,7 +668,7 @@ class NavigationRegistry extends EventEmitter {
       return contextDetails.context;
     }
 
-    return contextDetails.isTopBrowsingContext
+    return contextDetails.isContent && contextDetails.isTopBrowsingContext
       ? BrowsingContext.getCurrentTopByBrowserId(contextDetails.browserId)
       : BrowsingContext.get(contextDetails.browsingContextId);
   }
@@ -756,8 +763,7 @@ class NavigationRegistry extends EventEmitter {
     const { download } = data;
 
     const contextId = download.source.browsingContextId;
-    const browsingContext =
-      lazy.NavigableManager.getBrowsingContextById(contextId);
+    const browsingContext = BrowsingContext.get(contextId);
     if (!browsingContext) {
       return;
     }
@@ -781,6 +787,7 @@ class NavigationRegistry extends EventEmitter {
     // via the DownloadManager for consistency and also to enforce having a
     // singleton and consistent navigation ids across sessions.
     this.emit(NAVIGATION_EVENTS.DownloadStarted, {
+      contextId: browsingContext.id,
       navigationId,
       navigableId,
       suggestedFilename: PathUtils.filename(download.target.path),
@@ -793,8 +800,7 @@ class NavigationRegistry extends EventEmitter {
     const { download } = data;
 
     const contextId = download.source.browsingContextId;
-    const browsingContext =
-      lazy.NavigableManager.getBrowsingContextById(contextId);
+    const browsingContext = BrowsingContext.get(contextId);
     if (!browsingContext) {
       return;
     }
@@ -811,6 +817,7 @@ class NavigationRegistry extends EventEmitter {
     const canceled = download.canceled || download.error;
     this.emit(NAVIGATION_EVENTS.DownloadEnd, {
       canceled,
+      contextId: browsingContext.id,
       filepath: download.target.path,
       navigableId,
       navigationId,
@@ -820,13 +827,11 @@ class NavigationRegistry extends EventEmitter {
   };
 
   #onPromptClosed = (eventName, data) => {
-    const { contentBrowser, detail } = data;
-    const { accepted, promptType } = detail;
+    const { detail } = data;
+    const { accepted, browsingContext, promptType } = detail;
 
     // Send navigation failed event if beforeunload prompt was rejected.
     if (promptType === "beforeunload" && accepted === false) {
-      const browsingContext = contentBrowser.browsingContext;
-
       notifyNavigationFailed({
         contextDetails: {
           context: browsingContext,
@@ -838,13 +843,11 @@ class NavigationRegistry extends EventEmitter {
   };
 
   #onPromptOpened = (eventName, data) => {
-    const { contentBrowser, prompt } = data;
+    const { browsingContext, prompt } = data;
     const { promptType } = prompt;
 
     // We should start the navigation when beforeunload prompt is open.
     if (promptType === "beforeunload") {
-      const browsingContext = contentBrowser.browsingContext;
-
       notifyNavigationStarted({
         contextDetails: {
           context: browsingContext,
@@ -946,13 +949,13 @@ export function registerNavigationId(data) {
  * NavigationRegistry can register or unregister the underlying listeners/actors
  * correctly.
  *
- * @fires navigation-started
+ * @fires NavigationManager#"navigation-started"
  *    The NavigationManager emits "navigation-started" when a new navigation is
  *    detected, with the following object as payload:
  *      - {string} navigationId - The UUID for the navigation.
  *      - {string} navigableId - The UUID for the navigable.
  *      - {string} url - The target url for the navigation.
- * @fires navigation-stopped
+ * @fires NavigationManager#"navigation-stopped"
  *    The NavigationManager emits "navigation-stopped" when a known navigation
  *    is stopped, with the following object as payload:
  *      - {string} navigationId - The UUID for the navigation.

@@ -56,10 +56,6 @@ const { AppUiTestDelegate, AppUiTestInternals } = ChromeUtils.importESModule(
   "resource://testing-common/AppUiTestDelegate.sys.mjs"
 );
 
-const { Preferences } = ChromeUtils.importESModule(
-  "resource://gre/modules/Preferences.sys.mjs"
-);
-
 ChromeUtils.defineESModuleGetters(this, {
   Management: "resource://gre/modules/Extension.sys.mjs",
 });
@@ -517,6 +513,20 @@ async function openContextMenuInPopup(
   return contentAreaContextMenu;
 }
 
+// Ensure each test leaves the sidebar in its initial state when it completes
+const initialSidebarState = { ...SidebarController.getUIState(), command: "" };
+registerCleanupFunction(async function () {
+  const { ObjectUtils } = ChromeUtils.importESModule(
+    "resource://gre/modules/ObjectUtils.sys.mjs"
+  );
+  if (
+    !ObjectUtils.deepEqual(SidebarController.getUIState(), initialSidebarState)
+  ) {
+    info("Restoring to initial sidebar state");
+    await SidebarController.initializeUIState(initialSidebarState);
+  }
+});
+
 async function openContextMenuInSidebar(selector = "body") {
   let contentAreaContextMenu =
     SidebarController.browser.contentDocument.getElementById(
@@ -846,15 +856,6 @@ function closePageAction(extension, win = window) {
   return AppUiTestDelegate.closePageAction(win, extension.id);
 }
 
-function promisePrefChangeObserved(pref) {
-  return new Promise(resolve =>
-    Preferences.observe(pref, function prefObserver() {
-      Preferences.ignore(pref, prefObserver);
-      resolve();
-    })
-  );
-}
-
 function promiseWindowRestored(window) {
   return new Promise(resolve =>
     window.addEventListener("SSWindowRestored", resolve, { once: true })
@@ -1121,10 +1122,10 @@ function isRectContained(actualRect, maxRect) {
 }
 
 function getToolboxBackgroundColor() {
-  let toolbox = document.getElementById("navigator-toolbox");
+  let body = document.body;
   // Ignore any potentially ongoing transition.
-  toolbox.style.transitionProperty = "none";
-  let color = window.getComputedStyle(toolbox).backgroundColor;
-  toolbox.style.transitionProperty = "";
+  body.style.transitionProperty = "none";
+  let color = window.getComputedStyle(body).backgroundColor;
+  body.style.transitionProperty = "";
   return color;
 }

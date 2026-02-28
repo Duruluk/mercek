@@ -4,15 +4,22 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "Hal.h"
-#include "mozilla/java/GeckoAppShellWrappers.h"
-#include "nsIHapticFeedback.h"
+#include "nsFocusManager.h"
+#include "nsWindow.h"
 
 namespace mozilla::hal_impl {
 
 void PerformHapticFeedback(int32_t aType) {
-  java::GeckoAppShell::PerformHapticFeedback(aType ==
-                                             nsIHapticFeedback::LongPress);
+  nsFocusManager* fm = nsFocusManager::GetFocusManager();
+  if (fm) {
+    nsPIDOMWindowOuter* activeWindow = fm->GetActiveWindow();
+    if (activeWindow) {
+      RefPtr<nsWindow> window = nsWindow::From(activeWindow);
+      if (window) {
+        window->PerformHapticFeedback(aType);
+      }
+    }
+  }
 }
 
 }  // namespace mozilla::hal_impl

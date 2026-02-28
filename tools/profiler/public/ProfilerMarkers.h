@@ -137,6 +137,9 @@ inline mozilla::ProfileBufferBlockIndex AddMarkerToBuffer(
 
 // ETW collects on all threads. So when it is collecting these should always
 // return true.
+// This implementation must be kept in sync with
+// `gecko_profiler::current_thread_is_being_profiled_for_markers` in the
+// Profiler Rust API.
 [[nodiscard]] inline bool profiler_thread_is_being_profiled_for_markers() {
   return profiler_thread_is_being_profiled(ThreadProfilingFeatures::Markers) ||
          profiler_is_etw_collecting_markers() || profiler_is_perfetto_tracing();
@@ -256,7 +259,7 @@ using Tracing = mozilla::baseprofiler::markers::Tracing;
   do {                                                                        \
     if (profiler_is_collecting_markers()) {                                   \
       AUTO_PROFILER_STATS(PROFILER_MARKER_TEXT);                              \
-      nsFmtCString fmt(FMT_STRING(format), ##__VA_ARGS__);                    \
+      nsFmtCString fmt(format, ##__VA_ARGS__);                                \
       profiler_add_marker(                                                    \
           markerName, ::geckoprofiler::category::categoryName, options,       \
           ::geckoprofiler::markers::TextMarker{},                             \
@@ -470,13 +473,13 @@ class MOZ_RAII AutoProfilerTextMarker {
                                  ...)                                       \
   AutoProfilerFmtMarker PROFILER_RAII(                                      \
       markerName, ::mozilla::baseprofiler::category::categoryName, options, \
-      FMT_STRING(format), __VA_ARGS__)
+      format, __VA_ARGS__)
 
 #define AUTO_PROFILER_MARKER_FMT_LONG(size, markerName, categoryName, options, \
                                       format, ...)                             \
   AutoProfilerFmtMarker<size> PROFILER_RAII(                                   \
       markerName, ::mozilla::baseprofiler::category::categoryName, options,    \
-      FMT_STRING(format), __VA_ARGS__)
+      format, __VA_ARGS__)
 
 // RAII object that adds a PROFILER_MARKER_FMT when destroyed; the marker's
 // timing will be the interval from construction (unless an instant or start
@@ -542,11 +545,10 @@ class AutoProfilerFmtMarker {
 
 class MOZ_RAII AutoProfilerTracing {
  public:
-  AutoProfilerTracing(const char* aCategoryString, const char* aMarkerName,
+  AutoProfilerTracing(const char* aMarkerName,
                       mozilla::MarkerCategory aCategoryPair,
                       const mozilla::Maybe<uint64_t>& aInnerWindowID)
-      : mCategoryString(aCategoryString),
-        mMarkerName(aMarkerName),
+      : mMarkerName(aMarkerName),
         mCategoryPair(aCategoryPair),
         mInnerWindowID(aInnerWindowID) {
     profiler_add_marker(
@@ -554,18 +556,14 @@ class MOZ_RAII AutoProfilerTracing {
         mCategoryPair,
         {mozilla::MarkerTiming::IntervalStart(),
          mozilla::MarkerInnerWindowId(mInnerWindowID)},
-        mozilla::baseprofiler::markers::StackMarker{},
-        mozilla::ProfilerString8View::WrapNullTerminatedString(
-            mCategoryString));
+        mozilla::baseprofiler::markers::StackMarker{});
   }
 
   AutoProfilerTracing(
-      const char* aCategoryString, const char* aMarkerName,
-      mozilla::MarkerCategory aCategoryPair,
+      const char* aMarkerName, mozilla::MarkerCategory aCategoryPair,
       mozilla::UniquePtr<mozilla::ProfileChunkedBuffer> aBacktrace,
       const mozilla::Maybe<uint64_t>& aInnerWindowID)
-      : mCategoryString(aCategoryString),
-        mMarkerName(aMarkerName),
+      : mMarkerName(aMarkerName),
         mCategoryPair(aCategoryPair),
         mInnerWindowID(aInnerWindowID) {
     profiler_add_marker(
@@ -574,9 +572,7 @@ class MOZ_RAII AutoProfilerTracing {
         {mozilla::MarkerTiming::IntervalStart(),
          mozilla::MarkerInnerWindowId(mInnerWindowID),
          mozilla::MarkerStack::TakeBacktrace(std::move(aBacktrace))},
-        mozilla::baseprofiler::markers::StackMarker{},
-        mozilla::ProfilerString8View::WrapNullTerminatedString(
-            mCategoryString));
+        mozilla::baseprofiler::markers::StackMarker{});
   }
 
   ~AutoProfilerTracing() {
@@ -585,36 +581,32 @@ class MOZ_RAII AutoProfilerTracing {
         mCategoryPair,
         {mozilla::MarkerTiming::IntervalEnd(),
          mozilla::MarkerInnerWindowId(mInnerWindowID)},
-        mozilla::baseprofiler::markers::StackMarker{},
-        mozilla::ProfilerString8View::WrapNullTerminatedString(
-            mCategoryString));
+        mozilla::baseprofiler::markers::StackMarker{});
   }
 
  protected:
-  const char* mCategoryString;
   const char* mMarkerName;
   const mozilla::MarkerCategory mCategoryPair;
   const mozilla::Maybe<uint64_t> mInnerWindowID;
 };
 
 // Adds a START/END pair of tracing markers.
-#define AUTO_PROFILER_TRACING_MARKER(categoryString, markerName, categoryPair) \
-  AutoProfilerTracing PROFILER_RAII(categoryString, markerName,                \
-                                    geckoprofiler::category::categoryPair,     \
-                                    mozilla::Nothing())
-#define AUTO_PROFILER_TRACING_MARKER_INNERWINDOWID(                        \
-    categoryString, markerName, categoryPair, innerWindowId)               \
-  AutoProfilerTracing PROFILER_RAII(categoryString, markerName,            \
+#define AUTO_PROFILER_MARKER(markerName, categoryPair) \
+  AutoProfilerTracing PROFILER_RAII(                   \
+      markerName, geckoprofiler::category::categoryPair, mozilla::Nothing())
+#define AUTO_PROFILER_MARKER_INNERWINDOWID(markerName, categoryPair,       \
+                                           innerWindowId)                  \
+  AutoProfilerTracing PROFILER_RAII(markerName,                            \
                                     geckoprofiler::category::categoryPair, \
                                     mozilla::Some(innerWindowId))
-#define AUTO_PROFILER_TRACING_MARKER_DOCSHELL(categoryString, markerName, \
-                                              categoryPair, docShell)     \
+#define AUTO_PROFILER_MARKER_DOCSHELL(markerName, categoryPair, docShell) \
   AutoProfilerTracing PROFILER_RAII(                                      \
-      categoryString, markerName, geckoprofiler::category::categoryPair,  \
+      markerName, geckoprofiler::category::categoryPair,                  \
       geckoprofiler::markers::detail::                                    \
           profiler_get_inner_window_id_from_docshell(docShell))
 
 #ifdef MOZ_GECKO_PROFILER
+
 extern template mozilla::ProfileBufferBlockIndex AddMarkerToBuffer(
     mozilla::ProfileChunkedBuffer&, const mozilla::ProfilerString8View&,
     const mozilla::MarkerCategory&, mozilla::MarkerOptions&&,
@@ -639,6 +631,17 @@ extern template mozilla::ProfileBufferBlockIndex profiler_add_marker_impl(
     const mozilla::ProfilerString8View&, const mozilla::MarkerCategory&,
     mozilla::MarkerOptions&&, mozilla::baseprofiler::markers::Tracing,
     const mozilla::ProfilerString8View&);
+
+// Register a custom marker schema from JavaScript.
+// This stores the schema so it can be included in profile output.
+void profiler_register_marker_schema(const nsCString& aSchemaName,
+                                     const nsString& aSchemaJSON);
+
+#else
+
+inline void profiler_register_marker_schema(const nsCString& aSchemaName,
+                                            const nsString& aSchemaJSON) {}
+
 #endif  // MOZ_GECKO_PROFILER
 
 namespace mozilla {

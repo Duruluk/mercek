@@ -110,6 +110,7 @@
 #include "nsLayoutUtils.h"
 #include "nsNameSpaceManager.h"
 #include "nsNetUtil.h"
+#include "nsOpenWindowInfo.h"
 #include "nsPIDOMWindow.h"
 #include "nsPIWindowRoot.h"
 #include "nsQueryObject.h"
@@ -117,8 +118,6 @@
 #include "nsSubDocumentFrame.h"
 #include "nsThreadUtils.h"
 #include "nsUnicharUtils.h"
-#include "nsView.h"
-#include "nsViewManager.h"
 #include "nsXPCOMPrivate.h"  // for XUL_DLL
 #include "nsXULPopupManager.h"
 #include "prenv.h"
@@ -168,7 +167,6 @@ nsFrameLoader::nsFrameLoader(Element* aOwner, BrowsingContext* aBrowsingContext,
                              bool aIsRemoteFrame, bool aNetworkCreated)
     : mPendingBrowsingContext(aBrowsingContext),
       mOwnerContent(aOwner),
-      mDetachedSubdocFrame(nullptr),
       mPendingSwitchID(0),
       mChildID(0),
       mRemoteType(NOT_REMOTE_TYPE),
@@ -767,7 +765,8 @@ nsresult nsFrameLoader::ReallyStartLoadingInternal() {
 
   // Kick off the load...
   bool tmpState = mNeedsAsyncDestroy;
-  mNeedsAsyncDestroy = true;
+  // Sync destroy should be possible from the sync about:blank load event
+  mNeedsAsyncDestroy = !NS_IsAboutBlankAllowQueryAndFragment(mURIToLoad);
 
   RefPtr<nsDocShell> docShell = GetDocShell();
   rv = docShell->LoadURI(loadState, false);
@@ -780,6 +779,8 @@ nsresult nsFrameLoader::ReallyStartLoadingInternal() {
 
 nsresult nsFrameLoader::CheckURILoad(nsIURI* aURI,
                                      nsIPrincipal* aTriggeringPrincipal) {
+  NS_ENSURE_STATE(mOwnerContent && mOwnerContent->IsInComposedDoc());
+
   // Check for security.  The fun part is trying to figure out what principals
   // to use.  The way I figure it, if we're doing a LoadFrame() accidentally
   // (eg someone created a frame/iframe node, we're being parsed, XUL iframes
@@ -957,6 +958,7 @@ bool nsFrameLoader::Show(nsSubDocumentFrame* aFrame) {
     return ShowRemoteFrame(aFrame);
   }
   const LayoutDeviceIntSize size = aFrame->GetInitialSubdocumentSize();
+
   nsresult rv = MaybeCreateDocShell();
   if (NS_FAILED(rv)) {
     return false;
@@ -971,13 +973,8 @@ bool nsFrameLoader::Show(nsSubDocumentFrame* aFrame) {
   const bool marginsChanged =
       ds->UpdateFrameMargins(GetMarginAttributes(mOwnerContent));
 
-  nsView* view = aFrame->EnsureInnerView();
-  if (!view) {
-    return false;
-  }
-
   // If we already have a pres shell (which can happen with <object> / <embed>)
-  // then hook it up in the view tree.
+  // then hook it up to the frame.
   if (PresShell* presShell = ds->GetPresShell()) {
     // Ensure root scroll frame is reflowed in case margins have changed.
     if (marginsChanged) {
@@ -987,24 +984,13 @@ bool nsFrameLoader::Show(nsSubDocumentFrame* aFrame) {
                                     IntrinsicDirty::None, NS_FRAME_IS_DIRTY);
       }
     }
-    nsView* childView = presShell->GetViewManager()->GetRootView();
-    MOZ_DIAGNOSTIC_ASSERT(childView);
-    if (childView->GetParent() == view) {
-      // We were probably doing a docshell swap and succeeded before getting
-      // here, hooray, nothing else to do.
-      return true;
-    }
-
-    // We did layout before due to <object> or <embed> and now we need to fix
-    // up our stuff and initialize our docshell below too.
-    MOZ_DIAGNOSTIC_ASSERT(!view->GetFirstChild());
-    MOZ_DIAGNOSTIC_ASSERT(!childView->GetParent(), "Stale view?");
-    nsSubDocumentFrame::InsertViewsInReverseOrder(childView, view);
-    nsSubDocumentFrame::EndSwapDocShellsForViews(view->GetFirstChild());
+    aFrame->EnsureEmbeddingPresShell(presShell);
   }
 
   RefPtr<nsDocShell> baseWindow = GetDocShell();
-  baseWindow->InitWindow(view->GetWidget(), 0, 0, size.width, size.height);
+  MOZ_ASSERT(ds == baseWindow, "How did the docshell change?");
+  baseWindow->InitWindow(nullptr, 0, 0, size.width, size.height, nullptr,
+                         nullptr);
   baseWindow->SetVisibility(true);
   NS_ENSURE_TRUE(GetDocShell(), false);
 
@@ -1328,6 +1314,24 @@ nsresult nsFrameLoader::SwapWithOtherRemoteLoader(
     };
     evict(this);
     evict(aOther);
+  }
+
+  // Update Document PiP flags/counts for swapped BCs
+  const bool ourControlsPiP = ourBc->GetControlsDocumentPiP();
+  const bool otherControlsPiP = otherBc->GetControlsDocumentPiP();
+  if (ourControlsPiP != otherControlsPiP) {
+    CanonicalBrowsingContext* ourChromeBc =
+        ourBc->Canonical()->TopCrossChromeBoundary();
+    CanonicalBrowsingContext* otherChromeBc =
+        otherBc->Canonical()->TopCrossChromeBoundary();
+
+    if (ourControlsPiP) {
+      otherChromeBc->IncrementDocumentPiPWindowCount();
+      ourChromeBc->DecrementDocumentPiPWindowCount();
+    } else {
+      ourChromeBc->IncrementDocumentPiPWindowCount();
+      otherChromeBc->DecrementDocumentPiPWindowCount();
+    }
   }
 
   SetOwnerContent(otherContent);
@@ -1865,6 +1869,9 @@ void nsFrameLoader::StartDestroy(bool aForProcessSwitch) {
     browserParent->RemoveWindowListeners();
   }
 
+  // Hide the content viewer before nulling out the embedder element and so.
+  Hide();
+
   nsCOMPtr<Document> doc;
   bool dynamicSubframeRemoval = false;
   if (mOwnerContent) {
@@ -1890,8 +1897,11 @@ void nsFrameLoader::StartDestroy(bool aForProcessSwitch) {
         if (mozilla::SessionHistoryInParent()) {
           uint32_t addedEntries = 0;
           browsingContext->PreOrderWalk([&addedEntries](BrowsingContext* aBC) {
-            // The initial load doesn't increase history length.
-            addedEntries += aBC->GetHistoryEntryCount() - 1;
+            const uint32_t len = aBC->GetHistoryEntryCount();
+            // There might not be a SH entry yet, which is fine.
+            // The first entry doesn't increase history length, as it's added to
+            // it's parent entry
+            addedEntries += len > 0 ? len - 1 : 0;
           });
 
           nsID changeID = {};
@@ -1913,22 +1923,16 @@ void nsFrameLoader::StartDestroy(bool aForProcessSwitch) {
   }
 
   // Let the tree owner know we're gone.
-  if (mIsTopLevelContent) {
-    if (GetDocShell()) {
+  if (nsCOMPtr<nsIDocShell> ds = GetDocShell()) {
+    if (mIsTopLevelContent) {
       nsCOMPtr<nsIDocShellTreeItem> parentItem;
-      GetDocShell()->GetInProcessParent(getter_AddRefs(parentItem));
-      nsCOMPtr<nsIDocShellTreeOwner> owner = do_GetInterface(parentItem);
-      if (owner) {
-        owner->ContentShellRemoved(GetDocShell());
+      ds->GetInProcessParent(getter_AddRefs(parentItem));
+      if (nsCOMPtr<nsIDocShellTreeOwner> owner = do_GetInterface(parentItem)) {
+        owner->ContentShellRemoved(ds);
       }
     }
-  }
-
-  // Let our window know that we are gone
-  if (GetDocShell()) {
-    nsCOMPtr<nsPIDOMWindowOuter> win_private(GetDocShell()->GetWindow());
-    if (win_private) {
-      win_private->SetFrameElementInternal(nullptr);
+    if (nsCOMPtr<nsPIDOMWindowOuter> win = ds->GetWindow()) {
+      win->SetFrameElementInternal(nullptr);
     }
   }
 
@@ -2243,8 +2247,8 @@ nsresult nsFrameLoader::MaybeCreateDocShell() {
   // Tell the window about the frame that hosts it.
   nsCOMPtr<nsPIDOMWindowOuter> newWindow = docShell->GetWindow();
   if (NS_WARN_IF(!newWindow)) {
-    // Do not call Destroy() here. See bug 472312.
     NS_WARNING("Something wrong when creating the docshell for a frameloader!");
+    Destroy();
     return NS_ERROR_FAILURE;
   }
 
@@ -2256,12 +2260,6 @@ nsresult nsFrameLoader::MaybeCreateDocShell() {
                                  nsGkAtoms::allowscriptstoclose,
                                  nsGkAtoms::_true, eCaseMatters)) {
     nsGlobalWindowOuter::Cast(newWindow)->AllowScriptsToClose();
-  }
-
-  if (!docShell->Initialize()) {
-    // Do not call Destroy() here. See bug 472312.
-    NS_WARNING("Something wrong when creating the docshell for a frameloader!");
-    return NS_ERROR_FAILURE;
   }
 
   NS_ENSURE_STATE(mOwnerContent);
@@ -2286,19 +2284,61 @@ nsresult nsFrameLoader::MaybeCreateDocShell() {
   MOZ_ALWAYS_SUCCEEDS(mPendingBrowsingContext->SetInitialSandboxFlags(
       mPendingBrowsingContext->GetSandboxFlags()));
 
+  // Gather things to inherit into the initial about:blank
+
+  // For HTML [i]frames and objects, perform the inheritance here. (It would
+  // probably be more proper to hoist this to each call site of
+  // nsFrameLoader::Create.)
+  nsCOMPtr<nsIPrincipal> principal = doc->NodePrincipal();
+  nsCOMPtr<nsIPrincipal> partitionedPrincipal = doc->PartitionedPrincipal();
+
+  // We use mOpenWindowInfo so that JS can force a principal onto us
+  if (mOpenWindowInfo && mOpenWindowInfo->PrincipalToInheritForAboutBlank()) {
+    principal = mOpenWindowInfo->PrincipalToInheritForAboutBlank();
+    partitionedPrincipal =
+        mOpenWindowInfo->PartitionedPrincipalToInheritForAboutBlank();
+  }
+
+  if ((mPendingBrowsingContext->IsContent() || XRE_IsContentProcess()) &&
+      (!principal || principal->IsSystemPrincipal())) {
+    // Never inherit system principal to a content HTML [i]frame.
+    principal = NullPrincipal::Create(
+        mPendingBrowsingContext->OriginAttributesRef(), nullptr);
+    partitionedPrincipal = principal;
+  }
+
+  RefPtr<nsOpenWindowInfo> openWindowInfo = new nsOpenWindowInfo();
+  openWindowInfo->mPrincipalToInheritForAboutBlank = principal.forget();
+  openWindowInfo->mPartitionedPrincipalToInheritForAboutBlank =
+      partitionedPrincipal.forget();
+  openWindowInfo->mPolicyContainerToInheritForAboutBlank =
+      doc->GetPolicyContainer();
+  openWindowInfo->mCoepToInheritForAboutBlank = doc->GetEmbedderPolicy();
+  openWindowInfo->mBaseUriToInheritForAboutBlank = mOwnerContent->GetBaseURI();
+  if (NS_FAILED(docShell->Initialize(openWindowInfo, nullptr))) {
+    NS_WARNING("Something wrong when creating the docshell for a frameloader!");
+    Destroy();
+    return NS_ERROR_FAILURE;
+  }
+
   ReallyLoadFrameScripts();
 
-  // Previously we would forcibly create the initial about:blank document for
-  // in-process content frames from a frame script which eagerly loaded in
-  // every tab.  This lead to other frontend components growing dependencies on
-  // the initial about:blank document being created eagerly.  See bug 1471327
-  // for details.
-  //
-  // We also eagerly create the initial about:blank document for remote loads
-  // separately when initializing BrowserChild.
-  if (mIsTopLevelContent &&
-      mPendingBrowsingContext->GetMessageManagerGroup() == u"browsers"_ns) {
-    (void)mDocShell->GetDocument();
+  // Previously, the lazy about:blank creation had the effect of running
+  // nsGlobalWindowOuter::DispatchDOMWindowCreated, which sets up the message
+  // manager, after ReallyLoadFrameScripts(). We can't achieve the same by using
+  // a script blocker while calling `docShell->Initialize()`, because the
+  // initialization expects to be able to assert that scripts are allowed to
+  // run. Therefore, let's fix up the message manager setup here.
+  if (Document* doc = docShell->GetDocument()) {
+    if (nsPIDOMWindowOuter* window = doc->GetWindow()) {
+      window->UpdateParentTarget();
+    }
+  }
+
+  if (mDestroyCalled) {
+    // Docshell creation can run script, see bug 2007774.
+    // Callers might expect there to be a document etc. if we return OK.
+    return nsresult::NS_ERROR_DOCSHELL_DYING;
   }
 
   return NS_OK;
@@ -2868,7 +2908,8 @@ nsresult nsFrameLoader::FinishStaticClone(
   nsCOMPtr<Document> doc = origDocShell->GetDocument();
   NS_ENSURE_STATE(doc);
 
-  MaybeCreateDocShell();
+  nsresult rv = MaybeCreateDocShell();
+  NS_ENSURE_SUCCESS(rv, rv);
   RefPtr<nsDocShell> docShell = GetDocShell();
   NS_ENSURE_STATE(docShell);
 
@@ -2922,16 +2963,11 @@ class nsAsyncMessageToChild : public nsSameProcessAsyncMessageBase,
   RefPtr<nsFrameLoader> mFrameLoader;
 };
 
-nsresult nsFrameLoader::DoSendAsyncMessage(const nsAString& aMessage,
-                                           StructuredCloneData& aData) {
+nsresult nsFrameLoader::DoSendAsyncMessage(
+    const nsAString& aMessage, NotNull<StructuredCloneData*> aData) {
   auto* browserParent = GetBrowserParent();
   if (browserParent) {
-    ClonedMessageData data;
-    if (!BuildClonedMessageData(aData, data)) {
-      MOZ_CRASH();
-      return NS_ERROR_DOM_DATA_CLONE_ERR;
-    }
-    if (browserParent->SendAsyncMessage(aMessage, data)) {
+    if (browserParent->SendAsyncMessage(aMessage, aData)) {
       return NS_OK;
     } else {
       return NS_ERROR_UNEXPECTED;
@@ -3044,16 +3080,12 @@ nsFrameLoader::GetLazyLoadFrameResumptionState() {
   return sEmpty;
 }
 
-void nsFrameLoader::SetDetachedSubdocFrame(nsIFrame* aDetachedFrame) {
-  mDetachedSubdocFrame = aDetachedFrame;
-  mHadDetachedFrame = !!aDetachedFrame;
+void nsFrameLoader::SetDetachedSubdocs(WeakPresShellArray&& aDocs) {
+  mDetachedSubdocs = std::move(aDocs);
 }
 
-nsIFrame* nsFrameLoader::GetDetachedSubdocFrame(bool* aOutIsSet) const {
-  if (aOutIsSet) {
-    *aOutIsSet = mHadDetachedFrame;
-  }
-  return mDetachedSubdocFrame.GetFrame();
+auto nsFrameLoader::TakeDetachedSubdocs() -> WeakPresShellArray {
+  return std::move(mDetachedSubdocs);
 }
 
 void nsFrameLoader::ApplySandboxFlags(uint32_t sandboxFlags) {

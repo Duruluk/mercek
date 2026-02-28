@@ -6,7 +6,7 @@
 
 /*
  * This file contains common code that is loaded before each test file(s).
- * See https://developer.mozilla.org/en-US/docs/Mozilla/QA/Writing_xpcshell-based_unit_tests
+ * See https://firefox-source-docs.mozilla.org/testing/xpcshell/index.html
  * for more information.
  */
 
@@ -264,7 +264,7 @@ void Cc["@mozilla.org/widget/transferable;1"].createInstance();
  * This behaviour would cause random failures and slowdown tests execution,
  * for example by running database vacuum or cleanups for each test.
  *
- * @note Idle service is overridden by default.  If a test requires it, it will
+ * Note: Idle service is overridden by default.  If a test requires it, it will
  *       have to call do_get_idle() function at least once before use.
  */
 var _fakeIdleService = {
@@ -335,6 +335,7 @@ var _fakeIdleService = {
 
 /**
  * Restores the idle service factory if needed and returns the service's handle.
+ *
  * @return A handle to the idle service.
  */
 function do_get_idle() {
@@ -626,7 +627,9 @@ function _execute_test() {
 
   let timer;
   if (
-    Services.profiler.IsActive() &&
+    // Services.profiler is missing on some tier3 platforms where
+    // MOZ_GECKO_PROFILER is not set.
+    Services.profiler?.IsActive() &&
     !Services.env.exists("MOZ_PROFILER_SHUTDOWN") &&
     Services.env.exists("MOZ_UPLOAD_DIR") &&
     Services.env.exists("MOZ_TEST_TIMEOUT_INTERVAL")
@@ -1613,6 +1616,7 @@ function do_send_remote_message(name, data) {
 
 /**
  * Schedules and awaits a precise GC, and forces CC, `maxCount` number of times.
+ *
  * @param maxCount
  *        How many times GC and CC should be scheduled.
  */

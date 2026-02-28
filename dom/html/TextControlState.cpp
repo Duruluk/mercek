@@ -11,7 +11,6 @@
 #include "mozilla/CaretAssociationHint.h"
 #include "mozilla/ErrorResult.h"
 #include "mozilla/EventListenerManager.h"
-#include "mozilla/IMEContentObserver.h"
 #include "mozilla/IMEStateManager.h"
 #include "mozilla/InputEventOptions.h"
 #include "mozilla/KeyEventHandler.h"
@@ -53,7 +52,6 @@
 #include "nsServiceManagerUtils.h"
 #include "nsTextControlFrame.h"
 #include "nsTextNode.h"
-#include "nsView.h"
 
 namespace mozilla {
 
@@ -81,13 +79,13 @@ NS_IMPL_ISUPPORTS_CYCLE_COLLECTION_INHERITED_0(
 /*static*/
 already_AddRefed<TextControlElement>
 TextControlElement::GetTextControlElementFromEditingHost(nsIContent* aHost) {
-  if (!aHost) {
+  if (!aHost || !aHost->IsInNativeAnonymousSubtree()) {
     return nullptr;
   }
 
-  RefPtr<TextControlElement> parent =
-      TextControlElement::FromNodeOrNull(aHost->GetParent());
-  return parent.forget();
+  auto* parent = TextControlElement::FromNodeOrNull(
+      aHost->GetClosestNativeAnonymousSubtreeRootParentOrHost());
+  return do_AddRef(parent);
 }
 
 TextControlElement::FocusTristate TextControlElement::FocusState() {
@@ -992,28 +990,20 @@ TextInputListener::HandleEvent(Event* aEvent) {
 }
 
 nsresult TextInputListener::OnEditActionHandled(TextEditor& aTextEditor) {
-  if (mFrame) {
-    // XXX Do we still need this or can we just remove the mFrame and
-    // frame.IsAlive() conditions below?
-    AutoWeakFrame weakFrame = mFrame;
+  // Update the undo / redo menus
+  //
+  size_t numUndoItems = aTextEditor.NumberOfUndoItems();
+  size_t numRedoItems = aTextEditor.NumberOfRedoItems();
+  if ((numUndoItems && !mHadUndoItems) || (!numUndoItems && mHadUndoItems) ||
+      (numRedoItems && !mHadRedoItems) || (!numRedoItems && mHadRedoItems)) {
+    // Modify the menu if undo or redo items are different
+    UpdateTextInputCommands(u"undo"_ns);
 
-    // Update the undo / redo menus
-    //
-    size_t numUndoItems = aTextEditor.NumberOfUndoItems();
-    size_t numRedoItems = aTextEditor.NumberOfRedoItems();
-    if ((numUndoItems && !mHadUndoItems) || (!numUndoItems && mHadUndoItems) ||
-        (numRedoItems && !mHadRedoItems) || (!numRedoItems && mHadRedoItems)) {
-      // Modify the menu if undo or redo items are different
-      UpdateTextInputCommands(u"undo"_ns);
-
-      mHadUndoItems = numUndoItems != 0;
-      mHadRedoItems = numRedoItems != 0;
-    }
-
-    if (weakFrame.IsAlive()) {
-      HandleValueChanged(aTextEditor);
-    }
+    mHadUndoItems = numUndoItems != 0;
+    mHadRedoItems = numRedoItems != 0;
   }
+
+  HandleValueChanged(aTextEditor);
 
   return mTextControlState ? mTextControlState->OnEditActionHandled() : NS_OK;
 }
@@ -1039,11 +1029,7 @@ void TextInputListener::HandleValueChanged(TextEditor& aTextEditor) {
 
 nsresult TextInputListener::UpdateTextInputCommands(
     const nsAString& aCommandsToUpdate) {
-  nsIContent* content = mFrame->GetContent();
-  if (NS_WARN_IF(!content)) {
-    return NS_ERROR_FAILURE;
-  }
-  nsCOMPtr<Document> doc = content->GetComposedDoc();
+  nsCOMPtr<Document> doc = mTxtCtrlElement->GetComposedDoc();
   if (NS_WARN_IF(!doc)) {
     return NS_ERROR_FAILURE;
   }
@@ -1593,7 +1579,7 @@ nsresult TextControlState::BindToFrame(nsTextControlFrame* aFrame) {
   MOZ_ASSERT(aFrame->GetRootNode());
   Element& editorRootAnonymousDiv = *aFrame->GetRootNode();
 
-  PresShell* presShell = aFrame->PresContext()->GetPresShell();
+  PresShell* presShell = aFrame->PresShell();
   MOZ_ASSERT(presShell);
 
   // Create a SelectionController
@@ -1883,21 +1869,6 @@ nsresult TextControlState::PrepareEditor(const nsAString* aValue) {
     rv = SetEditorFlagsIfNecessary(*newTextEditor, editorFlags);
     if (NS_WARN_IF(NS_FAILED(rv))) {
       return rv;
-    }
-  }
-  // When the default value is empty, we don't call SetValue().  That means that
-  // we have not notified IMEContentObserver of the empty value when the
-  // <textarea> is not dirty (i.e., the default value is mirrored into the
-  // anonymous subtree asynchronously) and the value was changed during a
-  // reframe (i.e., while IMEContentObserver was not observing the mutation of
-  // the anonymous subtree).  Therefore, we notify IMEContentObserver here in
-  // that case.
-  else if (mTextCtrlElement && mTextCtrlElement->IsTextArea() &&
-           !mTextCtrlElement->ValueChanged()) {
-    MOZ_ASSERT(defaultValue.IsEmpty());
-    IMEContentObserver* observer = GetIMEContentObserver();
-    if (observer && observer->WasInitializedWith(*newTextEditor)) {
-      observer->OnTextControlValueChangedWhileNotObservable(defaultValue);
     }
   }
 
@@ -2465,8 +2436,7 @@ void TextControlState::GetValue(nsAString& aValue, bool aForDisplay) const {
     return;
   }
 
-  if (mTextEditor && mBoundFrame &&
-      (mEditorInitialized || !IsSingleLineTextControl())) {
+  if (mTextEditor && mBoundFrame && mEditorInitialized) {
     if (!mBoundFrame->CachedValue().IsVoid()) {
       aValue = mBoundFrame->CachedValue();
       MOZ_ASSERT(aValue.FindChar(u'\r') == -1);
@@ -2805,23 +2775,6 @@ bool TextControlState::SetValueWithTextEditor(
     }
   }
 
-  // When the <textarea> is not dirty, the default value is mirrored into the
-  // anonymous subtree asynchronously.  This may occur during a reframe.
-  // Therefore, if IMEContentObserver was initialized with our editor but our
-  // editor is being initialized, it has not been observing the new anonymous
-  // subtree.  In this case, we need to notify IMEContentObserver of the default
-  // value change.
-  if (mTextCtrlElement && mTextCtrlElement->IsTextArea() &&
-      !mTextCtrlElement->ValueChanged() && textEditor->IsBeingInitialized() &&
-      !textEditor->Destroyed()) {
-    IMEContentObserver* observer = GetIMEContentObserver();
-    if (observer && observer->WasInitializedWith(*textEditor)) {
-      nsAutoString currentValue;
-      textEditor->ComputeTextValue(currentValue);
-      observer->OnTextControlValueChangedWhileNotObservable(currentValue);
-    }
-  }
-
   return rv != NS_ERROR_OUT_OF_MEMORY;
 }
 
@@ -2928,18 +2881,12 @@ bool TextControlState::SetValueWithoutTextEditor(
         }
       }
 
-      // Update the frame display if needed
-      if (mBoundFrame) {
-        mBoundFrame->UpdateValueDisplay(true);
-      }
-
-      // If the text control element has focus, IMEContentObserver is not
-      // observing the content changes due to no bound frame or no TextEditor.
-      // Therefore, we need to let IMEContentObserver know all values are being
-      // replaced.
-      if (IMEContentObserver* observer = GetIMEContentObserver()) {
-        observer->OnTextControlValueChangedWhileNotObservable(mValue);
-      }
+      // Update the frame display if needed. No need to notify if we're
+      // mid-unbind-from-frame.
+      const bool unbindingFromFrame =
+          mHandlingState &&
+          mHandlingState->IsHandling(TextControlAction::UnbindFromFrame);
+      mTextCtrlElement->UpdateValueDisplay(!unbindingFromFrame);
     }
 
     // If this is called as part of user input, we need to dispatch "input"
@@ -3000,49 +2947,8 @@ void TextControlState::InitializeKeyboardEventListeners() {
   mSelCon->SetScrollContainerFrame(mBoundFrame->GetScrollTargetFrame());
 }
 
-void TextControlState::SetPreviewText(const nsAString& aValue, bool aNotify) {
-  // If we don't have a preview div, there's nothing to do.
-  Element* previewDiv = GetPreviewNode();
-  if (!previewDiv) {
-    return;
-  }
-
-  nsAutoString previewValue(aValue);
-
-  nsContentUtils::RemoveNewlines(previewValue);
-  MOZ_ASSERT(previewDiv->GetFirstChild(), "preview div has no child");
-  previewDiv->GetFirstChild()->AsText()->SetText(previewValue, aNotify);
-}
-
-void TextControlState::GetPreviewText(nsAString& aValue) {
-  // If we don't have a preview div, there's nothing to do.
-  Element* previewDiv = GetPreviewNode();
-  if (!previewDiv) {
-    return;
-  }
-
-  MOZ_ASSERT(previewDiv->GetFirstChild(), "preview div has no child");
-  const CharacterDataBuffer* characterDataBuffer =
-      previewDiv->GetFirstChild()->GetCharacterDataBuffer();
-
-  aValue.Truncate();
-  characterDataBuffer->AppendTo(aValue);
-}
-
 bool TextControlState::EditorHasComposition() {
   return mTextEditor && mTextEditor->IsIMEComposing();
-}
-
-IMEContentObserver* TextControlState::GetIMEContentObserver() const {
-  if (NS_WARN_IF(!mTextCtrlElement) ||
-      mTextCtrlElement != IMEStateManager::GetFocusedElement()) {
-    return nullptr;
-  }
-  IMEContentObserver* observer = IMEStateManager::GetActiveContentObserver();
-  // The text control element may be an editing host.  In this case, the
-  // observer does not observe the anonymous nodes under mTextCtrlElement.
-  // So, it means that the observer is not for ours.
-  return observer && observer->EditorIsTextEditor() ? observer : nullptr;
 }
 
 }  // namespace mozilla

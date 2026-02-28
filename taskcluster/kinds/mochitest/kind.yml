@@ -21,6 +21,7 @@ transforms:
 # https://wiki.mozilla.org/Sheriffing/Job_Visibility_Policy
 
 task-defaults:
+    run-on-repo-type: [hg]
     attributes:
         retrigger: true
     use-python: default
@@ -123,7 +124,6 @@ tasks:
             - conditioned_profile
             - xorigin
             - no-fission
-            - socketprocess_networking
             - headless
             - http3
             - http2
@@ -146,18 +146,12 @@ tasks:
                         .*-wayland.*: []
                         windows.*-ccov.*: []
                         linux.*64(-shippable)?/.*: ['trunk']
+                        macosx.*64-aarch64(-shippable)?(-qr)?/.*: ['mozilla-central']
                         macosx.*64(-shippable)?(-qr)?/.*: ['trunk']
                         windows11-64-24h2(-shippable)?(-qr)?/.*: ['trunk']
                         linux.*64-ccov/opt: ['mozilla-central']
                         android-em.*/debug-isolated-process: ['trunk']
                         android-em.*: ['trunk']
-                        default: []
-                socketprocess_networking:
-                    by-test-platform:
-                        .*-ccov.*: []
-                        .*-asan.*: []
-                        .*-wayland.*: []
-                        linux2404-64/debug: ['autoland', 'mozilla-central']
                         default: []
                 aab+no-fission:
                     by-test-platform:
@@ -200,19 +194,17 @@ tasks:
                         android-em.*/debug-isolated-process: ['trunk']
                         android.*: built-projects
                         default: built-projects
-        chunks:
-            by-variant:
-                inc-origin-init: dynamic
-                default:
-                    by-test-platform:
-                        android.*/debug: 10
-                        linux.*/debug: 16
-                        linux.*64-tsan/opt: 20
-                        .*-ccov.*: 10
-                        .*-asan.*: 10
-                        linux.*/opt: 8
-                        windows.*/debug: 8
-                        default: 5
+        chunks: dynamic
+        default-chunks:
+            by-test-platform:
+                android.*/debug: 10
+                linux.*/debug: 16
+                linux.*64-tsan/opt: 20
+                .*-ccov.*: 10
+                .*-asan.*: 10
+                linux.*/opt: 8
+                windows.*/debug: 8
+                default: 5
         tier:
             by-variant:
                 no-fission:
@@ -278,14 +270,9 @@ tasks:
         run-without-variant: false
         variants:
             - 1proc
-            - socketprocess_networking+1proc
             - webrender-sw+1proc
         run-on-projects:
             by-variant:
-                socketprocess_networking+1proc:
-                    by-test-platform:
-                        linux.*64/debug: ['autoland', 'mozilla-central']
-                        default: []
                 webrender-sw+1proc:
                     by-test-platform:
                         android-em.*/debug: built-projects
@@ -305,12 +292,29 @@ tasks:
         variants:
             - webrender-sw
             - webrender-sw+a11y-checks
-            - socketprocess_networking
             - msix
             - vertical-tabs
             - inc-origin-init
+            - trainhop-beta
+            - trainhop-release
         run-on-projects:
             by-variant:
+                trainhop-beta:
+                    by-test-platform:
+                        .*-wayland.*: []
+                        .*-32.*: []
+                        linux2404-64(-shippable)?/opt: ['trunk']
+                        macosx.*-64(-shippable)?(-qr)?/opt: ['trunk']
+                        windows11-64-24h2(-shippable)?/opt: ['trunk']
+                        default: []
+                trainhop-release:
+                    by-test-platform:
+                        .*-wayland.*: []
+                        .*-32.*: []
+                        linux2404-64(-shippable)?/opt: ['trunk']
+                        macosx.*-64(-shippable)?(-qr)?/opt: ['trunk']
+                        windows11-64-24h2(-shippable)?/opt: ['trunk']
+                        default: []
                 webrender-sw:
                     by-test-platform:
                         linux.*64/debug: ['all']
@@ -324,14 +328,6 @@ tasks:
                 webrender-sw+a11y-checks:
                     by-test-platform:
                         linux.*64(-shippable)?/opt: ['trunk']
-                        default: []
-                socketprocess_networking:
-                    by-test-platform:
-                        .*-asan.*: []
-                        .*-ccov.*: []
-                        linux.*64(-shippable)?/.*: ['autoland', 'mozilla-central']
-                        macosx.*64(-shippable)?(-qr)?/.*: ['autoland', 'mozilla-central']
-                        windows1.*-64.*(-shippable)?/.*: ['autoland', 'mozilla-central']
                         default: []
                 msix:
                     by-test-platform:
@@ -353,6 +349,8 @@ tasks:
                         default: built-projects
         tier:
             by-variant:
+                trainhop-beta: 2
+                trainhop-release: 2
                 webrender-sw:
                     by-test-platform:
                         linux.*64-asan/opt: 1
@@ -361,12 +359,15 @@ tasks:
                 default: default
         chunks:
             by-variant:
+                trainhop-release: 1
+                trainhop-beta: 1
+                default: dynamic
+        default-chunks:
+            by-variant:
                 msix:
                     by-test-platform:
                         .*/debug: 16
                         default: 7
-                vertical-tabs: dynamic
-                inc-origin-init: dynamic
                 default:
                     by-test-platform:
                         linux.*/debug: 16
@@ -381,10 +382,6 @@ tasks:
         max-run-time:
             by-variant:
                 msix: 5400
-                socketprocess_networking:
-                    by-test-platform:
-                        linux.*/debug: 7200
-                        default: 5400
                 default:
                     by-test-platform:
                         linux.*64-ccov/opt: 9000
@@ -463,7 +460,8 @@ tasks:
                 by-test-platform:
                     .*-tsan.*: true
                     default: false
-        chunks:
+        chunks: dynamic
+        default-chunks:
             by-test-platform:
                 .*-tsan.*: 2
                 .*-asan.*: 2
@@ -539,8 +537,7 @@ tasks:
                 .*-asan.*: 1800
                 .*-tsan.*: 2400
                 .*-ccov.*: 2400
-                win.*/debug: 1800
-                default: 1200
+                default: 1500
         mozharness:
             mochitest-flavor: browser
         instance-size: default
@@ -561,17 +558,10 @@ tasks:
         run-without-variant: false
         variants:
             - 1proc
-            - socketprocess_networking+1proc
             - webrender-sw+1proc
             - inc-origin-init
         run-on-projects:
             by-variant:
-                socketprocess_networking+1proc:
-                    by-test-platform:
-                        .*-asan.*: []
-                        .*-ccov.*: []
-                        linux2404-64/debug: ['autoland', 'mozilla-central']
-                        default: []
                 webrender-sw+1proc:
                     by-test-platform:
                         android-em.*/debug: built-projects
@@ -582,13 +572,11 @@ tasks:
                         .*-wayland.*: []
                         default: built-projects
                 inc-origin-init: []
-        chunks:
-            by-variant:
-                inc-origin-init: dynamic
-                default:
-                    by-test-platform:
-                        .*-tsan.*/opt: 6
-                        default: 3
+        chunks: dynamic
+        default-chunks:
+            by-test-platform:
+                .*-tsan.*/opt: 6
+                default: 3
         max-run-time: 3600
         mozharness:
             mochitest-flavor: chrome
@@ -607,7 +595,6 @@ tasks:
         loopback-video: true
         variants:
             - a11y-checks
-            - socketprocess_networking
             - http3
         run-on-projects:
             by-variant:
@@ -618,12 +605,6 @@ tasks:
                 http3:
                     by-test-platform:
                         linux2404-64/debug: built-projects
-                        default: []
-                socketprocess_networking:
-                    by-test-platform:
-                        .*-asan.*: []
-                        .*-ccov.*: []
-                        linux2404-64/debug: ['autoland', 'mozilla-central']
                         default: []
                 default:
                     by-test-platform:
@@ -638,7 +619,8 @@ tasks:
                 linux.*64-ccov.*/.*: 7200
                 linux.*64-tsan/opt: 7200
                 default: 5400
-        chunks:
+        chunks: dynamic
+        default-chunks:
             by-test-platform:
                 .*-ccov.*: 12
                 linux.*-wayland.*/debug: 14
@@ -796,11 +778,9 @@ tasks:
         run-without-variant: false
         variants:
             - 1proc
-            - socketprocess_networking+1proc
             - webrender-sw+1proc
         run-on-projects:
             by-variant:
-                socketprocess_networking+1proc: []
                 webrender-sw+1proc:
                     by-test-platform:
                         android-em.*/debug: built-projects
@@ -932,7 +912,8 @@ tasks:
                         (?!.*-qr).*: []
                         default: built-projects
         loopback-video: true
-        chunks:
+        chunks: dynamic
+        default-chunks:
             by-variant:
                 wmf-media-engine: 1
                 media-gpu: 1
@@ -955,8 +936,11 @@ tasks:
                     default: true
             extra-options:
                 by-test-platform:
+                    android-hw.*:
+                        - --setpref=network.socket.allowed_nonlocal_domains='www.googleapis.com'
                     android-em.*:
                         - --setpref=gfx.canvas.accelerated=false
+                        - --setpref=network.socket.allowed_nonlocal_domains='www.googleapis.com'
                     default: []
         tier:
             by-variant:
@@ -1182,7 +1166,8 @@ tasks:
         variants:
             - webrender-sw
         run-on-projects: []  # Don't run this for now.
-        chunks: 4
+        chunks: dynamic
+        default-chunks: 4
         loopback-video: true
         max-run-time: 1800
         # Bug 1296733: llvmpipe with mesa 9.2.1 lacks thread safety
@@ -1230,15 +1215,8 @@ tasks:
         loopback-video: true
         variants:
             - no-fission
-            - socketprocess_networking
         run-on-projects:
             by-variant:
-                socketprocess_networking:
-                    by-test-platform:
-                        .*-asan.*: []
-                        .*-ccov.*: []
-                        linux2404-64/debug: ['autoland', 'mozilla-central']
-                        default: []
                 no-fission:
                     by-test-platform:
                         linux2404-64/.*: ['trunk']
@@ -1260,99 +1238,3 @@ tasks:
             by-test-platform:
                 linux.*64-asan/opt: xlarge-noscratch  # runs out of memory otherwise using 8GB
                 default: default
-
-    mochitest-browser-newtab-trainhop-beta:
-        description: Mochitest-browser for Newtab using latest Beta builds
-        suite:
-            name: mochitest-browser-chrome
-        run-on-projects:
-            by-test-platform:
-                linux.*64(-shippable)?/.*: ['trunk']
-                macosx.*64(-shippable)?(-qr)?/.*: ['trunk']
-                windows1.*-64.*(-shippable)?/.*: ['trunk']
-                default: []
-        treeherder-symbol: nt-trainhop(Mbc-beta)
-        tier: 2
-        loopback-video: true
-        test-manifest-loader: null  # don't load tests in the taskgraph
-        mozharness:
-            mochitest-flavor: browser
-            chunked: false
-            extra-options:
-                - --tag=newtab
-                - --install-extension=newtab.xpi
-                # This preference is normally set via Nimbus when doing a New Tab
-                # train-hop, but when running the tests in automation like this, we
-                # install the XPI using the more traditional extension install
-                # mechanism.
-                #
-                # This is kind of a hack, but so long as this string here is not
-                # empty, we bypass the uninstall that occurs at startup, and read
-                # from the installed XPI.
-                - --setpref=browser.newtabpage.trainhopAddon.version=any
-        instance-size: default
-        dependencies:
-            newtab-xpi-job: build-extensions-browser
-        fetches:
-            newtab-xpi-job:
-                - artifact: ../browser-extensions/newtab.xpi
-                  extract: false
-        target:
-            by-test-platform:
-                linux.*:
-                    index: gecko.v2.mozilla-beta.shippable.latest.firefox.linux64-opt
-                    name: build/target.tar.xz
-                macosx.*:
-                    index: gecko.v2.mozilla-beta.shippable.latest.firefox.macosx64-opt
-                    name: build/target.dmg
-                windows.*:
-                    index: gecko.v2.mozilla-beta.shippable.latest.firefox.win64-opt
-                    name: build/target.zip
-
-    mochitest-browser-newtab-trainhop-release:
-        description: Mochitest-browser for Newtab using latest Release builds
-        suite:
-            name: mochitest-browser-chrome
-        run-on-projects:
-            by-test-platform:
-                linux.*64(-shippable)?/.*: ['trunk']
-                macosx.*64(-shippable)?(-qr)?/.*: ['trunk']
-                windows1.*-64.*(-shippable)?/.*: ['trunk']
-                default: []
-        treeherder-symbol: nt-trainhop(Mbc-release)
-        tier: 2
-        loopback-video: true
-        test-manifest-loader: null  # don't load tests in the taskgraph
-        mozharness:
-            mochitest-flavor: browser
-            chunked: false
-            extra-options:
-                - --tag=newtab
-                - --install-extension=newtab.xpi
-                # This preference is normally set via Nimbus when doing a New Tab
-                # train-hop, but when running the tests in automation like this, we
-                # install the XPI using the more traditional extension install
-                # mechanism.
-                #
-                # This is kind of a hack, but so long as this string here is not
-                # empty, we bypass the uninstall that occurs at startup, and read
-                # from the installed XPI.
-                - --setpref=browser.newtabpage.trainhopAddon.version=any
-        instance-size: default
-        dependencies:
-            newtab-xpi-job: build-extensions-browser
-        fetches:
-            newtab-xpi-job:
-                - artifact: ../browser-extensions/newtab.xpi
-                  extract: false
-        target:
-            by-test-platform:
-                linux.*:
-                    index: gecko.v2.mozilla-release.shippable.latest.firefox.linux64-opt
-                    name: build/target.tar.xz
-                macosx.*:
-                    index: gecko.v2.mozilla-release.shippable.latest.firefox.macosx64-opt
-                    name: build/target.dmg
-                windows.*:
-                    index: gecko.v2.mozilla-release.shippable.latest.firefox.win64-opt
-                    name: build/target.zip

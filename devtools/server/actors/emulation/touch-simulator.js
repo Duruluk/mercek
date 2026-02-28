@@ -86,9 +86,9 @@ class TouchSimulator {
    * In theory only one picker can ever be active at a time, but tracking the
    * different pickers independantly avoids race issues in the client code.
    *
-   * @param {Boolean} state
+   * @param {boolean} state
    *        True if the picker is currently active, false otherwise.
-   * @param {String} pickerType
+   * @param {string} pickerType
    *        One of PICKER_TYPES.
    */
   setElementPickerState(state, pickerType) {
@@ -222,29 +222,27 @@ class TouchSimulator {
    *
    * @param {Window} win
    *        The target window.
-   * @param {Number} clientX
+   * @param {number} clientX
    *        The `x` screen coordinate relative to the viewport origin.
-   * @param {Number} clientY
+   * @param {number} clientY
    *        The `y` screen coordinate relative to the viewport origin.
-   * @param {String} type
+   * @param {string} type
    *        The type of the touch event.
    */
   sendTouchEvent(win, clientX, clientY, type) {
-    const utils = win.windowUtils;
-    utils.sendTouchEvent(
+    win.synthesizeTouchEvent(
       type,
-      [0],
-      [clientX],
-      [clientY],
-      [0],
-      [0],
-      [0],
-      [0],
-      [0],
-      [0],
-      [0],
+      [
+        {
+          identifier: 0,
+          offsetX: clientX,
+          offsetY: clientY,
+          radiiX: 0,
+          radiiY: 0,
+        },
+      ],
       0,
-      utils.ASYNC_ENABLED
+      { isAsyncEnabled: true }
     );
     return true;
   }

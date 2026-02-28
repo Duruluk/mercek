@@ -18,6 +18,7 @@ transforms:
     - gecko_taskgraph.transforms.task:transforms
 
 task-defaults:
+    run-on-repo-type: [hg]
     shipping-phase: build
     treeherder:
         symbol: Bpgo(instr)
@@ -41,6 +42,7 @@ task-defaults:
     fetches:
         toolchain:
             - linux64-sccache
+            - terser
 
 tasks:
     linux64-shippable/opt:
@@ -51,7 +53,7 @@ tasks:
         shipping-product: firefox
         treeherder:
             platform: linux64-shippable/opt
-        worker-type: b-linux-amd
+        worker-type: b-linux-docker-amd
         run:
             config:
                 - builds/releng_base_firefox.py
@@ -80,7 +82,7 @@ tasks:
         shipping-product: firefox
         treeherder:
             platform: linux64-aarch64-shippable/opt
-        worker-type: b-linux-amd
+        worker-type: b-linux-docker-amd
         run:
             config:
                 - builds/releng_base_firefox.py
@@ -111,7 +113,7 @@ tasks:
         shipping-product: firefox
         treeherder:
             platform: osx-shippable/opt
-        worker-type: b-linux-amd
+        worker-type: b-linux-docker-amd
         worker:
             max-run-time: 7200
             env:
@@ -125,6 +127,9 @@ tasks:
                   type: file
                 - name: public/build/security/plugin-container.xml
                   path: checkouts/gecko/security/mac/hardenedruntime/{entitlement_directory}/plugin-container.xml
+                  type: file
+                - name: public/build/security/security-module-helper.xml
+                  path: checkouts/gecko/security/mac/hardenedruntime/{entitlement_directory}/security-module-helper.xml
                   type: file
         run:
             using: mozharness
@@ -157,7 +162,7 @@ tasks:
         shipping-product: firefox
         treeherder:
             platform: osx-aarch64-shippable/opt
-        worker-type: b-linux-amd
+        worker-type: b-linux-docker-amd
         worker:
             max-run-time: 7200
             env:
@@ -171,6 +176,9 @@ tasks:
                   type: file
                 - name: public/build/security/plugin-container.xml
                   path: checkouts/gecko/security/mac/hardenedruntime/{entitlement_directory}/plugin-container.xml
+                  type: file
+                - name: public/build/security/security-module-helper.xml
+                  path: checkouts/gecko/security/mac/hardenedruntime/{entitlement_directory}/security-module-helper.xml
                   type: file
         run:
             using: mozharness
@@ -207,7 +215,7 @@ tasks:
         shipping-product: fennec
         treeherder:
             platform: android-5-0-x86_64-shippable/opt
-        worker-type: b-linux-xlarge-amd
+        worker-type: b-linux-docker-xlarge-amd
         worker:
             docker-image: {in-tree: android-build}
             env:
@@ -243,6 +251,8 @@ tasks:
                 - android-gradle-dependencies
                 - android-ndk-linux
                 - android-sdk-linux
+                - linux64-embedded-uniffi-bindgen
+                - linux64-nimbus-fml
                 - linux64-jdk
                 - linux64-clang
                 - linux64-rust-android
@@ -262,7 +272,7 @@ tasks:
         shipping-product: fennec
         treeherder:
             platform: android-5-0-aarch64-shippable/opt
-        worker-type: b-linux-xlarge-amd
+        worker-type: b-linux-docker-xlarge-amd
         worker:
             docker-image: {in-tree: android-build}
             env:
@@ -298,6 +308,8 @@ tasks:
                 - android-gradle-dependencies
                 - android-ndk-linux
                 - android-sdk-linux
+                - linux64-embedded-uniffi-bindgen
+                - linux64-nimbus-fml
                 - linux64-jdk
                 - linux64-clang
                 - linux64-rust-android
@@ -317,7 +329,7 @@ tasks:
         shipping-product: fennec
         treeherder:
             platform: android-5-0-armv7-shippable/opt
-        worker-type: b-linux-xlarge-amd
+        worker-type: b-linux-docker-xlarge-amd
         worker:
             docker-image: {in-tree: android-build}
             env:
@@ -353,6 +365,8 @@ tasks:
                 - android-gradle-dependencies
                 - android-ndk-linux
                 - android-sdk-linux
+                - linux64-embedded-uniffi-bindgen
+                - linux64-nimbus-fml
                 - linux64-jdk
                 - linux64-clang
                 - linux64-rust-android
@@ -372,7 +386,7 @@ tasks:
         shipping-product: firefox
         treeherder:
             platform: windows2012-32-shippable/opt
-        worker-type: b-linux-amd
+        worker-type: b-linux-docker-amd
         run:
             options: [append-env-variables-from-configs]
             mozconfig-variant: profile-generate
@@ -392,15 +406,15 @@ tasks:
                 - linux64-node
                 - linux64-cbindgen
                 - linux64-dump_syms
-                - linux64-wine
+                - linux64-upx
                 - linux64-winchecksec
+                - linux64-wine
                 - nsis
                 - sysroot-x86_64-linux-gnu
                 - sysroot-wasm32-wasi
                 - vs
                 - winappsdk-x86-pc-windows-msvc
             fetch:
-                - upx-3.95-win
                 - windows-rs
 
     win64-nightlyasrelease/opt:
@@ -411,7 +425,7 @@ tasks:
         shipping-product: firefox
         treeherder:
             platform: win64-nightlyasrelease/opt
-        worker-type: b-linux-amd
+        worker-type: b-linux-docker-amd
         run:
             options: [append-env-variables-from-configs]
             mozconfig-variant: profile-generate
@@ -433,8 +447,9 @@ tasks:
                 - linux64-node
                 - linux64-cbindgen
                 - linux64-dump_syms
-                - linux64-wine
+                - linux64-upx
                 - linux64-winchecksec
+                - linux64-wine
                 - nsis
                 - sysroot-x86_64-linux-gnu
                 - sysroot-wasm32-wasi
@@ -442,7 +457,6 @@ tasks:
                 - dxc-x86_64-pc-windows-msvc
                 - winappsdk-x86_64-pc-windows-msvc
             fetch:
-                - upx-3.95-win
                 - windows-rs
 
     win64-shippable/opt:
@@ -453,7 +467,7 @@ tasks:
         shipping-product: firefox
         treeherder:
             platform: windows2012-64-shippable/opt
-        worker-type: b-linux-amd
+        worker-type: b-linux-docker-amd
         run:
             options: [append-env-variables-from-configs]
             mozconfig-variant: profile-generate
@@ -473,8 +487,9 @@ tasks:
                 - linux64-node
                 - linux64-cbindgen
                 - linux64-dump_syms
-                - linux64-wine
+                - linux64-upx
                 - linux64-winchecksec
+                - linux64-wine
                 - nsis
                 - sysroot-x86_64-linux-gnu
                 - sysroot-wasm32-wasi
@@ -482,7 +497,6 @@ tasks:
                 - dxc-x86_64-pc-windows-msvc
                 - winappsdk-x86_64-pc-windows-msvc
             fetch:
-                - upx-3.95-win
                 - windows-rs
 
     win64-aarch64-shippable/opt:
@@ -493,7 +507,7 @@ tasks:
         shipping-product: firefox
         treeherder:
             platform: windows2012-aarch64-shippable/opt
-        worker-type: b-linux-amd
+        worker-type: b-linux-docker-amd
         run:
             options: [append-env-variables-from-configs]
             mozconfig-variant: profile-generate
@@ -513,8 +527,8 @@ tasks:
                 - linux64-node
                 - linux64-cbindgen
                 - linux64-dump_syms
-                - linux64-wine
                 - linux64-winchecksec
+                - linux64-wine
                 - nsis
                 - sysroot-x86_64-linux-gnu
                 - sysroot-wasm32-wasi
@@ -522,5 +536,4 @@ tasks:
                 - dxc-aarch64-pc-windows-msvc
                 - winappsdk-aarch64-pc-windows-msvc
             fetch:
-                - upx-3.95-win
                 - windows-rs

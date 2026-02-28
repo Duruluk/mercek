@@ -8,9 +8,9 @@
 
 import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 
-import { UnitConverterSimple } from "resource:///modules/UnitConverterSimple.sys.mjs";
-import { UnitConverterTemperature } from "resource:///modules/UnitConverterTemperature.sys.mjs";
-import { UnitConverterTimezone } from "resource:///modules/UnitConverterTimezone.sys.mjs";
+import { UnitConverterSimple } from "moz-src:///browser/components/urlbar/unitconverters/UnitConverterSimple.sys.mjs";
+import { UnitConverterTemperature } from "moz-src:///browser/components/urlbar/unitconverters/UnitConverterTemperature.sys.mjs";
+import { UnitConverterTimezone } from "moz-src:///browser/components/urlbar/unitconverters/UnitConverterTimezone.sys.mjs";
 import {
   UrlbarProvider,
   UrlbarUtils,
@@ -134,13 +134,11 @@ export class UrlbarProviderUnitConversion extends UrlbarProvider {
   }
 
   /**
-   * This method is called by the providers manager when a query starts to fetch
-   * each extension provider's results.  It fires the resultsRequested event.
+   * Starts querying.
    *
    * @param {UrlbarQueryContext} queryContext
-   *   The query context object.
-   * @param {Function} addCallback
-   *   The callback invoked by this method to add each result.
+   * @param {(provider: UrlbarProvider, result: UrlbarResult) => void} addCallback
+   *   Callback invoked by the provider to add a new result.
    */
   startQuery(queryContext, addCallback) {
     const result = new lazy.UrlbarResult({

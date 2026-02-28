@@ -13,7 +13,8 @@ using namespace mozilla;
 NS_IMPL_ISUPPORTS(nsHapticFeedback, nsIHapticFeedback)
 
 NS_IMETHODIMP
-nsHapticFeedback::PerformSimpleAction(int32_t aType) {
-  hal::PerformHapticFeedback(aType);
+nsHapticFeedback::PerformSimpleAction(
+    nsIHapticFeedback::HapticFeedbackType aType) {
+  hal::PerformHapticFeedback(static_cast<int32_t>(aType));
   return NS_OK;
 }

@@ -7,14 +7,16 @@
 #ifndef GFX_FONT_H
 #define GFX_FONT_H
 
+#include <limits>
 #include <new>
-#include <utility>
 #include <functional>
 #include "PLDHashTable.h"
 #include "ThebesRLBoxTypes.h"
 #include "gfxFontVariations.h"
 #include "gfxRect.h"
 #include "gfxTypes.h"
+#include "harfbuzz/hb.h"
+#include "harfbuzz/hb-ot.h"
 #include "mozilla/AlreadyAddRefed.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/FontPropertyTypes.h"
@@ -1641,11 +1643,51 @@ class gfxFont {
   }
 
   struct Baselines {
-    gfxFloat mAlphabetic;
-    gfxFloat mHanging;
-    gfxFloat mIdeographic;
+    std::atomic<gfxFloat> mAlphabetic;
+    std::atomic<gfxFloat> mHanging;
+    std::atomic<gfxFloat> mIdeographicUnder;
+    std::atomic<gfxFloat> mIdeographicOver;
+    std::atomic<gfxFloat> mIdeographicInkUnder;
+    std::atomic<gfxFloat> mIdeographicInkOver;
+    std::atomic<gfxFloat> mCentral;
+    std::atomic<gfxFloat> mMath;
+
+    Baselines()
+        : mAlphabetic(std::numeric_limits<gfxFloat>::quiet_NaN()),
+          mHanging(std::numeric_limits<gfxFloat>::quiet_NaN()),
+          mIdeographicUnder(std::numeric_limits<gfxFloat>::quiet_NaN()),
+          mIdeographicOver(std::numeric_limits<gfxFloat>::quiet_NaN()),
+          mIdeographicInkUnder(std::numeric_limits<gfxFloat>::quiet_NaN()),
+          mIdeographicInkOver(std::numeric_limits<gfxFloat>::quiet_NaN()),
+          mCentral(std::numeric_limits<gfxFloat>::quiet_NaN()),
+          mMath(std::numeric_limits<gfxFloat>::quiet_NaN()) {}
   };
-  Baselines GetBaselines(Orientation aOrientation);
+
+  typedef std::atomic<gfxFloat> Baselines::* BaselinePtr;
+  typedef std::pair<BaselinePtr, hb_ot_layout_baseline_tag_t> Baseline;
+
+  static constexpr Baseline kAlphabetic = {&Baselines::mAlphabetic,
+                                           HB_OT_LAYOUT_BASELINE_TAG_ROMAN};
+  static constexpr Baseline kHanging = {&Baselines::mHanging,
+                                        HB_OT_LAYOUT_BASELINE_TAG_HANGING};
+  static constexpr Baseline kIdeographicUnder = {
+      &Baselines::mIdeographicUnder,
+      HB_OT_LAYOUT_BASELINE_TAG_IDEO_EMBOX_BOTTOM_OR_LEFT};
+  static constexpr Baseline kIdeographicOver = {
+      &Baselines::mIdeographicOver,
+      HB_OT_LAYOUT_BASELINE_TAG_IDEO_EMBOX_TOP_OR_RIGHT};
+  static constexpr Baseline kIdeographicInkUnder = {
+      &Baselines::mIdeographicInkUnder,
+      HB_OT_LAYOUT_BASELINE_TAG_IDEO_FACE_BOTTOM_OR_LEFT};
+  static constexpr Baseline kIdeographicInkOver = {
+      &Baselines::mIdeographicInkOver,
+      HB_OT_LAYOUT_BASELINE_TAG_IDEO_FACE_TOP_OR_RIGHT};
+  static constexpr Baseline kCentral = {
+      &Baselines::mCentral, HB_OT_LAYOUT_BASELINE_TAG_IDEO_EMBOX_CENTRAL};
+  static constexpr Baseline kMath = {&Baselines::mMath,
+                                     HB_OT_LAYOUT_BASELINE_TAG_MATH};
+
+  gfxFloat GetBaseline(const Baseline& aBaseline, Orientation aOrientation);
 
   /**
    * We let layout specify spacing on either side of any
@@ -1657,22 +1699,23 @@ class gfxFont {
     nscoord mBefore;
     nscoord mAfter;
   };
-
   /**
-   * Metrics for a particular string. These are in appUnits.
+   * Metrics for a particular string
    */
   struct RunMetrics {
+    RunMetrics() { mAdvanceWidth = mAscent = mDescent = 0.0; }
+
     void CombineWith(const RunMetrics& aOther, bool aOtherIsOnLeft);
 
     // can be negative (partly due to negative spacing).
     // Advance widths should be additive: the advance width of the
     // (offset1, length1) plus the advance width of (offset1 + length1,
     // length2) should be the advance width of (offset1, length1 + length2)
-    nscoord mAdvanceWidth = 0;
+    gfxFloat mAdvanceWidth;
 
     // For zero-width substrings, these must be zero!
-    nscoord mAscent = 0;   // always non-negative
-    nscoord mDescent = 0;  // always non-negative
+    gfxFloat mAscent;   // always non-negative
+    gfxFloat mDescent;  // always non-negative
 
     // Bounding box that is guaranteed to include everything drawn.
     // If a tight boundingBox was requested when these metrics were
@@ -1680,7 +1723,7 @@ class gfxFont {
     // "loose" and may be larger than the true bounding box.
     // Coordinates are relative to the baseline left origin, so typically
     // mBoundingBox.y == -mAscent
-    nsRect mBoundingBox;
+    gfxRect mBoundingBox;
   };
 
   /**
@@ -1950,13 +1993,24 @@ class gfxFont {
   virtual const Metrics& GetHorizontalMetrics() const = 0;
 
   void CreateVerticalMetrics();
+  void CreateVerticalBaselines();
+
+  Baselines& GetBaselines(Orientation aOrientation) {
+    if (aOrientation == nsFontMetrics::eHorizontal) {
+      return mHorizontalBaselines;
+    }
+    if (!mVerticalBaselines) {
+      CreateVerticalBaselines();
+    }
+    return *mVerticalBaselines;
+  }
 
   bool MeasureGlyphs(const gfxTextRun* aTextRun, uint32_t aStart, uint32_t aEnd,
                      BoundingBoxType aBoundingBoxType,
                      DrawTarget* aRefDrawTarget, Spacing* aSpacing,
                      gfxGlyphExtents* aExtents, bool aIsRTL,
                      bool aNeedsGlyphExtents, RunMetrics& aMetrics,
-                     nscoord* aAdvanceMin, nscoord* aAdvanceMax);
+                     gfxFloat* aAdvanceMin, gfxFloat* aAdvanceMax);
 
   bool MeasureGlyphs(const gfxTextRun* aTextRun, uint32_t aStart, uint32_t aEnd,
                      BoundingBoxType aBoundingBoxType,
@@ -2214,8 +2268,11 @@ class gfxFont {
 
   mozilla::Atomic<mozilla::gfx::ScaledFont*> mAzureScaledFont;
 
+  Baselines mHorizontalBaselines;
+
   // For vertical metrics, created on demand.
   mozilla::Atomic<Metrics*> mVerticalMetrics;
+  mozilla::Atomic<Baselines*> mVerticalBaselines;
 
   // Table used for MathML layout.
   mozilla::Atomic<gfxMathTable*> mMathTable;

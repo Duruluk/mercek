@@ -155,7 +155,7 @@ const kTestRegion = "DE";
 const kRegionalPrefNamespace = `doh-rollout.${kTestRegion.toLowerCase()}`;
 
 async function setupRegion() {
-  Region._home = null;
+  Region._setHomeRegion(null, false);
   RegionTestUtils.setNetworkRegion(kTestRegion);
   await Region._fetchRegion();
   is(Region.home, kTestRegion, "Should have correct region");

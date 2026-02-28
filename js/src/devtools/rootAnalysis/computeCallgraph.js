@@ -157,7 +157,7 @@ function processBody(functionName, body, functionBodies)
         // points in the body.
         const scopeAttrs = body.attrs[edge.Index[0]] | 0;
 
-        for (const { callee, attrs } of getCallees(body, edge, scopeAttrs, functionBodies)) {
+        for (const { callee, attrs } of getCallees(typeInfo, body, edge, scopeAttrs, functionBodies)) {
             // Some function names will be synthesized by manually constructing
             // their names. Verify that we managed to synthesize an existing function.
             // This cannot be done later with either the callees or callers tables,
@@ -297,7 +297,7 @@ function process(functionName, functionBodies)
         body.attrs = [];
 
     for (var body of functionBodies) {
-        for (var [pbody, id, attrs] of allRAIIGuardedCallPoints(typeInfo, functionBodies, body, isLimitConstructor)) {
+        for (var [pbody, id, attrs] of allRAIIGuardedCallPoints(typeInfo, functionBodies, body)) {
             pbody.attrs[id] = attrs;
         }
     }

@@ -87,12 +87,6 @@ class Highlight final : public nsISupports, public nsWrapperCache {
   void RemoveFromHighlightRegistry(HighlightRegistry& aHighlightRegistry,
                                    nsAtom& aHighlightName);
 
-  /**
-   * @brief Creates a Highlight Selection using the given ranges.
-   */
-  MOZ_CAN_RUN_SCRIPT already_AddRefed<Selection> CreateHighlightSelection(
-      nsAtom* aHighlightName, nsFrameSelection* aFrameSelection);
-
   // WebIDL interface
   nsPIDOMWindowInner* GetParentObject() const { return mWindow; }
 
@@ -134,6 +128,11 @@ class Highlight final : public nsISupports, public nsWrapperCache {
    * webIDL)
    */
   uint32_t Size() const { return mRanges.Length(); }
+
+  /**
+   * @brief Access to the ranges for frame selection population.
+   */
+  const nsTArray<RefPtr<AbstractRange>>& Ranges() const { return mRanges; }
 
   /**
    * @brief Adds a `Range` to this highlight.

@@ -12,12 +12,13 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Build
+import android.os.Bundle
 import android.provider.Settings
 import android.view.Window
 import androidx.core.content.ContextCompat
-import androidx.core.os.bundleOf
 import mozilla.components.support.base.log.logger.Logger
 import mozilla.components.support.utils.BuildManufacturerChecker
 
@@ -26,6 +27,19 @@ const val SETTINGS_SHOW_FRAGMENT_ARGS = ":settings:show_fragment_args"
 const val DEFAULT_BROWSER_APP_OPTION = "default_browser"
 const val ACTION_MANAGE_DEFAULT_APPS_SETTINGS_HUAWEI = "com.android.settings.PREFERRED_SETTINGS"
 private val logger = Logger("navigateToDefaultBrowserAppsSettings")
+
+val Context.packageManagerWrapper: PackageManagerWrapper
+    get() = DefaultPackageManagerWrapper(packageManager)
+
+/**
+ * The default [PackageManagerCompatHelper] for this [Context].
+ *
+ * @returns a [DefaultPackageManagerCompatHelper] created with the context's [PackageManager].
+ */
+val Context.packageManagerCompatHelper: PackageManagerCompatHelper
+    get() = DefaultPackageManagerCompatHelper(
+        DefaultPackageManagerWrapper(packageManager),
+    )
 
 /**
  * Open OS settings for default browser.
@@ -40,7 +54,7 @@ fun Context.navigateToDefaultBrowserAppsSettings(buildManufacturerChecker: Build
             )
             putExtra(
                 SETTINGS_SHOW_FRAGMENT_ARGS,
-                bundleOf(SETTINGS_SELECT_OPTION_KEY to DEFAULT_BROWSER_APP_OPTION),
+                Bundle().apply { putString(SETTINGS_SELECT_OPTION_KEY, DEFAULT_BROWSER_APP_OPTION) },
             )
         }
     }

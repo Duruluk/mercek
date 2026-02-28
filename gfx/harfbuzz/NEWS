@@ -1,3 +1,64 @@
+Overview of changes leading to 12.3.2
+Tuesday, January 24, 2026
+=====================================
+- Fix padding `gvar` table during subsetting when the original font uses long
+  format and subset font using short format.
+- Various fuzzing fixes.
+- Fix NULL pointer deference when malloc fails.
+
+Overview of changes leading to 12.3.1
+Tuesday, January 20, 2026
+=====================================
+- Various speed optimizations.
+- Build fixes for GCC 4.9.
+- Fix NULL pointer deference when malloc fails.
+
+
+Overview of changes leading to 12.3.0
+Saturday, December 27, 2025
+=====================================
+- Invalid font tables (eg. GSUB/GPOS) are outright rejected, instead of
+  partially validated and used. This behavior is different from DirectWrite
+  and HarfRust, and is in line with CoreText. For context and reasoning see:
+  https://github.com/harfbuzz/harfbuzz/issues/5535#issuecomment-3573738217
+- Various speed optimizations:
+  * AAT shaping: speed up state machine on Apple silicon using a fast-path.
+    12% faster in LucidaGrande benchmark.
+  * OpenType shaping: speed up (Chain)Context lookup shaping using a fast-path
+    and Coverage caching. 20% speedup in NotoNastaliqUrdu benchmark.
+  * Drawing mega variable-fonts: 30% speedup on GoogleSansFlex benchmark.
+  * Drawing `VARC` fonts: 5% speedup on varc-hanzi benchmark.
+- Always apply synthetic slant around horizontal glyph origin in hb-draw API.
+- Fix undefined C++ behavior in some uses of union.
+- Remove the disabled by default uniscribe-bug-compatible mode from Indic and
+  Khmer shapers, that used to be used when testing against Uniscribe shaping
+  behaviour.
+- Support full instancing fonts with v2 `avar` table.
+- Various subsetting, build, fuzzing, and documentation fixes.
+
+
+Overview of changes leading to 12.2.0
+Wednesday, November 5, 2025
+=====================================
+- While Windows platform contain the matching of the ChainContext rules to
+  within the syllable for those features that are applied per syllable (in
+  Indic-like and USE shapers), in 2015 we decided that in HarfBuzz we would
+  allow the backtrack / lookahead parts of the rule to match across syllables.
+  However, our implementation had a latent bug, causing the backtrack sequence
+  to be matched within syllable most of the time, and inconsistently so. As
+  such, and after empirical testing, we have decided to match the Windows
+  implementation for this, so now both backtrack and lookahead sequences are
+  contained to within the syllable, just like DirectWrite does.
+- Disable legacy `kern` table for most shapers, enabling it only for default,
+  Arabic, Hangul, and Hebrew shapers.
+- When dropping `STAT` table during subsetting, drop also named IDs that are
+  referenced only by it.
+- Don’t apply synthetic slant to glyph origin, fixing horizontal shift in
+  slanted glyphs.
+- Various build and fuzzing fixes.
+- Documentation fixes.
+
+
 Overview of changes leading to 12.1.0
 Wednesday, October 1, 2025
 =====================================

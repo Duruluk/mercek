@@ -36,6 +36,7 @@ void WSScanResult::AssertIfInvalidData(const WSRunScanner& aScanner) const {
              mReason == WSType::CollapsibleWhiteSpaces ||
              mReason == WSType::BRElement ||
              mReason == WSType::PreformattedLineBreak ||
+             mReason == WSType::EmptyInlineContainerElement ||
              mReason == WSType::SpecialContent ||
              mReason == WSType::CurrentBlockBoundary ||
              mReason == WSType::OtherBlockBoundary ||
@@ -72,15 +73,29 @@ void WSScanResult::AssertIfInvalidData(const WSRunScanner& aScanner) const {
                 mContent->IsHTMLElement(nsGkAtoms::br));
   MOZ_ASSERT_IF(mReason == WSType::PreformattedLineBreak,
                 EditorUtils::IsNewLinePreformatted(*mContent));
+  auto MaybeNonVoidEmptyInlineContainerElement = [&]() {
+    return HTMLEditUtils::IsInlineContent(
+               *mContent,
+               aScanner.ReferredHTMLDefaultStyle()
+                   ? BlockInlineCheck::UseHTMLDefaultStyle
+                   : BlockInlineCheck::UseComputedDisplayOutsideStyle) &&
+           HTMLEditUtils::IsContainerNode(*mContent) &&
+           !HTMLEditUtils::IsReplacedElement(*mContent->AsElement());
+  };
+  MOZ_ASSERT_IF(mReason == WSType::EmptyInlineContainerElement,
+                MaybeNonVoidEmptyInlineContainerElement());
   MOZ_ASSERT_IF(
       mReason == WSType::SpecialContent,
-      (mContent->IsText() && !mContent->IsEditable()) ||
-          (!mContent->IsHTMLElement(nsGkAtoms::br) &&
+      (mContent->IsComment() || mContent->IsProcessingInstruction()) ||
+          (mContent->IsText() && !mContent->IsEditable()) ||
+          (mContent->IsElement() && !mContent->IsHTMLElement(nsGkAtoms::br) &&
            !HTMLEditUtils::IsBlockElement(
                *mContent,
                aScanner.ReferredHTMLDefaultStyle()
                    ? BlockInlineCheck::UseHTMLDefaultStyle
-                   : BlockInlineCheck::UseComputedDisplayOutsideStyle)));
+                   : BlockInlineCheck::UseComputedDisplayOutsideStyle) &&
+           !(mContent->IsEditable() &&
+             MaybeNonVoidEmptyInlineContainerElement())));
   MOZ_ASSERT_IF(
       mReason == WSType::OtherBlockBoundary,
       HTMLEditUtils::IsBlockElement(
@@ -208,6 +223,9 @@ WSScanResult WSRunScanner::ScanPreviousVisibleNodeOrBlockBoundaryFrom(
     return WSScanResult::Error();
   }
 
+  MOZ_ASSERT_IF(!ScanOptions().contains(Option::StopAtComment),
+                !Comment::FromNodeOrNull(
+                    TextFragmentDataAtStartRef().GetStartReasonContent()));
   switch (TextFragmentDataAtStartRef().StartRawReason()) {
     case WSType::CollapsibleWhiteSpaces:
     case WSType::NonCollapsibleCharacters:
@@ -219,29 +237,6 @@ WSScanResult WSRunScanner::ScanPreviousVisibleNodeOrBlockBoundaryFrom(
       return WSScanResult(*this, WSScanResult::ScanDirection::Backward,
                           TextFragmentDataAtStartRef().StartRef(),
                           TextFragmentDataAtStartRef().StartRawReason());
-    case WSType::SpecialContent: {
-      const Comment* comment = Comment::FromNode(
-          TextFragmentDataAtStartRef().GetStartReasonContent());
-      if (!comment) {
-        break;
-      }
-      // If we reached a comment node, we should skip it because it's always
-      // invisible.
-      while (true) {
-        const EditorRawDOMPoint atComment(comment);
-        WSRunScanner scanner(ScanOptions(), atComment,
-                             mTextFragmentDataAtStart.GetAncestorLimiter());
-        if (scanner.TextFragmentDataAtStartRef().StartRawReason() ==
-            WSType::SpecialContent) {
-          if ((comment = Comment::FromNode(scanner.TextFragmentDataAtStartRef()
-                                               .GetStartReasonContent()))) {
-            // Reached another comment node, keep scanning...
-            continue;
-          }
-        }
-        return scanner.ScanPreviousVisibleNodeOrBlockBoundaryFrom(atComment);
-      }
-    }
     default:
       break;
   }
@@ -325,6 +320,9 @@ WSScanResult WSRunScanner::ScanInclusiveNextVisibleNodeOrBlockBoundaryFrom(
     return WSScanResult::Error();
   }
 
+  MOZ_ASSERT_IF(!ScanOptions().contains(Option::StopAtComment),
+                !Comment::FromNodeOrNull(
+                    TextFragmentDataAtStartRef().GetEndReasonContent()));
   switch (TextFragmentDataAtStartRef().EndRawReason()) {
     case WSType::CollapsibleWhiteSpaces:
     case WSType::NonCollapsibleCharacters:
@@ -337,31 +335,6 @@ WSScanResult WSRunScanner::ScanInclusiveNextVisibleNodeOrBlockBoundaryFrom(
       return WSScanResult(*this, WSScanResult::ScanDirection::Forward,
                           TextFragmentDataAtStartRef().EndRef(),
                           TextFragmentDataAtStartRef().EndRawReason());
-    case WSType::SpecialContent: {
-      const Comment* comment =
-          Comment::FromNode(TextFragmentDataAtStartRef().GetEndReasonContent());
-      if (!comment) {
-        break;
-      }
-      // If we reached a comment node, we should skip it because it's always
-      // invisible.
-      while (true) {
-        const EditorRawDOMPoint afterComment =
-            EditorRawDOMPoint::After(*comment);
-        WSRunScanner scanner(ScanOptions(), afterComment,
-                             mTextFragmentDataAtStart.GetAncestorLimiter());
-        if (scanner.TextFragmentDataAtStartRef().EndRawReason() ==
-            WSType::SpecialContent) {
-          if ((comment = Comment::FromNode(scanner.TextFragmentDataAtStartRef()
-                                               .GetEndReasonContent()))) {
-            // Reached another comment node, keep scanning...
-            continue;
-          }
-        }
-        return scanner.ScanInclusiveNextVisibleNodeOrBlockBoundaryFrom(
-            afterComment);
-      }
-    }
     default:
       break;
   }
@@ -1072,6 +1045,7 @@ WSRunScanner::ShrinkRangeIfStartsFromOrEndsAfterAtomicContent(
     if (textFragmentDataAtStart.EndsByVisibleBRElement()) {
       startContent = textFragmentDataAtStart.EndReasonBRElementPtr();
     } else if (textFragmentDataAtStart.EndsBySpecialContent() ||
+               textFragmentDataAtStart.EndsByEmptyInlineContainerElement() ||
                (textFragmentDataAtStart.EndsByOtherBlockElement() &&
                 !HTMLEditUtils::IsContainerNode(
                     *textFragmentDataAtStart
@@ -1094,6 +1068,7 @@ WSRunScanner::ShrinkRangeIfStartsFromOrEndsAfterAtomicContent(
     if (textFragmentDataAtEnd.StartsFromVisibleBRElement()) {
       endContent = textFragmentDataAtEnd.StartReasonBRElementPtr();
     } else if (textFragmentDataAtEnd.StartsFromSpecialContent() ||
+               textFragmentDataAtEnd.EndsByEmptyInlineContainerElement() ||
                (textFragmentDataAtEnd.StartsFromOtherBlockElement() &&
                 !HTMLEditUtils::IsContainerNode(
                     *textFragmentDataAtEnd
@@ -1107,13 +1082,9 @@ WSRunScanner::ShrinkRangeIfStartsFromOrEndsAfterAtomicContent(
   }
 
   nsresult rv = aRange.SetStartAndEnd(
-      startContent ? RangeBoundary(
-                         startContent->GetParentNode(),
-                         startContent->GetPreviousSibling())  // at startContent
+      startContent ? RangeBoundary::FromChild(*startContent)
                    : aRange.StartRef(),
-      endContent ? RangeBoundary(endContent->GetParentNode(),
-                                 endContent)  // after endContent
-                 : aRange.EndRef());
+      endContent ? RangeBoundary::After(*endContent) : aRange.EndRef());
   if (NS_FAILED(rv)) {
     NS_WARNING("nsRange::SetStartAndEnd() failed");
     return Err(rv);

@@ -537,7 +537,7 @@ export var webrtcUI = {
    * For camera and microphone streams, this will also revoke any associated
    * permissions from SitePermissions.
    *
-   * @param {Array<Object>} activeStreams - An array of streams obtained via webrtcUI.getActiveStreams.
+   * @param {Array<object>} activeStreams - An array of streams obtained via webrtcUI.getActiveStreams.
    * @param {boolean} stopCameras - True to stop the camera streams (defaults to true)
    * @param {boolean} stopMics - True to stop the microphone streams (defaults to true)
    * @param {boolean} stopScreens - True to stop the screen streams (defaults to true)
@@ -568,19 +568,7 @@ export var webrtcUI = {
     for (let stream of activeStreams) {
       let { browser } = stream;
 
-      let gBrowser = browser.getTabBrowser();
-      if (!gBrowser) {
-        console.error("Can't stop sharing stream - cannot find gBrowser.");
-        continue;
-      }
-
-      let tab = gBrowser.getTabForBrowser(browser);
-      if (!tab) {
-        console.error("Can't stop sharing stream - cannot find tab.");
-        continue;
-      }
-
-      this.clearPermissionsAndStopSharing(ids, tab);
+      this.clearPermissionsAndStopSharing(ids, browser);
     }
 
     // Switch to the newest stream's browser.
@@ -597,19 +585,20 @@ export var webrtcUI = {
   /**
    * Clears permissions and stops sharing (if active) for a list of device types
    * and a specific tab.
+   *
    * @param {("camera"|"microphone"|"screen")[]} types - Device types to stop
    * and clear permissions for.
-   * @param tab - Tab of the devices to stop and clear permissions.
+   * @param linkedBrowser - Tab's linkedBrowser of the devices to stop and clear permissions.
    */
-  clearPermissionsAndStopSharing(types, tab) {
+  clearPermissionsAndStopSharing(types, linkedBrowser) {
     let invalidTypes = types.filter(
       type => !["camera", "screen", "microphone", "speaker"].includes(type)
     );
     if (invalidTypes.length) {
       throw new Error(`Invalid device types ${invalidTypes.join(",")}`);
     }
-    let browser = tab.linkedBrowser;
-    let sharingState = tab._sharingState?.webRTC;
+    let browser = linkedBrowser;
+    let sharingState = browser._sharingState?.webRTC;
 
     // If we clear a WebRTC permission we need to remove all permissions of
     // the same type across device ids. We also need to stop active WebRTC
@@ -700,6 +689,7 @@ export var webrtcUI = {
    * child frames.
    * Note: activePerms is an internal WebRTC UI permission map and does not
    * reflect the PermissionManager or SitePermissions state.
+   *
    * @param aBrowser - Browser to clear active permissions for.
    */
   forgetActivePermissionsFromBrowser(aBrowser) {
@@ -714,6 +704,7 @@ export var webrtcUI = {
   /**
    * Shows the Permission Panel for the tab associated with the provided
    * active stream.
+   *
    * @param aActiveStream - The stream that the user wants to see permissions for.
    * @param aEvent - The user input event that is invoking the panel. This can be
    *        undefined / null if no such event exists.

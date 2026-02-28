@@ -46,6 +46,9 @@ var gExceptionPaths = [
   "chrome://browser/content/asrouter/assets/fox-with-devices.svg",
   "chrome://browser/content/asrouter/assets/fox-with-locked-box.svg",
   "chrome://browser/content/asrouter/assets/fox-with-mobile.svg",
+  "chrome://browser/content/asrouter/assets/desktop-to-mobile-banner.svg",
+  "chrome://browser/content/asrouter/assets/desktop-to-mobile-non-eu-QR.svg",
+  "chrome://browser/content/asrouter/assets/desktop-to-mobile-eu-QR.svg",
 
   // toolkit/components/pdfjs/content/build/pdf.js
   "resource://pdf.js/web/images/",
@@ -199,9 +202,6 @@ var allowlist = [
 
   { file: "resource://gre/greprefs.js" },
 
-  // layout/mathml/nsMathMLChar.cpp
-  { file: "resource://gre/res/fonts/mathfontUnicode.properties" },
-
   // toolkit/mozapps/extensions/AddonContentPolicy.cpp
   { file: "resource://gre/localization/en-US/toolkit/global/cspErrors.ftl" },
 
@@ -310,7 +310,9 @@ var allowlist = [
 
   // Referenced programmatically
   { file: "chrome://browser/content/backup/BackupManifest.1.schema.json" },
+  { file: "chrome://browser/content/backup/BackupManifest.2.schema.json" },
   { file: "chrome://browser/content/backup/ArchiveJSONBlock.1.schema.json" },
+  { file: "chrome://browser/content/backup/ArchiveJSONBlock.2.schema.json" },
 
   // Bug 1733498 - Migrate necko errors l10n strings from .properties to Fluent
   {
@@ -327,6 +329,14 @@ var allowlist = [
   // and this file will be needed for that.
   {
     file: "resource://app/modules/backup/CookiesBackupResource.sys.mjs",
+  },
+
+  // Bug 1996315: QR code generation modules
+  {
+    file: "moz-src:///browser/components/qrcode/QRCodeGenerator.sys.mjs",
+  },
+  {
+    file: "moz-src:///browser/components/qrcode/QRCodeWorker.sys.mjs",
   },
 ];
 

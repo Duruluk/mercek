@@ -97,7 +97,7 @@ bool ModuleLoader::CanStartLoad(ModuleLoadRequest* aRequest, nsresult* aRvOut) {
 
 nsresult ModuleLoader::StartFetch(ModuleLoadRequest* aRequest) {
   if (aRequest->IsCachedStencil()) {
-    GetScriptLoader()->EmulateNetworkEvents(aRequest);
+    GetScriptLoader()->EmulateNetworkEvents(aRequest, Nothing());
     SetModuleFetchStarted(aRequest);
     return aRequest->OnFetchComplete(NS_OK);
   }
@@ -220,21 +220,38 @@ nsresult ModuleLoader::CompileFetchedModule(
   switch (aRequest->mModuleType) {
     case JS::ModuleType::Unknown:
       MOZ_CRASH("Unexpected module type");
-    case JS::ModuleType::JavaScript:
-      return CompileJavaScriptModule(aCx, aOptions, aRequest, aModuleOut);
+    case JS::ModuleType::JavaScriptOrWasm:
+      return CompileJavaScriptOrWasmModule(aCx, aOptions, aRequest, aModuleOut);
     case JS::ModuleType::JSON:
       return CompileJsonModule(aCx, aOptions, aRequest, aModuleOut);
     case JS::ModuleType::CSS:
       return CompileCssModule(aCx, aOptions, aRequest, aModuleOut);
+    case JS::ModuleType::Bytes:
+      MOZ_CRASH("Unexpected module type");
   }
 
   MOZ_CRASH("Unhandled module type");
 }
 
-nsresult ModuleLoader::CompileJavaScriptModule(
+nsresult ModuleLoader::CompileJavaScriptOrWasmModule(
     JSContext* aCx, JS::CompileOptions& aOptions, ModuleLoadRequest* aRequest,
     JS::MutableHandle<JSObject*> aModuleOut) {
   GetScriptLoader()->CalculateCacheFlag(aRequest);
+
+#ifdef NIGHTLY_BUILD
+  if (aRequest->HasWasmMimeTypeEssence()) {
+    MOZ_ASSERT(aRequest->IsWasmBytes());
+    auto* wasmModule =
+        JS::CompileWasmModule(aCx, aOptions, aRequest->WasmBytes());
+    if (!wasmModule) {
+      return NS_ERROR_FAILURE;
+    }
+
+    aModuleOut.set(wasmModule);
+    return NS_OK;
+  }
+#endif
+  MOZ_ASSERT(!aRequest->IsWasmBytes());
 
   if (aRequest->IsCachedStencil()) {
     JS::InstantiateOptions instantiateOptions(aOptions);
@@ -298,11 +315,11 @@ nsresult ModuleLoader::CompileJavaScriptModule(
     };
     stencil = maybeSource.mapNonEmpty(compile);
   } else {
-    MOZ_ASSERT(aRequest->IsBytecode());
+    MOZ_ASSERT(aRequest->IsSerializedStencil());
     JS::DecodeOptions decodeOptions(aOptions);
     decodeOptions.borrowBuffer = true;
 
-    JS::TranscodeRange range = aRequest->Bytecode();
+    JS::TranscodeRange range = aRequest->SerializedStencil();
     JS::TranscodeResult tr =
         JS::DecodeStencil(aCx, decodeOptions, range, getter_AddRefs(stencil));
     if (tr != JS::TranscodeResult::Ok) {
@@ -430,7 +447,7 @@ nsresult ModuleLoader::CompileCssModule(
     }
 
     // Steps. 1 - 4 (re-ordered), 7, 8
-    cssModule.set(JS::CreateCssModule(aCx, aOptions, val));
+    cssModule.set(JS::CreateDefaultExportSyntheticModule(aCx, val));
   };
 
   maybeSource.mapNonEmpty(compile);

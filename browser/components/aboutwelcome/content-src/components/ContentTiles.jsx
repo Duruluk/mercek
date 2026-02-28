@@ -8,6 +8,7 @@ import { AddonsPicker } from "./AddonsPicker";
 import { SingleSelect } from "./SingleSelect";
 import { MobileDownloads } from "./MobileDownloads";
 import { MultiSelect } from "./MultiSelect";
+import { TextAreaTile } from "./TextAreaTile";
 import { EmbeddedMigrationWizard } from "./EmbeddedMigrationWizard";
 import { EmbeddedFxBackupOptIn } from "./EmbeddedFxBackupOptIn";
 import { ActionChecklist } from "./ActionChecklist";
@@ -59,18 +60,11 @@ export const ContentTiles = props => {
     return null;
   }
 
-  const { tile_items, container } =
-    AboutWelcomeUtils.normalizeContentTiles(content);
-
-  if (!tile_items.length) {
-    return null;
-  }
-
   // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => {
     // Run once when ContentTiles mounts to prefill activeMultiSelect
     if (!props.activeMultiSelect) {
-      const tilesArray = Array.isArray(tile_items) ? tile_items : [tile_items];
+      const tilesArray = Array.isArray(tiles) ? tiles : [tiles];
 
       tilesArray.forEach((tile, index) => {
         if (tile.type !== "multiselect" || !tile.data) {
@@ -91,7 +85,7 @@ export const ContentTiles = props => {
         }
       });
     }
-  }, [tile_items]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tiles]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     /**
@@ -177,15 +171,33 @@ export const ContentTiles = props => {
 
   const toggleTile = (index, tile) => {
     const tileId = `${tile.type}${tile.id ? "_" : ""}${tile.id ?? ""}_header`;
-    setExpandedTileIndex(prevIndex => (prevIndex === index ? null : index));
-    AboutWelcomeUtils.sendActionTelemetry(props.messageId, tileId);
+    AboutWelcomeUtils.sendActionTelemetry(
+      props.messageId,
+      tileId,
+      "CLICK_BUTTON",
+      { writeInMicrosurvey: props.writeInMicrosurvey }
+    );
+    if (tile.type === "link" && tile.action) {
+      props.handleAction(
+        {
+          currentTarget: {
+            value: tileId,
+          },
+        },
+        tile.action
+      );
+    } else {
+      setExpandedTileIndex(prevIndex => (prevIndex === index ? null : index));
+    }
   };
 
   const toggleTiles = () => {
     setTilesHeaderExpanded(prev => !prev);
     AboutWelcomeUtils.sendActionTelemetry(
       props.messageId,
-      "content_tiles_header"
+      "content_tiles_header",
+      "CLICK_BUTTON",
+      { writeInMicrosurvey: props.writeInMicrosurvey }
     );
   };
 
@@ -201,6 +213,14 @@ export const ContentTiles = props => {
     const isExpanded = expandedTileIndex === index;
     const { header, title, subtitle } = tile;
 
+    const tileHeaderProps =
+      tile.type === "link"
+        ? { role: "link" }
+        : {
+            "aria-expanded": isExpanded,
+            "aria-controls": `tile-content-${index}`,
+          };
+
     return (
       <div
         key={index}
@@ -211,8 +231,7 @@ export const ContentTiles = props => {
           <button
             className="tile-header secondary"
             onClick={() => toggleTile(index, tile)}
-            aria-expanded={isExpanded}
-            aria-controls={`tile-content-${index}`}
+            {...tileHeaderProps}
             style={AboutWelcomeUtils.getValidStyle(header.style, HEADER_STYLES)}
           >
             <div className="header-text-container">
@@ -225,7 +244,11 @@ export const ContentTiles = props => {
                 </Localized>
               )}
             </div>
-            <div className="arrow-icon"></div>
+            <div
+              className={
+                tile.type === "link" ? "external-link-icon" : "arrow-icon"
+              }
+            ></div>
           </button>
         )}
         {(title || subtitle) && (
@@ -248,7 +271,7 @@ export const ContentTiles = props => {
             )}
           </div>
         )}
-        {isExpanded || !header ? (
+        {tile.type !== "link" && (isExpanded || !header) ? (
           <div className="tile-content" id={`tile-content-${index}`}>
             {tile.type === "addons-picker" && tile.data && (
               <AddonsPicker
@@ -257,6 +280,7 @@ export const ContentTiles = props => {
                 message_id={props.messageId}
                 handleAction={props.handleAction}
                 layout={content.position}
+                writeInMicrosurvey={props.writeInMicrosurvey}
               />
             )}
             {["theme", "single-select"].includes(tile.type) && tile.data && (
@@ -295,6 +319,14 @@ export const ContentTiles = props => {
                 multiSelectId={`tile-${index}`}
               />
             )}
+            {tile.type === "textarea" && tile.data && (
+              <TextAreaTile
+                content={{ tiles: tile }}
+                textInputs={props.textInputs}
+                setTextInput={props.setTextInput}
+                tileIndex={index}
+              />
+            )}
             {tile.type === "migration-wizard" && (
               <EmbeddedMigrationWizard
                 handleAction={props.handleAction}
@@ -302,7 +334,11 @@ export const ContentTiles = props => {
               />
             )}
             {tile.type === "action_checklist" && tile.data && (
-              <ActionChecklist content={content} message_id={props.messageId} />
+              <ActionChecklist
+                content={content}
+                message_id={props.messageId}
+                writeInMicrosurvey={props.writeInMicrosurvey}
+              />
             )}
             {tile.type === "embedded_browser" && tile.data?.url && (
               <EmbeddedBrowser url={tile.data.url} style={tile.data.style} />
@@ -341,36 +377,26 @@ export const ContentTiles = props => {
   };
 
   const renderContentTiles = () => {
-    const hasHeader = !!container?.header;
-    const hasContainerStyle = !!Object.keys(container?.style || {}).length;
+    if (Array.isArray(tiles)) {
+      const containerStyle = content?.tiles_container?.style;
 
-    // Legacy rule: tiles as a single object renders without a container.
-    // Arrays (even length 1) render inside a container.
-    // Normalize helper will detect original input shape (object vs array) before normalizing to preserve intent.
-    const isArrayInput = Array.isArray(content.tiles);
-    if (
-      !isArrayInput &&
-      tile_items.length === 1 &&
-      !hasHeader &&
-      !hasContainerStyle
-    ) {
-      return renderContentTile(tile_items[0], 0);
+      return (
+        <div
+          id="content-tiles-container"
+          style={AboutWelcomeUtils.getValidStyle(
+            containerStyle,
+            CONTAINER_STYLES
+          )}
+        >
+          {tiles.map((tile, index) => renderContentTile(tile, index))}
+        </div>
+      );
     }
-
-    return (
-      <div
-        id="content-tiles-container"
-        style={AboutWelcomeUtils.getValidStyle(
-          container?.style,
-          CONTAINER_STYLES
-        )}
-      >
-        {tile_items.map((tile, index) => renderContentTile(tile, index))}
-      </div>
-    );
+    // If tiles is not an array render the tile alone without a container
+    return renderContentTile(tiles, 0);
   };
 
-  if (container?.header) {
+  if (content.tiles_header) {
     return (
       <React.Fragment>
         <button
@@ -379,7 +405,7 @@ export const ContentTiles = props => {
           aria-expanded={tilesHeaderExpanded}
           aria-controls={`content-tiles-container`}
         >
-          <Localized text={container.header?.title}>
+          <Localized text={content.tiles_header.title}>
             <span className="header-title" />
           </Localized>
           <div className="arrow-icon"></div>
@@ -388,5 +414,5 @@ export const ContentTiles = props => {
       </React.Fragment>
     );
   }
-  return renderContentTiles(tile_items);
+  return renderContentTiles(tiles);
 };

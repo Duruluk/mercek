@@ -632,7 +632,8 @@ enum SVEPredicateConstraint {
 
 
 // Generic fields.
-enum GenericInstrField : uint32_t {
+using GenericInstrField = uint32_t;
+constexpr GenericInstrField
   SixtyFourBits        = 0x80000000,
   ThirtyTwoBits        = 0x00000000,
 
@@ -640,9 +641,10 @@ enum GenericInstrField : uint32_t {
   FP16                 = 0x00C00000,
   FP32                 = 0x00000000,
   FP64                 = 0x00400000
-};
+;
 
-enum NEONFormatField : uint32_t {
+using NEONFormatField = uint32_t;
+constexpr NEONFormatField
   NEONFormatFieldMask   = 0x40C00000,
   NEON_Q                = 0x40000000,
   NEON_8B               = 0x00000000,
@@ -653,7 +655,7 @@ enum NEONFormatField : uint32_t {
   NEON_4S               = NEON_2S | NEON_Q,
   NEON_1D               = 0x00C00000,
   NEON_2D               = 0x00C00000 | NEON_Q
-};
+;
 
 enum NEONFPFormatField : uint32_t {
   NEONFPFormatFieldMask = 0x40400000,
@@ -1005,7 +1007,11 @@ enum ExceptionOp : uint32_t {
   SMC            = ExceptionFixed | 0x00000003,
   DCPS1          = ExceptionFixed | 0x00A00001,
   DCPS2          = ExceptionFixed | 0x00A00002,
-  DCPS3          = ExceptionFixed | 0x00A00003
+  DCPS3          = ExceptionFixed | 0x00A00003,
+
+  // Mozilla change:
+  // Add pseudo-instruction for Wasm traps.
+  DCPS0          = ExceptionFixed | 0x00A00000,
 };
 
 enum MemBarrierOp : uint32_t {
@@ -4557,7 +4563,7 @@ enum MaxMinImmediateOp : uint32_t {
 // 0x5ac00c00 (rbit variant)
 //
 // This instruction is "dcps0", also has 16-bit payload if needed.
-static constexpr uint32_t UNDEFINED_INST_PATTERN = 0xd4a00000;
+static constexpr uint32_t UNDEFINED_INST_PATTERN = DCPS0;
 
 }  // namespace vixl
 

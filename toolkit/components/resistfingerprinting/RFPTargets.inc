@@ -35,7 +35,8 @@ ITEM_VALUE(NavigatorHWConcurrency,      16)
 ITEM_VALUE(NavigatorOscpu,              17)
 ITEM_VALUE(NavigatorPlatform,           18)
 ITEM_VALUE(NavigatorUserAgent,          19)
-ITEM_VALUE(PointerId,                   20)
+// If the user disables PDFJS via a pref, we do not expose that to the web
+ITEM_VALUE(PdfjsSpoof,                  20)
 ITEM_VALUE(StreamVideoFacingMode,       21)
 ITEM_VALUE(JSDateTimeUTC,               22)
 ITEM_VALUE(JSMathFdlibm,                23)
@@ -108,7 +109,12 @@ ITEM_VALUE(MaxTouchPointsCollapse,      73)
 ITEM_VALUE(NavigatorHWConcurrencyTiered,74)
 ITEM_VALUE(WebGLRandomization,          75)
 ITEM_VALUE(EfficientCanvasRandomization, 76)
+ITEM_VALUE(WebGLVendorSanitize,         77)
+ITEM_VALUE(WebGLVendorConstant,         78)
+ITEM_VALUE(WebGLVendorRandomize,        79)
+ITEM_VALUE(WebGLRendererConstant,       80)
 
+// !!! Adding a new target? Rename PointerId and repurpose it.
 
 /*
  * In certain cases, we precompute the value of ShouldRFP for e.g. a Document.

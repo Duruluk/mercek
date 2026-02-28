@@ -7,18 +7,30 @@ const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
   IndexedDB: "resource://gre/modules/IndexedDB.sys.mjs",
-  DAPTelemetrySender: "resource://gre/modules/DAPTelemetrySender.sys.mjs",
+  DAPSender: "resource://gre/modules/DAPSender.sys.mjs",
+  ObliviousHTTP: "resource://gre/modules/ObliviousHTTP.sys.mjs",
+  HPKEConfigManager: "resource://gre/modules/HPKEConfigManager.sys.mjs",
+  AboutNewTab: "resource:///modules/AboutNewTab.sys.mjs",
 });
 
-const MAX_CONVERSIONS = 5;
+const MAX_CONVERSIONS = 2;
 const MAX_LOOKBACK_DAYS = 30;
 const DAY_IN_MILLI = 1000 * 60 * 60 * 24;
 const CONVERSION_RESET_MILLI = 7 * DAY_IN_MILLI;
 
+const DAP_HPKE_PREF = "dap.ohttp.hpke";
+const DAP_RELAY_PREF = "dap.ohttp.relayURL";
+const MARS_ENDPOINT_PREF =
+  "browser.newtabpage.activity-stream.unifiedAds.endpoint";
+const PREF_MARS_OHTTP_CONFIG =
+  "browser.newtabpage.activity-stream.discoverystream.ohttp.configURL";
+const PREF_MARS_OHTTP_RELAY =
+  "browser.newtabpage.activity-stream.discoverystream.ohttp.relayURL";
+
 /**
  *
  */
-export class NewTabAttributionService {
+class NewTabAttributionService {
   /**
    * @typedef { 'view' | 'click' | 'default' } matchType - Available matching methodologies for conversion events.
    *
@@ -27,7 +39,6 @@ export class NewTabAttributionService {
    * @typedef {object} task - DAP task settings.
    * @property {string} id - task id.
    * @property {string} vdaf - vdaf type.
-   * @property {number} bits - datatype size.
    * @property {number} length - number of buckets.
    * @property {number} time_precision - time precision.
    *
@@ -46,13 +57,13 @@ export class NewTabAttributionService {
    * @property {number} conversions - Number of conversions that have occurred in the budget period.
    * @property {number} nextReset - Timestamp in milliseconds for the end of the period this budget applies to.
    */
-  #dapTelemetrySenderInternal;
+  #dapSenderInternal;
   #dateProvider;
   // eslint-disable-next-line no-unused-private-class-members
   #testDapOptions;
 
-  constructor({ dapTelemetrySender, dateProvider, testDapOptions } = {}) {
-    this.#dapTelemetrySenderInternal = dapTelemetrySender;
+  constructor({ dapSender, dateProvider, testDapOptions } = {}) {
+    this.#dapSenderInternal = dapSender;
     this.#dateProvider = dateProvider ?? Date;
     this.#testDapOptions = testDapOptions;
 
@@ -68,12 +79,19 @@ export class NewTabAttributionService {
     };
   }
 
-  get #dapTelemetrySender() {
-    return this.#dapTelemetrySenderInternal || lazy.DAPTelemetrySender;
+  get #dapSender() {
+    return this.#dapSenderInternal || lazy.DAPSender;
   }
 
   #now() {
     return this.#dateProvider.now();
+  }
+
+  #getTrainhopConfig() {
+    return (
+      lazy.AboutNewTab.activityStream?.store.getState().Prefs.values
+        .trainhopConfig ?? {}
+    );
   }
 
   /**
@@ -87,39 +105,26 @@ export class NewTabAttributionService {
     try {
       const now = this.#now();
 
-      const impressionStore = await this.#getImpressionStore();
-
-      if (!params || !params.conversion) {
+      if (
+        !params ||
+        !params.partner_id ||
+        params.index === undefined ||
+        params.index === null
+      ) {
         return;
       }
 
-      const impression = await this.#getImpression(
-        impressionStore,
-        params.partner_id,
-        {
-          conversion: {
-            task: {
-              id: params.conversion.task_id,
-              vdaf: params.conversion.vdaf,
-              bits: params.conversion.bits,
-              length: params.conversion.length,
-              time_precision: params.conversion.time_precision,
-            },
-            defaultMeasurement: params.conversion.default_measurement,
-            index: params.conversion.index,
-          },
-        }
-      );
+      const impression = await this.#getImpression(params.partner_id, {
+        conversion: {
+          index: params.index,
+        },
+      });
 
       const prop = this.#getModelProp(type);
       impression.lastImpression = now;
       impression[prop] = now;
 
-      await this.#updateImpression(
-        impressionStore,
-        params.partner_id,
-        impression
-      );
+      await this.#updateImpression(params.partner_id, impression);
     } catch (e) {
       console.error(e);
     }
@@ -172,10 +177,26 @@ export class NewTabAttributionService {
    */
   async onAttributionConversion(partnerId, lookbackDays, impressionType) {
     try {
-      if (lookbackDays > MAX_LOOKBACK_DAYS) {
+      const trainhopConfig = this.#getTrainhopConfig();
+      const attributionConfig = trainhopConfig.attribution || {};
+
+      const maxLookbackDays =
+        attributionConfig.maxLookbackDays ?? MAX_LOOKBACK_DAYS;
+      const maxConversions =
+        attributionConfig.maxConversions ?? MAX_CONVERSIONS;
+
+      if (lookbackDays > maxLookbackDays) {
         return;
       }
-
+      // we don't want to request the gateway key at time of conversion to avoid an IP address leak
+      const dapHpke = Services.prefs.getCharPref(
+        DAP_HPKE_PREF,
+        "gAAgJSO22Y3HKzRSese15JtQVuuFfOIcTrZ56lQ5kDQwS0oABAABAAE"
+      );
+      const ohttpRelayURL = Services.prefs.getCharPref(
+        DAP_RELAY_PREF,
+        "https://mozilla-ohttp-dap.mozilla.fastly-edge.com/"
+      );
       const now = this.#now();
 
       const budget = await this.#getBudget(partnerId, now);
@@ -186,29 +207,46 @@ export class NewTabAttributionService {
         now
       );
 
-      let conversion = impression?.conversion;
-      if (!conversion) {
-        // retreive "conversion" for conversions with no found impression
-        // conversion = await this.#getUnattributedTask(partnerId);
-        if (!conversion) {
-          return;
-        }
+      const receivedTaskConfig = await this.#getTaskConfig(partnerId);
+
+      if (!receivedTaskConfig) {
+        return;
       }
 
-      let measurement = conversion.defaultMeasurement;
+      // Need to rename task_id to id for DAP report submission.
+      const taskConfig = {
+        ...receivedTaskConfig,
+        id: receivedTaskConfig.task_id,
+      };
+
+      let measurement = receivedTaskConfig.default_measurement;
       let budgetSpend = 0;
-      if (budget.conversions < MAX_CONVERSIONS && conversion) {
+      if (budget.conversions < maxConversions && impression) {
         budgetSpend = 1;
-        if (conversion.task && conversion.task.length > conversion.index) {
-          measurement = conversion.index;
+        const conversionIndex = impression.conversion.index;
+        if (
+          receivedTaskConfig.length > conversionIndex &&
+          conversionIndex !== undefined
+        ) {
+          measurement = conversionIndex;
         }
       }
 
       await this.#updateBudget(budget, budgetSpend, partnerId);
-      await this.#dapTelemetrySender.sendDAPMeasurement(
-        conversion.task,
+
+      const options = {};
+      if (dapHpke) {
+        options.ohttp_hpke = lazy.HPKEConfigManager.decodeKey(dapHpke);
+      }
+
+      if (ohttpRelayURL) {
+        options.ohttp_relay = ohttpRelayURL;
+      }
+
+      await this.#dapSender.sendDAPMeasurement(
+        taskConfig,
         measurement,
-        {}
+        options
       );
     } catch (e) {
       console.error(e);
@@ -217,6 +255,7 @@ export class NewTabAttributionService {
 
   /**
    * findImpression queries the local events to find an attributable event.
+   *
    * @param {string} partnerId - Partner the event must be associated with.
    * @param {number} lookbackDays - Maximum number of days ago that the event occurred for it to
    *  be eligible.
@@ -256,12 +295,13 @@ export class NewTabAttributionService {
    * getImpression searches existing events for the partner and retuns the event
    * if it is found, defaulting to the passed in impression if there are none. This
    * enables timestamp fields of the stored event to be updated or carried forward.
-   * @param {ObjectStore} impressionStore - Promise-based wrapped IDBObjectStore.
+   *
    * @param {string} partnerId - partner this event is associated with.
    * @param {impression} defaultImpression - event to use if it has not been seen previously.
    * @returns {Promise<impression>}
    */
-  async #getImpression(impressionStore, partnerId, defaultImpression) {
+  async #getImpression(partnerId, defaultImpression) {
+    const impressionStore = await this.#getImpressionStore();
     const impressions = await this.#getPartnerImpressions(
       impressionStore,
       partnerId
@@ -273,14 +313,60 @@ export class NewTabAttributionService {
     return impression ?? defaultImpression;
   }
 
+  async #getTaskConfig(partnerId) {
+    const baseUrl = Services.prefs.getCharPref(MARS_ENDPOINT_PREF, "");
+    const endpoint = `${baseUrl}/v1/attribution?partner_id=${encodeURIComponent(
+      partnerId
+    )}`;
+    const ohttpConfigURL = Services.prefs.getCharPref(
+      PREF_MARS_OHTTP_CONFIG,
+      ""
+    );
+    const ohttpRelayURL = Services.prefs.getCharPref(PREF_MARS_OHTTP_RELAY, "");
+
+    if (!partnerId || !endpoint || !ohttpRelayURL || !ohttpConfigURL) {
+      return null;
+    }
+    const controller = new AbortController();
+    const { signal } = controller;
+    let config = await lazy.ObliviousHTTP.getOHTTPConfig(ohttpConfigURL);
+    if (!config) {
+      console.error(
+        new Error(
+          `OHTTP was configured for ${endpoint} but we couldn't fetch a valid config`
+        )
+      );
+      return null;
+    }
+    try {
+      const response = await lazy.ObliviousHTTP.ohttpRequest(
+        ohttpRelayURL,
+        config,
+        endpoint,
+        {
+          headers: {},
+          signal,
+        }
+      );
+      return response.json();
+    } catch (error) {
+      console.error(
+        `Failed to make OHTTP request for unattributed task: ${error.message}`,
+        error
+      );
+      return null;
+    }
+  }
+
   /**
    * updateImpression stores the passed event, either updating the record
    * if this event was already seen, or appending to the list of events if it is new.
-   * @param {ObjectStore} impressionStore - Promise-based wrapped IDBObjectStore.
+   *
    * @param {string} partnerId - partner this event is associated with.
    * @param {impression} impression - event to update.
    */
-  async #updateImpression(impressionStore, partnerId, impression) {
+  async #updateImpression(partnerId, impression) {
+    const impressionStore = await this.#getImpressionStore();
     let impressions = await this.#getPartnerImpressions(
       impressionStore,
       partnerId
@@ -301,13 +387,10 @@ export class NewTabAttributionService {
   /**
    * @param {impression} cur
    * @param {impression} impression
-   * @returns {boolean} true if cur and impression have the same DAP allocation, else false.
+   * @returns {boolean} true if cur and impression have the same index
    */
   #compareImpression(cur, impression) {
-    return (
-      cur.conversion.task.id === impression.conversion.task.id &&
-      cur.conversion.index === impression.conversion.index
-    );
+    return cur.conversion.index === impression.conversion.index;
   }
 
   /**
@@ -333,6 +416,7 @@ export class NewTabAttributionService {
 
   /**
    * updateBudget updates the stored budget to indicate some has been used.
+   *
    * @param {budget} budget - current budget to be modified.
    * @param {number} value - amount of budget that has been used.
    * @param {string} partnerId - partner this budget is for.
@@ -399,3 +483,10 @@ export class NewTabAttributionService {
     return this.models[type] ?? this.models.default;
   }
 }
+
+const newTabAttributionService = new NewTabAttributionService();
+
+export {
+  newTabAttributionService,
+  NewTabAttributionService as NewTabAttributionServiceClass,
+};

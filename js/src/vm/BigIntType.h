@@ -94,17 +94,19 @@ class BigInt final : public js::gc::CellWithLengthAndFlags {
   bool hasHeapDigits() const { return !hasInlineDigits(); }
 
   using Digits = mozilla::Span<Digit>;
-  Digits digits() {
+  MOZ_ALWAYS_INLINE Digits digits() {
     return Digits(hasInlineDigits() ? inlineDigits_ : heapDigits_,
                   digitLength());
   }
   using ConstDigits = mozilla::Span<const Digit>;
-  ConstDigits digits() const {
+  MOZ_ALWAYS_INLINE ConstDigits digits() const {
     return ConstDigits(hasInlineDigits() ? inlineDigits_ : heapDigits_,
                        digitLength());
   }
-  Digit digit(size_t idx) const { return digits()[idx]; }
-  void setDigit(size_t idx, Digit digit) { digits()[idx] = digit; }
+  MOZ_ALWAYS_INLINE Digit digit(size_t idx) const { return digits()[idx]; }
+  MOZ_ALWAYS_INLINE void setDigit(size_t idx, Digit digit) {
+    digits()[idx] = digit;
+  }
 
   bool isZero() const { return digitLength() == 0; }
   bool isNegative() const { return headerFlagsField() & SignBit; }
@@ -253,8 +255,6 @@ class BigInt final : public js::gc::CellWithLengthAndFlags {
   static bool equal(const BigInt* lhs, double rhs);
   static JS::Result<bool> equal(JSContext* cx, Handle<BigInt*> lhs,
                                 HandleString rhs);
-  static JS::Result<bool> looselyEqual(JSContext* cx, Handle<BigInt*> lhs,
-                                       HandleValue rhs);
 
   static bool lessThan(const BigInt* x, const BigInt* y);
   // These methods return Nothing when the non-BigInt operand is NaN

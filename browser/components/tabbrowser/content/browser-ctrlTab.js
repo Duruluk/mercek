@@ -20,7 +20,8 @@ var tabPreviews = {
    * to load. If the browser is discarded and there is no stored thumbnail, the
    * image URL will fail to load and this method will return null after 1s.
    * Callers should handle this case by doing nothing or using a fallback image.
-   * @param {String} uri The page URL.
+   *
+   * @param {string} uri The page URL.
    * @returns {Promise<Image|null>}
    */
   loadImage: async function tabPreviews_loadImage(uri) {
@@ -51,18 +52,19 @@ var tabPreviews = {
    * For a given tab, retrieve a preview thumbnail (a canvas or an image) from
    * storage or capture a new one. If the tab's URL has changed since the
    * previous call, the thumbnail will be regenerated.
+   *
    * @param {MozTabbrowserTab} aTab The tab to get a preview for.
-   * @returns {Promise<HTMLCanvasElement|Image|null>} Resolves to...
-   * @resolves {HTMLCanvasElement} If a thumbnail can NOT be captured and stored
-   *   for the tab, or if the tab is still loading, a snapshot is taken and
-   *   returned as a canvas. It may be cached as a canvas (separately from
+   * @returns {Promise<HTMLCanvasElement|Image|null>}
+   *   Resolves to an HTMLCanvasElement if a thumbnail can NOT be captured and
+   *   stored for the tab, or if the tab is still loading (a snapshot is taken
+   *   and returned as a canvas). It may be cached as a canvas (separately from
    *   thumbnail storage) in aTab.__thumbnail if the tab is finished loading. If
    *   the snapshot CAN be stored as a thumbnail, the snapshot is converted to a
    *   blob image and drawn in the returned canvas, but the image is added to
    *   thumbnail storage and cached in aTab.__thumbnail.
-   * @resolves {Image} A cached blob image from a previous thumbnail capture.
-   *   e.g. <img src="moz-page-thumb://thumbnails/?url=foo.com&revision=bar">
-   * @resolves {null} If a thumbnail cannot be captured for any reason (e.g.
+   *   Resolves to an Image if a cached blob image from a previous thumbnail
+   *   capture exists (e.g. <img src="moz-page-thumb://thumbnails/?url=foo.com&revision=bar">).
+   *   Resolves to null if a thumbnail cannot be captured for any reason (e.g.
    *   because the tab is discarded) and there is no cached/stored thumbnail.
    */
   get: async function tabPreviews_get(aTab) {
@@ -93,15 +95,16 @@ var tabPreviews = {
   /**
    * For a given tab, capture a preview thumbnail (a canvas), optionally cache
    * it in aTab.__thumbnail, and possibly store it in thumbnail storage.
+   *
    * @param {MozTabbrowserTab} aTab The tab to capture a preview for.
-   * @param {Boolean} aShouldCache Cache/store the captured thumbnail?
-   * @returns {Promise<HTMLCanvasElement|null>} Resolves to...
-   * @resolves {HTMLCanvasElement} A snapshot of the tab's content. If the
+   * @param {boolean} aShouldCache Cache/store the captured thumbnail?
+   * @returns {Promise<HTMLCanvasElement|null>}
+   *   Resolves to an HTMLCanvasElement snapshot of the tab's content. If the
    *   snapshot is safe for storage and aShouldCache is true, the snapshot is
    *   converted to a blob image, stored and cached, and drawn in the returned
    *   canvas. The thumbnail can then be recovered even if the browser is
    *   discarded. Otherwise, the canvas itself is cached in aTab.__thumbnail.
-   * @resolves {null} If a fatal exception occurred during thumbnail capture.
+   *   Resolves to null if a fatal exception occurred during thumbnail capture.
    */
   capture: async function tabPreviews_capture(aTab, aShouldCache) {
     let browser = aTab.linkedBrowser;
@@ -425,12 +428,6 @@ var ctrlTab = {
     }
   },
 
-  _mouseOverFocus: function ctrlTab_mouseOverFocus(aPreview) {
-    if (this._trackMouseOver) {
-      aPreview.focus();
-    }
-  },
-
   pick: function ctrlTab_pick(aPreview) {
     if (!this.tabCount) {
       return;
@@ -493,7 +490,6 @@ var ctrlTab = {
     );
     this.canvasHeight = Math.round(this.canvasWidth * tabPreviews.aspectRatio);
     this.updatePreviews();
-    this._trackMouseOver = false;
     this._selectedIndex = 1;
     gBrowser.warmupTab(this.selected._tab);
 
@@ -543,18 +539,6 @@ var ctrlTab = {
   setupGUI: function ctrlTab_setupGUI() {
     this.selected.focus();
     this._selectedIndex = -1;
-
-    // Wait for two animation frames before tracking mouse movement as we might
-    // get a synthetic mousemove event when a Ctrl-Tab item happens to be under
-    // the mouse pointer initially as the panel opens, which we don't want to
-    // interpret as the user selecting that item.
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        if (this.isOpen) {
-          this._trackMouseOver = true;
-        }
-      });
-    });
   },
 
   suspendGUI: function ctrlTab_suspendGUI() {
@@ -722,7 +706,11 @@ var ctrlTab = {
         }
         break;
       case "mouseover":
-        this._mouseOverFocus(event.currentTarget);
+        // relatedTarget is the element the mouse came from. It is null when we
+        // get a synthetic mouse event.
+        if (event.relatedTarget) {
+          event.currentTarget.focus();
+        }
         break;
       case "command":
         this.pick(event.currentTarget);

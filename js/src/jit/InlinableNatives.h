@@ -95,15 +95,6 @@
                                                    \
   _(FunctionBind)                                  \
                                                    \
-  _(IntlGuardToCollator)                           \
-  _(IntlGuardToDateTimeFormat)                     \
-  _(IntlGuardToDisplayNames)                       \
-  _(IntlGuardToDurationFormat)                     \
-  _(IntlGuardToListFormat)                         \
-  _(IntlGuardToNumberFormat)                       \
-  _(IntlGuardToPluralRules)                        \
-  _(IntlGuardToRelativeTimeFormat)                 \
-  _(IntlGuardToSegmenter)                          \
   _(IntlGuardToSegments)                           \
   _(IntlGuardToSegmentIterator)                    \
                                                    \
@@ -242,7 +233,6 @@
   _(IntrinsicIsObject)                             \
   _(IntrinsicIsCrossRealmArrayConstructor)         \
   _(IntrinsicCanOptimizeArraySpecies)              \
-  _(IntrinsicCanOptimizeStringProtoSymbolLookup)   \
   _(IntrinsicToInteger)                            \
   _(IntrinsicToLength)                             \
   _(IntrinsicIsConstructing)                       \

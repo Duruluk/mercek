@@ -39,6 +39,13 @@ export class UrlbarProviderActionsSearchMode extends UrlbarProvider {
     return queryContext.searchMode?.source == UrlbarUtils.RESULT_SOURCE.ACTIONS;
   }
 
+  /**
+   * Starts querying.
+   *
+   * @param {UrlbarQueryContext} queryContext
+   * @param {(provider: UrlbarProvider, result: UrlbarResult) => void} addCallback
+   *   Callback invoked by the provider to add a new result.
+   */
   async startQuery(queryContext, addCallback) {
     let input = queryContext.trimmedLowerCaseSearchString;
     let results = await lazy.ActionsProviderQuickActions.getActions({
@@ -102,7 +109,7 @@ export class UrlbarProviderActionsSearchMode extends UrlbarProvider {
 
     return {
       label: {
-        l10n: { id: action.label, cacheable: true },
+        l10n: { id: action.label },
       },
     };
   }

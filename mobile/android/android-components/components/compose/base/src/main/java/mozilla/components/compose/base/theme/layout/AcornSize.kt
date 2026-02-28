@@ -24,7 +24,9 @@ sealed class AcornSize {
      * A palette defining the static sizing dimensions of visual elements styled by
      * the Acorn Design System.
      */
+    val static50: Dp = 4.dp
     val static100: Dp = 8.dp
+    val static150: Dp = 12.dp
     val static200: Dp = 16.dp
     val static250: Dp = 20.dp
     val static300: Dp = 24.dp

@@ -12,6 +12,11 @@ const SELECTOR_WARNINGS = {
     // There could be a specific section on the MDN :has page for this: https://github.com/mdn/mdn/issues/469
     learnMoreUrl: null,
   },
+  SiblingCombinatorAfterScope: {
+    l10nId: "css-selector-warning-sibling-combinator-after-scope",
+    // Add the link to MDN when https://github.com/mdn/content/issues/42364 is addressed
+    learnMoreUrl: null,
+  },
 };
 
 class CssSelectorWarningsTooltipHelper {
@@ -26,7 +31,7 @@ class CssSelectorWarningsTooltipHelper {
   /**
    * Get the template of the tooltip.
    *
-   * @param {Array<String>} data: Array of selector warning kind returned by
+   * @param {Array<string>} data: Array of selector warning kind returned by
    *        CSSRule#getSelectorWarnings
    * @param {HTMLTooltip} tooltip
    *        The tooltip we are targetting.

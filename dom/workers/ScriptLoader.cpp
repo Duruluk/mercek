@@ -7,7 +7,6 @@
 #include "ScriptLoader.h"
 
 #include <algorithm>
-#include <type_traits>
 
 #include "WorkerRunnable.h"
 #include "WorkerScope.h"
@@ -24,7 +23,6 @@
 #include "mozilla/Encoding.h"
 #include "mozilla/LoadContext.h"
 #include "mozilla/Maybe.h"
-#include "mozilla/ResultExtensions.h"
 #include "mozilla/StaticPrefs_browser.h"
 #include "mozilla/UniquePtr.h"
 #include "mozilla/dom/ClientChannelHelper.h"
@@ -1146,6 +1144,13 @@ nsresult WorkerScriptLoader::FillCompileOptionsForRequest(
     aOptions->setSourceMapURL(aRequest->GetSourceMapURL().get());
   }
 
+  // disable top-level await for sw module scripts
+  const auto* workerPrivate = GetCurrentThreadWorkerPrivate();
+  if (workerPrivate && workerPrivate->IsServiceWorker() &&
+      aRequest->IsModuleRequest()) {
+    aOptions->topLevelAwait = false;
+  }
+
   return NS_OK;
 }
 
@@ -1777,6 +1782,10 @@ bool ScriptExecutorRunnable::WorkerRun(JSContext* aCx,
   MOZ_ASSERT(
       mScriptLoader->mSyncLoopTarget == mSyncLoopTarget,
       "Unexpected SyncLoopTarget. Check if the sync loop was closed early");
+
+  if (mLoadedRequests.begin()->get()->GetContext()->IsTopLevel()) {
+    aWorkerPrivate->InitializeGlobalReportingEndpoints();
+  }
 
   if (mLoadedRequests.begin()->get()->GetRequest()->IsModuleRequest()) {
     return ProcessModuleScript(aCx, aWorkerPrivate);

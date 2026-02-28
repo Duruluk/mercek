@@ -346,7 +346,7 @@ newtab-wallpaper-abstract-orange = Наранџасти облици
 newtab-wallpaper-gradient-orange = Градијент наранџасте и розе
 newtab-wallpaper-abstract-blue-purple = Плави и љубичасти облици
 
-## Celestial
+## Firefox
 
 newtab-wallpaper-category-title-photographs = Фотографије
 newtab-wallpaper-beach-at-sunrise = Плажа у изласку сунца
@@ -400,6 +400,11 @@ newtab-weather-menu-hide-weather = Сакриј временску прогно�
 newtab-weather-menu-learn-more = Сазнајте више
 # This message is shown if user is working offline
 newtab-weather-error-not-available = Временска прогноза тренутно није доступна.
+# Variables:
+#   $provider (string) - Service provider for weather data
+newtab-weather-see-forecast-description =
+    .title = Погледајте прогнозу у { $provider }-у
+    .aria-description = { $provider } - Спонзорисано
 
 ## Topic Labels
 

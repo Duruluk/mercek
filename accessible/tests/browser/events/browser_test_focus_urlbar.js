@@ -14,7 +14,7 @@ ChromeUtils.defineESModuleGetters(this, {
   PlacesTestUtils: "resource://testing-common/PlacesTestUtils.sys.mjs",
   PlacesUtils: "resource://gre/modules/PlacesUtils.sys.mjs",
   UrlbarProvider: "moz-src:///browser/components/urlbar/UrlbarUtils.sys.mjs",
-  UrlbarProvidersManager:
+  ProvidersManager:
     "moz-src:///browser/components/urlbar/UrlbarProvidersManager.sys.mjs",
   UrlbarResult: "moz-src:///browser/components/urlbar/UrlbarResult.sys.mjs",
   UrlbarTestUtils: "resource://testing-common/UrlbarTestUtils.sys.mjs",
@@ -22,7 +22,8 @@ ChromeUtils.defineESModuleGetters(this, {
 });
 
 function isEventForAutocompleteItem(event) {
-  return event.accessible.role == ROLE_COMBOBOX_OPTION;
+  // XXX: See bug 2016839
+  return event.accessible.role == ROLE_OPTION;
 }
 
 function isEventForButton(event) {
@@ -49,9 +50,9 @@ function isEventForMenuItem(event) {
 
 function isEventForResultButton(event) {
   let parent = event.accessible.parent;
+  // XXX: See bug 2016839
   return (
-    event.accessible.role == ROLE_PUSHBUTTON &&
-    parent?.role == ROLE_COMBOBOX_LIST
+    event.accessible.role == ROLE_PUSHBUTTON && parent?.role == ROLE_LISTBOX
   );
 }
 
@@ -108,9 +109,10 @@ async function runTests() {
   // Ensure initial state.
   await UrlbarTestUtils.promisePopupClose(window);
 
+  // XXX: See bug 2016839
   let focused = waitForEvent(
     EVENT_FOCUS,
-    event => event.accessible.role == ROLE_ENTRY
+    event => event.accessible.role == ROLE_EDITCOMBOBOX
   );
   gURLBar.focus();
   let event = await focused;
@@ -372,15 +374,17 @@ async function runTipTests() {
   matches[1].suggestedIndex = 2;
 
   let provider = new TipTestProvider(matches);
-  UrlbarProvidersManager.registerProvider(provider);
+  let providersManager = ProvidersManager.getInstanceForSap("urlbar");
+  providersManager.registerProvider(provider);
 
   registerCleanupFunction(async function () {
-    UrlbarProvidersManager.unregisterProvider(provider);
+    providersManager.unregisterProvider(provider);
   });
 
+  // XXX: See bug 2016839
   let focused = waitForEvent(
     EVENT_FOCUS,
-    event => event.accessible.role == ROLE_ENTRY
+    event => event.accessible.role == ROLE_EDITCOMBOBOX
   );
   gURLBar.focus();
   let event = await focused;

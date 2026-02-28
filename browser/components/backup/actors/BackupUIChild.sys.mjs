@@ -93,10 +93,11 @@ export class BackupUIChild extends JSWindowActorChild {
         backupFile,
       });
     } else if (event.type == "BackupUI:RestoreFromBackupFile") {
-      let { backupFile, backupPassword } = event.detail;
+      let { backupFile, backupPassword, restoreType } = event.detail;
       let result = await this.sendQuery("RestoreFromBackupFile", {
         backupFile,
         backupPassword,
+        restoreType,
       });
 
       if (result.success) {
@@ -125,19 +126,16 @@ export class BackupUIChild extends JSWindowActorChild {
       } else {
         target.disableEncryptionErrorCode = result.errorCode;
       }
-    } else if (event.type == "BackupUI:RerunEncryption") {
-      const target = event.target;
-
-      const result = await this.sendQuery("RerunEncryption", event.detail);
-      if (result.success) {
-        target.close();
-      } else {
-        target.rerunEncryptionErrorCode = result.errorCode;
-      }
     } else if (event.type == "BackupUI:ShowBackupLocation") {
       this.sendAsyncMessage("ShowBackupLocation");
     } else if (event.type == "BackupUI:EditBackupLocation") {
-      this.sendAsyncMessage("EditBackupLocation");
+      this.sendAsyncMessage("EditBackupLocation", event.detail);
+    } else if (event.type == "BackupUI:SetEmbeddedComponentPersistentData") {
+      this.sendAsyncMessage("SetEmbeddedComponentPersistentData", event.detail);
+    } else if (event.type == "BackupUI:FlushEmbeddedComponentPersistentData") {
+      this.sendAsyncMessage("FlushEmbeddedComponentPersistentData");
+    } else if (event.type == "BackupUI:ErrorBarDismissed") {
+      this.sendAsyncMessage("ErrorBarDismissed");
     }
   }
 
@@ -153,20 +151,22 @@ export class BackupUIChild extends JSWindowActorChild {
         this.#inittedWidgets
       );
       for (let widget of widgets) {
-        if (widget.isConnected) {
-          const state = Cu.cloneInto(message.data.state, widget.ownerGlobal);
-
-          const waivedWidget = Cu.waiveXrays(widget);
-          waivedWidget.backupServiceState = state;
-          //dispatch the event for the React listeners
-          widget.dispatchEvent(
-            new this.contentWindow.CustomEvent("BackupUI:StateWasUpdated", {
-              bubbles: true,
-              composed: true,
-              detail: { state },
-            })
-          );
+        if (!widget.isConnected || !widget.ownerGlobal) {
+          continue;
         }
+
+        const state = Cu.cloneInto(message.data.state, widget.ownerGlobal);
+
+        const waivedWidget = Cu.waiveXrays(widget);
+        waivedWidget.backupServiceState = state;
+        //dispatch the event for the React listeners
+        widget.dispatchEvent(
+          new this.contentWindow.CustomEvent("BackupUI:StateWasUpdated", {
+            bubbles: true,
+            composed: true,
+            detail: { state },
+          })
+        );
       }
     }
   }

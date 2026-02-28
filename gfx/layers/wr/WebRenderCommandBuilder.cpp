@@ -28,7 +28,6 @@
 #include "mozilla/layers/SharedSurfacesChild.h"
 #include "mozilla/layers/SourceSurfaceSharedData.h"
 #include "mozilla/layers/StackingContextHelper.h"
-#include "mozilla/layers/UpdateImageHelper.h"
 #include "mozilla/layers/WebRenderDrawEventRecorder.h"
 #include "UnitTransforms.h"
 #include "gfxEnv.h"
@@ -361,7 +360,7 @@ struct DIGroup {
     mFonts.clear();
   }
 
-  static LayerIntRect ToDeviceSpace(nsRect aBounds, Matrix& aMatrix,
+  static LayerIntRect ToDeviceSpace(const nsRect& aBounds, Matrix& aMatrix,
                                     int32_t aAppUnitsPerDevPixel) {
     // RoundedOut can convert empty rectangles to non-empty ones
     // so special case them here
@@ -1070,6 +1069,8 @@ void Grouper::PaintContainerItem(DIGroup* aGroup, nsDisplayItem* aItem,
 class WebRenderGroupData : public WebRenderUserData {
  public:
   WebRenderGroupData(RenderRootStateManager* aWRManager, nsDisplayItem* aItem);
+  WebRenderGroupData(RenderRootStateManager* aWRManager,
+                     uint32_t aDisplayItemKey, nsIFrame* aFrame);
   virtual ~WebRenderGroupData();
 
   WebRenderGroupData* AsGroupData() override { return this; }
@@ -1699,7 +1700,7 @@ void WebRenderCommandBuilder::DoGroupingForDisplayList(
 
   ScrollableLayerGuid::ViewID scrollId = ScrollableLayerGuid::NULL_SCROLL_ID;
   if (const ActiveScrolledRoot* asr = aWrappingItem->GetActiveScrolledRoot()) {
-    scrollId = asr->GetViewId();
+    scrollId = asr->GetNearestScrollASRViewId();
   }
 
   g.mAppUnitsPerDevPixel = appUnitsPerDevPixel;
@@ -1916,7 +1917,7 @@ struct NewLayerData {
     }
     if (mDeferredItem) {
       if (const auto* asr = mDeferredItem->GetActiveScrolledRoot()) {
-        mDeferredId = asr->GetViewId();
+        mDeferredId = asr->GetNearestScrollASRViewId();
       }
       if (mDeferredItem->GetActiveScrolledRoot() !=
           aItem->GetActiveScrolledRoot()) {
@@ -2136,13 +2137,16 @@ void WebRenderCommandBuilder::CreateWebRenderCommandsFromDisplayList(
         newLayerData->mLayerCountBeforeRecursing = mLayerScrollData.size();
         newLayerData->mStopAtAsr =
             mAsrStack.empty() ? nullptr : mAsrStack.back();
+        newLayerData->mStopAtAsr = ActiveScrolledRoot::LowestCommonAncestor(
+            asr, newLayerData->mStopAtAsr);
         newLayerData->ComputeDeferredTransformInfo(aSc, item);
 
-        // Ensure our children's |stopAtAsr| is not be an ancestor of our
+        // Our children's |stopAtAsr| must not be an ancestor of our
         // |stopAtAsr|, otherwise we could get cyclic scroll metadata
         // annotations.
-        const ActiveScrolledRoot* stopAtAsrForChildren =
-            ActiveScrolledRoot::PickDescendant(asr, newLayerData->mStopAtAsr);
+        MOZ_ASSERT(
+            ActiveScrolledRoot::IsAncestor(newLayerData->mStopAtAsr, asr));
+        const ActiveScrolledRoot* stopAtAsrForChildren = asr;
         // Additionally, while unusual and probably indicative of a poorly
         // behaved display list, it's possible to have a deferred transform item
         // which we will emit as its own layer on the way out of the recursion,
@@ -2491,11 +2495,9 @@ WebRenderCommandBuilder::GenerateFallbackData(
     nsDisplayItem* aItem, wr::DisplayListBuilder& aBuilder,
     wr::IpcResourceUpdateQueue& aResources, const StackingContextHelper& aSc,
     nsDisplayListBuilder* aDisplayListBuilder, LayoutDeviceRect& aImageRect) {
-  bool useBlobImage = aItem->ShouldUseBlobRenderingForFallback();
-  Maybe<gfx::DeviceColor> highlight = Nothing();
+  Maybe<gfx::DeviceColor> highlight;
   if (StaticPrefs::gfx_webrender_debug_highlight_painted_layers()) {
-    highlight = Some(useBlobImage ? gfx::DeviceColor(1.0, 0.0, 0.0, 0.5)
-                                  : gfx::DeviceColor(1.0, 1.0, 0.0, 0.5));
+    highlight.emplace(gfx::DeviceColor(1.0, 0.0, 0.0, 0.5));
   }
 
   RefPtr<WebRenderFallbackData> fallbackData =
@@ -2580,13 +2582,8 @@ WebRenderCommandBuilder::GenerateFallbackData(
     return nullptr;
   }
 
-  if (useBlobImage) {
-    // Display item bounds should be unscaled
-    aImageRect = visibleRect / layerScale;
-  } else {
-    // Display item bounds should be unscaled
-    aImageRect = dtRect / layerScale;
-  }
+  // Display item bounds should be unscaled
+  aImageRect = visibleRect / layerScale;
 
   // We always paint items at 0,0 so the visibleRect that we use inside the blob
   // is needs to be adjusted by the display item bounds top left.
@@ -2635,129 +2632,83 @@ WebRenderCommandBuilder::GenerateFallbackData(
                                     : (opacity == wr::OpacityType::Opaque
                                            ? gfx::SurfaceFormat::B8G8R8X8
                                            : gfx::SurfaceFormat::B8G8R8A8);
-    if (useBlobImage) {
-      MOZ_ASSERT(!opaqueRegion.IsComplex());
+    MOZ_ASSERT(!opaqueRegion.IsComplex());
 
-      std::vector<RefPtr<ScaledFont>> fonts;
-      bool validFonts = true;
-      RefPtr<WebRenderDrawEventRecorder> recorder =
-          MakeAndAddRef<WebRenderDrawEventRecorder>(
-              [&](MemStream& aStream,
-                  std::vector<RefPtr<ScaledFont>>& aScaledFonts) {
-                size_t count = aScaledFonts.size();
-                aStream.write((const char*)&count, sizeof(count));
-                for (auto& scaled : aScaledFonts) {
-                  Maybe<wr::FontInstanceKey> key =
-                      mManager->WrBridge()->GetFontKeyForScaledFont(scaled,
-                                                                    aResources);
-                  if (key.isNothing()) {
-                    validFonts = false;
-                    break;
-                  }
-                  BlobFont font = {key.value(), scaled};
-                  aStream.write((const char*)&font, sizeof(font));
+    std::vector<RefPtr<ScaledFont>> fonts;
+    bool validFonts = true;
+    RefPtr<WebRenderDrawEventRecorder> recorder =
+        MakeAndAddRef<WebRenderDrawEventRecorder>(
+            [&](MemStream& aStream,
+                std::vector<RefPtr<ScaledFont>>& aScaledFonts) {
+              size_t count = aScaledFonts.size();
+              aStream.write((const char*)&count, sizeof(count));
+              for (auto& scaled : aScaledFonts) {
+                Maybe<wr::FontInstanceKey> key =
+                    mManager->WrBridge()->GetFontKeyForScaledFont(scaled,
+                                                                  aResources);
+                if (key.isNothing()) {
+                  validFonts = false;
+                  break;
                 }
-                fonts = std::move(aScaledFonts);
-              });
-      RefPtr<gfx::DrawTarget> dummyDt = gfx::Factory::CreateDrawTarget(
-          gfx::BackendType::SKIA, gfx::IntSize(1, 1), format);
-      RefPtr<gfx::DrawTarget> dt = gfx::Factory::CreateRecordingDrawTarget(
-          recorder, dummyDt, (dtRect - dtRect.TopLeft()).ToUnknownRect());
-      if (aBuilder.GetInheritedOpacity() != 1.0f) {
-        dt->PushLayer(false, aBuilder.GetInheritedOpacity(), nullptr,
-                      gfx::Matrix());
-      }
-      PaintItemByDrawTarget(aItem, dt, (dtRect / layerScale).TopLeft(),
-                            /*aVisibleRect: */ dt->GetRect(),
-                            aDisplayListBuilder, scale, highlight);
-      if (aBuilder.GetInheritedOpacity() != 1.0f) {
-        dt->PopLayer();
-      }
-
-      // the item bounds are relative to the blob origin which is
-      // dtRect.TopLeft()
-      recorder->FlushItem((dtRect - dtRect.TopLeft()).ToUnknownRect());
-      recorder->Finish();
-
-      if (!validFonts) {
-        gfxCriticalNote << "Failed serializing fonts for blob image";
-        return nullptr;
-      }
-
-      Range<uint8_t> bytes((uint8_t*)recorder->mOutputStream.mData,
-                           recorder->mOutputStream.mLength);
-      wr::BlobImageKey key =
-          wr::BlobImageKey{mManager->WrBridge()->GetNextImageKey()};
-      wr::ImageDescriptor descriptor(visibleSize.ToUnknownSize(), 0,
-                                     dt->GetFormat(), opacity);
-      if (!aResources.AddBlobImage(
-              key, descriptor, bytes,
-              ViewAs<ImagePixel>(visibleRect,
-                                 PixelCastJustification::LayerIsImage))) {
-        return nullptr;
-      }
-      TakeExternalSurfaces(recorder, fallbackData->mExternalSurfaces,
-                           mManager->GetRenderRootStateManager(), aResources);
-      fallbackData->SetBlobImageKey(key);
-      fallbackData->SetFonts(fonts);
-    } else {
-      WebRenderImageData* imageData = fallbackData->PaintIntoImage();
-
-      imageData->CreateImageClientIfNeeded();
-      RefPtr<ImageClient> imageClient = imageData->GetImageClient();
-      RefPtr<ImageContainer> imageContainer = MakeAndAddRef<ImageContainer>(
-          ImageUsageType::WebRenderFallbackData, ImageContainer::SYNCHRONOUS);
-
-      {
-        UpdateImageHelper helper(imageContainer, imageClient,
-                                 dtRect.Size().ToUnknownSize(), format);
-        {
-          RefPtr<gfx::DrawTarget> dt = helper.GetDrawTarget();
-          if (!dt) {
-            return nullptr;
-          }
-          if (aBuilder.GetInheritedOpacity() != 1.0f) {
-            dt->PushLayer(false, aBuilder.GetInheritedOpacity(), nullptr,
-                          gfx::Matrix());
-          }
-          PaintItemByDrawTarget(aItem, dt,
-                                /*aOffset: */ aImageRect.TopLeft(),
-                                /*aVisibleRect: */ dt->GetRect(),
-                                aDisplayListBuilder, scale, highlight);
-          if (aBuilder.GetInheritedOpacity() != 1.0f) {
-            dt->PopLayer();
-          }
-        }
-
-        // Update image if there it's invalidated.
-        if (!helper.UpdateImage()) {
-          return nullptr;
-        }
-      }
-
-      // Force update the key in fallback data since we repaint the image in
-      // this path. If not force update, fallbackData may reuse the original key
-      // because it doesn't know UpdateImageHelper already updated the image
-      // container.
-      if (!imageData->UpdateImageKey(imageContainer, aResources, true)) {
-        return nullptr;
-      }
+                BlobFont font = {key.value(), scaled};
+                aStream.write((const char*)&font, sizeof(font));
+              }
+              fonts = std::move(aScaledFonts);
+            });
+    RefPtr<gfx::DrawTarget> dummyDt = gfx::Factory::CreateDrawTarget(
+        gfx::BackendType::SKIA, gfx::IntSize(1, 1), format);
+    RefPtr<gfx::DrawTarget> dt = gfx::Factory::CreateRecordingDrawTarget(
+        recorder, dummyDt, (dtRect - dtRect.TopLeft()).ToUnknownRect());
+    if (aBuilder.GetInheritedOpacity() != 1.0f) {
+      dt->PushLayer(false, aBuilder.GetInheritedOpacity(), nullptr,
+                    gfx::Matrix());
     }
+    PaintItemByDrawTarget(aItem, dt, (dtRect / layerScale).TopLeft(),
+                          /*aVisibleRect: */ dt->GetRect(), aDisplayListBuilder,
+                          scale, highlight);
+    if (aBuilder.GetInheritedOpacity() != 1.0f) {
+      dt->PopLayer();
+    }
+
+    // the item bounds are relative to the blob origin which is
+    // dtRect.TopLeft()
+    recorder->FlushItem((dtRect - dtRect.TopLeft()).ToUnknownRect());
+    recorder->Finish();
+
+    if (!validFonts) {
+      gfxCriticalNote << "Failed serializing fonts for blob image";
+      return nullptr;
+    }
+
+    Range<uint8_t> bytes((uint8_t*)recorder->mOutputStream.mData,
+                         recorder->mOutputStream.mLength);
+    wr::BlobImageKey key =
+        wr::BlobImageKey{mManager->WrBridge()->GetNextImageKey()};
+    wr::ImageDescriptor descriptor(visibleSize.ToUnknownSize(), 0,
+                                   dt->GetFormat(), opacity);
+    if (!aResources.AddBlobImage(
+            key, descriptor, bytes,
+            ViewAs<ImagePixel>(visibleRect,
+                               PixelCastJustification::LayerIsImage))) {
+      return nullptr;
+    }
+    TakeExternalSurfaces(recorder, fallbackData->mExternalSurfaces,
+                         mManager->GetRenderRootStateManager(), aResources);
+    fallbackData->SetBlobImageKey(key);
+    fallbackData->SetFonts(fonts);
 
     fallbackData->mScale = scale;
     fallbackData->mOpacity = aBuilder.GetInheritedOpacity();
     fallbackData->SetInvalid(false);
   }
 
-  if (useBlobImage) {
-    MOZ_DIAGNOSTIC_ASSERT(mManager->WrBridge()->MatchesNamespace(
-                              fallbackData->GetBlobImageKey().ref()),
-                          "Stale blob key for fallback!");
+  MOZ_DIAGNOSTIC_ASSERT(mManager->WrBridge()->MatchesNamespace(
+                            fallbackData->GetBlobImageKey().ref()),
+                        "Stale blob key for fallback!");
 
-    aResources.SetBlobImageVisibleArea(
-        fallbackData->GetBlobImageKey().value(),
-        ViewAs<ImagePixel>(visibleRect, PixelCastJustification::LayerIsImage));
-  }
+  aResources.SetBlobImageVisibleArea(
+      fallbackData->GetBlobImageKey().value(),
+      ViewAs<ImagePixel>(visibleRect, PixelCastJustification::LayerIsImage));
 
   // Update current bounds to fallback data
   fallbackData->mBounds = paintBounds;
@@ -3021,7 +2972,13 @@ void WebRenderCommandBuilder::ClearCachedResources() {
 
 WebRenderGroupData::WebRenderGroupData(
     RenderRootStateManager* aRenderRootStateManager, nsDisplayItem* aItem)
-    : WebRenderUserData(aRenderRootStateManager, aItem) {
+    : WebRenderGroupData(aRenderRootStateManager, aItem->GetPerFrameKey(),
+                         aItem->Frame()) {}
+
+WebRenderGroupData::WebRenderGroupData(
+    RenderRootStateManager* aRenderRootStateManager, uint32_t aDisplayItemKey,
+    nsIFrame* aFrame)
+    : WebRenderUserData(aRenderRootStateManager, aDisplayItemKey, aFrame) {
   MOZ_COUNT_CTOR(WebRenderGroupData);
 }
 

@@ -20,6 +20,7 @@ class RefPtr;
 
 namespace mozilla {
 
+struct CSSPropertyId;
 class ErrorResult;
 
 namespace dom {
@@ -27,14 +28,22 @@ namespace dom {
 class GlobalObject;
 class CSSKeywordValue;
 class CSSUnsupportedValue;
+class CSSNumericValue;
+class CSSTransformValue;
 
 class CSSStyleValue : public nsISupports, public nsWrapperCache {
  public:
-  enum class ValueType { Uninitialized, Unsupported, Keyword };
+  enum class StyleValueType {
+    Uninitialized,  // TODO: Remove once the implementation is complete.
+    UnsupportedValue,
+    KeywordValue,
+    NumericValue,
+    TransformValue,
+  };
 
   explicit CSSStyleValue(nsCOMPtr<nsISupports> aParent);
 
-  CSSStyleValue(nsCOMPtr<nsISupports> aParent, ValueType aValueType);
+  CSSStyleValue(nsCOMPtr<nsISupports> aParent, StyleValueType aStyleValueType);
 
   NS_DECL_CYCLE_COLLECTING_ISUPPORTS
   NS_DECL_CYCLE_COLLECTION_WRAPPERCACHE_CLASS(CSSStyleValue)
@@ -55,25 +64,61 @@ class CSSStyleValue : public nsISupports, public nsWrapperCache {
                        nsTArray<RefPtr<CSSStyleValue>>& aRetVal,
                        ErrorResult& aRv);
 
-  void Stringify(nsAString& aRetVal) const;
+  void Stringify(nsACString& aRetVal) const;
 
   // end of CSSStyleValue Web IDL declarations
+
+  StyleValueType GetStyleValueType() const { return mStyleValueType; }
 
   bool IsCSSUnsupportedValue() const;
 
   // Defined in CSSUnsupportedValue.cpp
+  const CSSUnsupportedValue& GetAsCSSUnsupportedValue() const;
+
+  // Defined in CSSUnsupportedValue.cpp
   CSSUnsupportedValue& GetAsCSSUnsupportedValue();
+
+  // Returns nullptr if this value is not a CSSUnsupportedValue, caller must
+  // null check.
+  //
+  // Defined in CSSUnsupportedValue.cpp
+  const CSSPropertyId* GetPropertyId() const;
+
+  // Defined in CSSUnsupportedValue.cpp
+  CSSPropertyId* GetPropertyId();
 
   bool IsCSSKeywordValue() const;
 
   // Defined in CSSKeywordValue.cpp
+  const CSSKeywordValue& GetAsCSSKeywordValue() const;
+
+  // Defined in CSSKeywordValue.cpp
   CSSKeywordValue& GetAsCSSKeywordValue();
+
+  bool IsCSSNumericValue() const;
+
+  // Defined in CSSNumericValue.cpp
+  const CSSNumericValue& GetAsCSSNumericValue() const;
+
+  // Defined in CSSNumericValue.cpp
+  CSSNumericValue& GetAsCSSNumericValue();
+
+  bool IsCSSTransformValue() const;
+
+  // Defined in CSSTransformValue.cpp
+  const CSSTransformValue& GetAsCSSTransformValue() const;
+
+  // Defined in CSSTransformValue.cpp
+  CSSTransformValue& GetAsCSSTransformValue();
+
+  void ToCssTextWithProperty(const CSSPropertyId& aPropertyId,
+                             nsACString& aDest) const;
 
  protected:
   virtual ~CSSStyleValue() = default;
 
   nsCOMPtr<nsISupports> mParent;
-  const ValueType mValueType;
+  const StyleValueType mStyleValueType;
 };
 
 }  // namespace dom

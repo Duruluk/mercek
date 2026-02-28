@@ -18,6 +18,7 @@ transforms:
 # https://wiki.mozilla.org/Sheriffing/Job_Visibility_Policy
 
 task-defaults:
+    run-on-repo-type: [hg]
     attributes:
         retrigger: true
     use-python: default
@@ -31,11 +32,7 @@ task-defaults:
                     default: true
             default: false
     docker-image:
-        by-test-platform:
-            linux1804.*:
-                in-tree: ubuntu1804-test
-            default:
-                in-tree: ubuntu2404-test
+        in-tree: ubuntu2404-test
     fetches:
         toolchain:
             by-test-platform:
@@ -111,24 +108,20 @@ tasks:
                     by-test-platform:
                         android-em.*/debug-isolated-process: 2
                         default: default
-        chunks:
-            by-variant:
-                privatebrowsing: dynamic
-                inc-origin-init: dynamic
-                privatebrowsing-inc-origin-init: dynamic
-                default:
-                    by-test-platform:
-                        android.*/debug: 32
-                        android.*: 24
-                        linux.*64-tsan(-qr)?/opt: 32
-                        linux.*64-asan(-qr)?/opt: 22
-                        linux.*64-ccov.*/opt: 20
-                        linux.*/debug: 16
-                        macosx.*/debug: 18
-                        windows.*32.*/opt: 12
-                        windows.*/debug: 16
-                        windows.*-ccov.*/opt: 14
-                        default: 10
+        chunks: dynamic
+        default-chunks:
+            by-test-platform:
+                android.*/debug: 32
+                android.*: 24
+                linux.*64-tsan(-qr)?/opt: 32
+                linux.*64-asan(-qr)?/opt: 22
+                linux.*64-ccov.*/opt: 20
+                linux.*/debug: 16
+                macosx.*/debug: 18
+                windows.*32.*/opt: 12
+                windows.*/debug: 16
+                windows.*-ccov.*/opt: 14
+                default: 10
         max-run-time:
             by-test-platform:
                 .*-ccov.*: 10800
@@ -144,7 +137,6 @@ tasks:
             - privatebrowsing
             - inc-origin-init
             - privatebrowsing-inc-origin-init
-            - navigation-api
         run-on-projects:
             by-variant:
                 geckoview-no-fission-no-ship:
@@ -156,9 +148,6 @@ tasks:
                     by-test-platform:
                         android-em.*/debug-isolated-process: []
                         android.*: built-projects
-                        linux1804-64(-qr)?/debug: ['mozilla-central']
-                        linux1804-64(-shippable)?(-qr)?/opt: ['mozilla-central']
-                        linux1804-64-asan(-qr)?/opt: ['mozilla-central']
                         linux2404-64/debug: ['mozilla-central']
                         linux2404-64(-shippable)?/opt: ['mozilla-central']
                         linux2404-64-asan/opt: ['mozilla-central']
@@ -174,10 +163,6 @@ tasks:
                         default: built-projects
                 inc-origin-init: []
                 privatebrowsing-inc-origin-init: []
-                navigation-api:
-                    by-test-platform:
-                        linux2404-64/.*: built-projects
-                        default: []
                 default:
                     by-test-platform:
                         android.*: []
@@ -205,7 +190,6 @@ tasks:
         treeherder-symbol: W-b(wpt)
         variants:
             - no-fission
-            - navigation-api
         chunks:
             by-test-platform:
                 android.*: 3
@@ -220,16 +204,11 @@ tasks:
                     by-test-platform:
                         android.*: ['mozilla-central']
                         default: []
-                navigation-api:
-                    by-test-platform:
-                        linux2404-64/.*: built-projects
-                        default: []
                 default:
                     by-test-platform:
                         linux2404-64/.*: built-projects
                         android.*: []
                         .*-wayland.*: []
-                        .*/debug: []
                         default: ['mozilla-central']
         test-manifest-loader: null  # don't load tests in the taskgraph
         tier: 2
@@ -251,7 +230,8 @@ tasks:
         treeherder-symbol: W(codecs)
         virtualization: virtual
         tier: default
-        chunks: 1
+        chunks: dynamic
+        default-chunks: 1
         max-run-time: 1800
         variants: []  # We don't need sw or nofis testing.
         run-on-projects: built-projects
@@ -259,6 +239,7 @@ tasks:
             chunked: true
             extra-options:
                 - --test-type=testharness
+                - --test-type=crashtest
                 - --default-exclude
                 - --tag=webcodecs
                 - --no-update-status-on-crash
@@ -268,7 +249,8 @@ tasks:
         suite: web-platform-tests
         treeherder-symbol: W(eme)
         tier: default
-        chunks: 1
+        chunks: dynamic
+        default-chunks: 1
         max-run-time: 1800
         variants:
             - eme-wmf
@@ -300,14 +282,13 @@ tasks:
             by-test-platform:
                 windows.*64.*/.*: virtual-with-gpu
                 default: virtual
-        chunks:
+        chunks: dynamic
+        default-chunks:
             by-test-platform:
                 .*-ccov.*: 8
                 android.*/debug: 16
                 android.*: 8
                 linux.*64-tsan(-qr)?/opt: 16
-                linux1804-64(-qr)?/.*: 6
-                linux1804-64-asan(-qr)?/.*: 6
                 linux2404-64/.*: 6
                 linux2404-64-asan/.*: 6
                 macosx.*-64/debug: 6
@@ -331,9 +312,6 @@ tasks:
                 webrender-sw+no-fission:
                     by-test-platform:
                         android-em.*/debug: built-projects
-                        linux1804-64(-qr)?/.*: ['mozilla-central']
-                        linux1804-64-shippable(-qr)?/opt: ['mozilla-central']
-                        linux1804-64-asan(-qr)?/opt: ['mozilla-central']
                         linux2404-64/.*: ['mozilla-central']
                         linux2404-64-shippable/opt: ['mozilla-central']
                         linux2404-64-asan/opt: ['mozilla-central']
@@ -341,9 +319,6 @@ tasks:
                 no-fission:
                     by-test-platform:
                         android-em.*/debug-isolated-process: []
-                        linux1804-64(-qr)?/.*: ['mozilla-central']
-                        linux1804-64-shippable(-qr)?/opt: ['mozilla-central']
-                        linux1804-64-asan(-qr)?/opt: ['mozilla-central']
                         linux2404-64/.*: ['mozilla-central']
                         linux2404-64-shippable/opt: ['mozilla-central']
                         linux2404-64-asan/opt: ['mozilla-central']
@@ -395,10 +370,12 @@ tasks:
         # (though we're working on reducing this!)
         # Devs would love ~10-15m runs, but we don't want to be more than
         # 50% overhead, so let's aim for 15m (20m debug)
-        chunks:
+        chunks: dynamic
+        default-chunks:
             by-test-platform:
                 linux2204.*/debug.*: 25
                 linux2204.*: 20
+                macosx.*-64.*/debug.*: 15
                 windows.*-64.*/opt.*: 14
                 default: 14
         max-run-time: 2700  # 45m
@@ -431,7 +408,8 @@ tasks:
         treeherder-symbol: W(webgpu-long)
         virtualization: virtual-with-gpu
         tier: 2
-        chunks: 2
+        chunks: dynamic
+        default-chunks: 2
         max-run-time: 5400  # 90m
         variants: []  # We don't need sw or nofis testing.
         run-on-projects:
@@ -459,7 +437,8 @@ tasks:
         # (though we're working on reducing this!)
         # Devs would love ~10-15m runs, but we don't want to be more than
         # 50% overhead, so let's aim for 15m (20m debug)
-        chunks:
+        chunks: dynamic
+        default-chunks:
             by-test-platform:
                 linux2204.*-64.*: 20
                 macosx.*: 25
@@ -496,7 +475,8 @@ tasks:
         treeherder-symbol: W(webgpu-backlog-long)
         virtualization: virtual-with-gpu
         tier: 3
-        chunks:
+        chunks: dynamic
+        default-chunks:
             by-test-platform:
                 macosx.*: 5
                 windows.*-64.*: 6
@@ -530,7 +510,8 @@ tasks:
                     by-test-platform:
                         android-em.*/debug-isolated-process: 3
                         default: default
-        chunks:
+        chunks: dynamic
+        default-chunks:
             by-test-platform:
                 windows.*: 2
                 .*-tsan.*: 3
@@ -551,9 +532,6 @@ tasks:
                     by-test-platform:
                         android-em.*/debug-isolated-process: []
                         android.*: built-projects
-                        linux1804-64(-qr)?/.*: ['mozilla-central']
-                        linux1804-64-shippable(-qr)?/opt: ['mozilla-central']
-                        linux1804-64-asan(-qr)?/opt: ['mozilla-central']
                         linux2404-64/.*: ['mozilla-central']
                         linux2404-64-shippable/opt: ['mozilla-central']
                         linux2404-64-asan/opt: ['mozilla-central']
@@ -598,7 +576,6 @@ tasks:
                     by-test-platform:
                         android.*: []
                         .*-wayland.*: []
-                        .*/debug: []
                         default: ['mozilla-central']
         test-manifest-loader: null  # don't load tests in the taskgraph
         tier: 2
@@ -617,7 +594,8 @@ tasks:
         description: "Web platform webdriver-spec run"
         schedules-component: web-platform-tests-wdspec
         treeherder-symbol: W(Wd)
-        chunks:
+        chunks: dynamic
+        default-chunks:
             by-test-platform:
                 .*-ccov.*: 6
                 .*-tsan.*: 8
@@ -644,9 +622,6 @@ tasks:
                         default: built-projects
                 no-fission:
                     by-test-platform:
-                        linux1804-64(-qr)?/.*: ['mozilla-central']
-                        linux1804-64-shippable(-qr)?/opt: ['mozilla-central']
-                        linux1804-64-asan(-qr)?/opt: ['mozilla-central']
                         linux2404-64/.*: ['mozilla-central']
                         linux2404-64-shippable/opt: ['mozilla-central']
                         linux2404-64-asan/opt: ['mozilla-central']
@@ -709,7 +684,8 @@ tasks:
         description: "Web platform crashtests run"
         schedules-component: web-platform-tests-crashtest
         treeherder-symbol: W(Wc)
-        chunks:
+        chunks: dynamic
+        default-chunks:
             by-test-platform:
                 .*-tsan.*: 4
                 default: 1
@@ -734,9 +710,6 @@ tasks:
                 webrender-sw+no-fission:
                     by-test-platform:
                         android-em.*/debug: built-projects
-                        linux1804-64(-qr)?/.*: ['mozilla-central']
-                        linux1804-64-shippable(-qr)?/opt: ['mozilla-central']
-                        linux1804-64-asan(-qr)?/opt: ['mozilla-central']
                         linux2404-64/.*: ['mozilla-central']
                         linux2404-64-shippable/opt: ['mozilla-central']
                         linux2404-64-asan/opt: ['mozilla-central']
@@ -744,9 +717,6 @@ tasks:
                 no-fission:
                     by-test-platform:
                         android-em.*/debug-isolated-process: []
-                        linux1804-64(-qr)?/.*: ['mozilla-central']
-                        linux1804-64-shippable(-qr)?/opt: ['mozilla-central']
-                        linux1804-64-asan(-qr)?/opt: ['mozilla-central']
                         linux2404-64/.*: ['mozilla-central']
                         linux2404-64-shippable/opt: ['mozilla-central']
                         linux2404-64-asan/opt: ['mozilla-central']
@@ -802,18 +772,12 @@ tasks:
                 webrender-sw+no-fission:
                     by-test-platform:
                         android-em.*/debug: built-projects
-                        linux1804-64(-qr)?/.*: ['mozilla-central']
-                        linux1804-64-shippable(-qr)?/opt: ['mozilla-central']
-                        linux1804-64-asan(-qr)?/opt: ['mozilla-central']
                         linux2404-64/.*: ['mozilla-central']
                         linux2404-64-shippable/opt: ['mozilla-central']
                         linux2404-64-asan/opt: ['mozilla-central']
                         default: []
                 no-fission:
                     by-test-platform:
-                        linux1804-64(-qr)?/.*: ['mozilla-central']
-                        linux1804-64-shippable(-qr)?/opt: ['mozilla-central']
-                        linux1804-64-asan(-qr)?/opt: ['mozilla-central']
                         linux2404-64/.*: ['mozilla-central']
                         linux2404-64-shippable/opt: ['mozilla-central']
                         linux2404-64-asan/opt: ['mozilla-central']

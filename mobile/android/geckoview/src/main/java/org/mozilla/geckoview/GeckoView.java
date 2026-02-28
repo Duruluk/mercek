@@ -63,6 +63,7 @@ import java.util.HashMap;
 import java.util.Objects;
 import org.mozilla.gecko.AndroidGamepadManager;
 import org.mozilla.gecko.EventDispatcher;
+import org.mozilla.gecko.GeckoAppShell;
 import org.mozilla.gecko.InputMethods;
 import org.mozilla.gecko.SurfaceViewWrapper;
 import org.mozilla.gecko.util.ThreadUtils;
@@ -513,6 +514,10 @@ public class GeckoView extends FrameLayout implements GeckoDisplay.NewSurfacePro
       session.getMagnifier().setView(null);
     }
 
+    if (mSession.getHapticFeedbackController().getView() == this) {
+      mSession.getHapticFeedbackController().setView(null);
+    }
+
     if (isFocused()) {
       mSession.setFocused(false);
     }
@@ -609,6 +614,10 @@ public class GeckoView extends FrameLayout implements GeckoDisplay.NewSurfacePro
 
     if (session.getMagnifier().getView() == null) {
       session.getMagnifier().setView(mSurfaceWrapper.getView());
+    }
+
+    if (session.getHapticFeedbackController().getView() == null) {
+      session.getHapticFeedbackController().setView(this);
     }
 
     if (session.getPrintDelegate() == null && mPrintDelegate != null) {
@@ -719,12 +728,6 @@ public class GeckoView extends FrameLayout implements GeckoDisplay.NewSurfacePro
     if (mIsSessionPoisoned) {
       throw new IllegalStateException("Trying to display a view with invalid session.");
     }
-    if (mSession != null) {
-      final GeckoRuntime runtime = mSession.getRuntime();
-      if (runtime != null) {
-        runtime.orientationChanged();
-      }
-    }
 
     if (mSession != null) {
       mDisplay.acquire(mSession.acquireDisplay());
@@ -735,6 +738,14 @@ public class GeckoView extends FrameLayout implements GeckoDisplay.NewSurfacePro
     // This needs to be called after the `super.onAttachedToWindow()`.
     addWindowInsetsListener(KEYBOARD_WINDOW_INSETS_LISTENER, mDisplay);
     attachWindowInsetsListener(getActivityFromContext(getContext()));
+    GeckoAppShell.setDisplayId(getDisplay().getDisplayId());
+
+    if (mSession != null) {
+      final GeckoRuntime runtime = mSession.getRuntime();
+      if (runtime != null) {
+        runtime.orientationChanged();
+      }
+    }
   }
 
   @Override

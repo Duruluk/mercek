@@ -57,37 +57,40 @@ export class UrlbarProviderGlobalActions extends UrlbarProvider {
     return UrlbarUtils.PROVIDER_TYPE.PROFILE;
   }
 
-  #controller;
-  async isActive(_queryContext, controller) {
-    let isActive =
+  /**
+   * Whether this provider should be invoked for the given context.
+   * If this method returns false, the providers manager won't start a query
+   * with this provider, to save on resources.
+   *
+   * @param {UrlbarQueryContext} queryContext The query context object
+   */
+  async isActive(queryContext) {
+    return (
       (lazy.UrlbarPrefs.get(SCOTCH_BONNET_PREF) ||
-        lazy.UrlbarPrefs.get(ACTIONS_PREF)) &&
-      lazy.UrlbarPrefs.get(QUICK_ACTIONS_PREF);
-    if (isActive && controller) {
-      this.#controller = controller;
-    }
-    return isActive;
+        lazy.UrlbarPrefs.get(ACTIONS_PREF) ||
+        queryContext.sapName == "searchbar") &&
+      lazy.UrlbarPrefs.get(QUICK_ACTIONS_PREF)
+    );
   }
 
+  /**
+   * Starts querying.
+   *
+   * @param {UrlbarQueryContext} queryContext
+   * @param {(provider: UrlbarProvider, result: UrlbarResult) => void} addCallback
+   *   Callback invoked by the provider to add a new result.
+   */
   async startQuery(queryContext, addCallback) {
     let actionsResults = [];
-    let searchModeEngine = "";
 
     for (let provider of globalActionsProviders) {
-      if (provider.isActive(queryContext, this.#controller)) {
+      if (provider.isActive(queryContext)) {
         for (let action of (await provider.queryActions(queryContext)) || []) {
-          if (action.engine && !searchModeEngine) {
-            searchModeEngine = action.engine;
-          } else if (action.engine) {
-            // We only allow one action that provides an engine search mode.
-            continue;
-          }
           action.providerName = provider.name;
           actionsResults.push(action);
         }
       }
     }
-    this.#controller = null;
 
     if (!actionsResults.length) {
       return;
@@ -113,11 +116,6 @@ export class UrlbarProviderGlobalActions extends UrlbarProvider {
       showOnboardingLabel,
       query,
     };
-
-    if (searchModeEngine) {
-      payload.providesSearchMode = true;
-      payload.engine = searchModeEngine;
-    }
 
     let result = new lazy.UrlbarResult({
       type: UrlbarUtils.RESULT_TYPE.DYNAMIC,
@@ -198,6 +196,7 @@ export class UrlbarProviderGlobalActions extends UrlbarProvider {
 
       if (action.dataset?.providesSearchMode) {
         btn.attributes["data-provides-searchmode"] = "true";
+        btn.attributes["data-engine"] = action.engine;
       }
 
       return btn;
@@ -218,12 +217,12 @@ export class UrlbarProviderGlobalActions extends UrlbarProvider {
     let viewUpdate = {};
     if (result.payload.showOnboardingLabel) {
       viewUpdate["press-tab-label"] = {
-        l10n: { id: "press-tab-label", cacheable: true },
+        l10n: { id: "press-tab-label" },
       };
     }
     result.payload.actionsResults.forEach((action, i) => {
       viewUpdate[`label-${i}`] = {
-        l10n: { id: action.l10nId, args: action.l10nArgs, cacheable: true },
+        l10n: { id: action.l10nId, args: action.l10nArgs },
       };
     });
     return viewUpdate;

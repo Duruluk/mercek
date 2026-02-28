@@ -126,12 +126,14 @@ class ReceiveStatisticsProxyTest : public ::testing::Test {
 
 TEST_F(ReceiveStatisticsProxyTest, OnDecodedFrameIncreasesFramesDecoded) {
   EXPECT_EQ(0u, statistics_proxy_->GetStats().frames_decoded);
+  EXPECT_EQ(0, statistics_proxy_->GetStats().frame_counts.key_frames);
   VideoFrame frame = CreateFrame(kWidth, kHeight);
   for (uint32_t i = 1; i <= 3; ++i) {
     statistics_proxy_->OnDecodedFrame(frame, std::nullopt, TimeDelta::Zero(),
                                       VideoContentType::UNSPECIFIED,
                                       VideoFrameType::kVideoFrameKey);
     EXPECT_EQ(i, FlushAndGetStats().frames_decoded);
+    EXPECT_EQ(0, FlushAndGetStats().frame_counts.key_frames);
   }
 }
 
@@ -604,9 +606,9 @@ TEST_F(ReceiveStatisticsProxyTest, GetStatsReportsOnCompleteFrame) {
   const int kFrameSizeBytes = 1000;
   statistics_proxy_->OnCompleteFrame(true, kFrameSizeBytes,
                                      VideoContentType::UNSPECIFIED);
-  VideoReceiveStreamInterface::Stats stats = statistics_proxy_->GetStats();
+  VideoReceiveStreamInterface::Stats stats = FlushAndGetStats();
   EXPECT_EQ(1, stats.network_frame_rate);
-  EXPECT_EQ(0, stats.frame_counts.key_frames);
+  EXPECT_EQ(1, stats.frame_counts.key_frames);
   EXPECT_EQ(0, stats.frame_counts.delta_frames);
 }
 
@@ -1113,6 +1115,7 @@ TEST_F(ReceiveStatisticsProxyTest,
 TEST_F(ReceiveStatisticsProxyTest, ReceivedFrameHistogramsAreUpdated) {
   for (int i = 0; i < kMinRequiredSamples; ++i) {
     statistics_proxy_->OnRenderedFrame(MetaData(CreateFrame(kWidth, kHeight)));
+    time_controller_.AdvanceTime(TimeDelta::Millis(33));
   }
 
   statistics_proxy_->UpdateHistograms(std::nullopt, StreamDataCounters(),

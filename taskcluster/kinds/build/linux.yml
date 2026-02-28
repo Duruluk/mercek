@@ -3,7 +3,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 ---
 task-defaults:
-    worker-type: b-linux-amd
+    worker-type: b-linux-docker-amd
 
 linux64/opt:
     description: "Linux64 Opt"
@@ -495,7 +495,7 @@ linux64-devedition/opt:
     treeherder:
         platform: linux64-devedition/opt
         symbol: B
-    worker-type: b-linux-xlarge-amd
+    worker-type: b-linux-docker-xlarge-amd
     worker:
         max-run-time: 7200
         env:
@@ -544,7 +544,7 @@ linux64-reproduced/opt:
     treeherder:
         platform: linux64-shippable/opt
         symbol: Bpgo(repr)
-    worker-type: b-linux-xlarge-amd
+    worker-type: b-linux-docker-xlarge-amd
     worker:
         max-run-time: 9000
         env:
@@ -1110,7 +1110,7 @@ linux64-fuzzing-ccov/opt:
             - linux64-cbindgen
             - linux64-dump_syms
             - linux64-llvm-symbolizer
-            - linux64-rust-1.83
+            - linux64-rust-dev
             - linux64-rust-size
             - linux64-sccache
             - linux64-nasm
@@ -1121,61 +1121,6 @@ linux64-fuzzing-ccov/opt:
             - onnxruntime-x86_64-linux-gnu
     optimization:
         skip-unless-expanded: null
-
-linux64-asan-reporter-shippable/opt:
-    description: "Linux64 Opt ASAN Reporter (Shippable)"
-    attributes:
-        shippable: true
-    shipping-product:
-        by-release-type:
-            nightly: firefox
-            default: null
-    index:
-        product: firefox
-        job-name: linux64-asan-reporter-opt
-        type: shippable
-    treeherder:
-        platform: linux64-asan-reporter/opt
-        symbol: BoR
-    run-on-projects: ['mozilla-central']
-    worker-type: b-linux-xlarge-amd
-    worker:
-        env:
-            PERFHERDER_EXTRA_OPTIONS: asan-reporter
-            MOZ_AUTOMATION_PACKAGE_TESTS: "1"
-        max-run-time: 3600
-    run:
-        using: mozharness
-        actions: [get-secrets, build]
-        config:
-            - builds/releng_base_firefox.py
-            - builds/releng_base_linux_64_builds.py
-            - taskcluster_nightly.py
-        extra-config:
-            max_build_output_timeout: 3600
-        script: "mozharness/scripts/fx_desktop_build.py"
-        secrets: true
-        custom-build-variant-cfg: asan-reporter-tc
-        mozconfig-variant: nightly-asan-reporter
-        tooltool-downloads: public
-        mar-channel-id:
-            firefox-mozilla-central-asan
-        accepted-mar-channel-ids:
-            firefox-mozilla-central-asan
-    fetches:
-        toolchain:
-            - linux64-clang
-            - linux64-rust
-            - linux64-rust-size
-            - linux64-cbindgen
-            - linux64-dump_syms
-            - linux64-llvm-symbolizer
-            - linux64-nasm
-            - linux64-node
-            - linux64-pkgconf
-            - sysroot-x86_64-linux-gnu
-            - sysroot-wasm32-wasi
-            - onnxruntime-x86_64-linux-gnu
 
 linux64-asan/debug:
     description: "Linux64 Debug ASAN"
@@ -1235,7 +1180,7 @@ linux64-shippable/opt:
         platform: linux64-shippable/opt
         symbol: Bpgo(B)
     run-on-projects: ['release']
-    worker-type: b-linux-xlarge-amd
+    worker-type: b-linux-docker-xlarge-amd
     worker:
         max-run-time: 9000
         env:
@@ -1282,7 +1227,7 @@ linux64-nightlyasrelease/opt:
         platform: linux64-nightlyasrelease/opt
         symbol: Bpgo(Bnar)
     run-on-projects: [trunk-only]
-    worker-type: b-linux-xlarge-amd
+    worker-type: b-linux-docker-xlarge-amd
     worker:
         max-run-time: 9000
         env:
@@ -1477,7 +1422,7 @@ linux64-ccov/opt:
     fetches:
         toolchain:
             - linux64-clang
-            - linux64-rust-1.83
+            - linux64-rust-dev
             - linux64-cbindgen
             - linux64-dump_syms
             - linux64-sccache
@@ -1518,7 +1463,7 @@ linux64-ccov/debug:
     fetches:
         toolchain:
             - linux64-clang
-            - linux64-rust-1.83
+            - linux64-rust-dev
             - linux64-cbindgen
             - linux64-dump_syms
             - linux64-sccache
@@ -1671,7 +1616,7 @@ linux64-aarch64-shippable/opt:
     treeherder:
         platform: linux64-aarch64-shippable/opt
         symbol: Bpgo(B)
-    worker-type: b-linux-xlarge-amd
+    worker-type: b-linux-docker-xlarge-amd
     worker:
         max-run-time: 9000
         env:
@@ -1723,7 +1668,7 @@ linux64-aarch64-devedition/opt:
     treeherder:
         platform: linux64-aarch64-devedition/opt
         symbol: Bpgo(B)
-    worker-type: b-linux-xlarge-amd
+    worker-type: b-linux-docker-xlarge-amd
     worker:
         max-run-time: 9000
         env:

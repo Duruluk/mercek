@@ -11,6 +11,8 @@
 #include "mozilla/ScrollPositionUpdate.h"
 #include "mozilla/layers/ScrollableLayerGuid.h"
 
+using LayersUpdateFlags = AsyncPanZoomController::LayersUpdateFlags;
+
 TEST_F(APZCBasicTester, Overzoom) {
   // the visible area of the document in CSS pixels is x=10 y=0 w=100 h=100
   FrameMetrics fm;
@@ -139,14 +141,18 @@ TEST_F(APZCBasicTester, ComplexTransform) {
 
   // initial transform
   apzc->SetFrameMetrics(metrics);
-  apzc->NotifyLayersUpdated(metadata, true, true);
+  apzc->NotifyLayersUpdated(
+      metadata,
+      LayersUpdateFlags{.mIsFirstPaint = true, .mThisLayerTreeUpdated = true});
   apzc->SampleContentTransformForFrame(&viewTransformOut, pointOut);
   EXPECT_EQ(AsyncTransform(LayerToParentLayerScale(1), ParentLayerPoint()),
             viewTransformOut);
   EXPECT_EQ(ParentLayerPoint(60, 60), pointOut);
 
   childApzc->SetFrameMetrics(childMetrics);
-  childApzc->NotifyLayersUpdated(childMetadata, true, true);
+  childApzc->NotifyLayersUpdated(
+      childMetadata,
+      LayersUpdateFlags{.mIsFirstPaint = true, .mThisLayerTreeUpdated = true});
   childApzc->SampleContentTransformForFrame(&viewTransformOut, pointOut);
   EXPECT_EQ(AsyncTransform(LayerToParentLayerScale(1), ParentLayerPoint()),
             viewTransformOut);
@@ -238,7 +244,9 @@ TEST_F(APZCBasicTester, ResumeInterruptedTouchDrag_Bug1592435) {
   metadata.SetScrollUpdates(scrollUpdates);
   metadata.GetMetrics().SetScrollGeneration(
       scrollUpdates.LastElement().GetGeneration());
-  apzc->NotifyLayersUpdated(metadata, false, true);
+  apzc->NotifyLayersUpdated(
+      metadata,
+      LayersUpdateFlags{.mIsFirstPaint = false, .mThisLayerTreeUpdated = true});
 
   // Continue and finish the touch-drag gesture.
   for (int i = 0; i < 20; ++i) {
@@ -264,7 +272,9 @@ TEST_F(APZCBasicTester, ResumeInterruptedTouchDrag_Bug1592435) {
   metadata.GetMetrics().SetVisualScrollUpdateType(FrameMetrics::eMainThread);
   scrollUpdates.Clear();
   metadata.SetScrollUpdates(scrollUpdates);
-  apzc->NotifyLayersUpdated(metadata, false, true);
+  apzc->NotifyLayersUpdated(
+      metadata,
+      LayersUpdateFlags{.mIsFirstPaint = false, .mThisLayerTreeUpdated = true});
   for (int i = 0; i < 20; ++i) {
     touchPos.y -= 1;
     mcc->AdvanceByMillis(1);
@@ -302,8 +312,9 @@ TEST_F(APZCBasicTester, RelativeScrollOffset) {
   mainThreadMetadata.SetScrollUpdates(scrollUpdates);
   mainThreadMetrics.SetScrollGeneration(
       scrollUpdates.LastElement().GetGeneration());
-  apzc->NotifyLayersUpdated(mainThreadMetadata, /*isFirstPaint=*/false,
-                            /*thisLayerTreeUpdated=*/true);
+  apzc->NotifyLayersUpdated(
+      mainThreadMetadata,
+      LayersUpdateFlags{.mIsFirstPaint = false, .mThisLayerTreeUpdated = true});
 
   // Check that the relative offset has been preserved.
   metrics = apzc->GetFrameMetrics();
@@ -344,8 +355,9 @@ TEST_F(APZCBasicTester, MultipleSmoothScrollsSmooth) {
   metadata2.SetScrollUpdates(scrollUpdates2);
   metadata2.GetMetrics().SetScrollGeneration(
       scrollUpdates2.LastElement().GetGeneration());
-  apzc->NotifyLayersUpdated(metadata2, /*isFirstPaint=*/false,
-                            /*thisLayerTreeUpdated=*/true);
+  apzc->NotifyLayersUpdated(
+      metadata2,
+      LayersUpdateFlags{.mIsFirstPaint = false, .mThisLayerTreeUpdated = true});
 
   // Get the animation going
   for (uint32_t i = 0; i < 3; i++) {
@@ -376,8 +388,9 @@ TEST_F(APZCBasicTester, MultipleSmoothScrollsSmooth) {
     metadata3.SetScrollUpdates(scrollUpdates3);
     metadata3.GetMetrics().SetScrollGeneration(
         scrollUpdates3.LastElement().GetGeneration());
-    apzc->NotifyLayersUpdated(metadata3, /*isFirstPaint=*/false,
-                              /*thisLayerTreeUpdated=*/true);
+    apzc->NotifyLayersUpdated(metadata3,
+                              LayersUpdateFlags{.mIsFirstPaint = false,
+                                                .mThisLayerTreeUpdated = true});
   }
 
   for (uint32_t j = 0; j < 7; j++) {
@@ -390,7 +403,7 @@ TEST_F(APZCBasicTester, MultipleSmoothScrollsSmooth) {
   }
 }
 
-TEST_F(APZCBasicTester, NotifyLayersUpdate_WithScrollUpdates) {
+TEST_F(APZCBasicTester, NotifyLayersUpdate_WithScrollUpdate) {
   // Set an empty metadata as if the APZC is now newly created.
   // This replicates when a document in a background tab now becomes forground.
   ScrollMetadata metadata;
@@ -415,21 +428,62 @@ TEST_F(APZCBasicTester, NotifyLayersUpdate_WithScrollUpdates) {
       CSSPoint::ToAppUnits(CSSPoint(15, 15))));
   metadata.SetScrollUpdates(scrollUpdates);
   metrics.SetScrollGeneration(scrollUpdates.LastElement().GetGeneration());
-  // With the above scroll updates, now the layout/visual scroll offsets (on the
+  // With the above scroll update, now the layout/visual scroll offsets (on the
   // main-thread) need to be updated.
   metrics.SetVisualScrollOffset(CSSPoint(15, 15));
   metrics.SetLayoutViewport(CSSRect(15, 15, 10, 10));
 
   // It's not first-paint when switching tab.
-  apzc->NotifyLayersUpdated(metadata, /*isFirstPaint=*/false,
-                            /*thisLayerTreeUpdated=*/true);
+  apzc->NotifyLayersUpdated(
+      metadata,
+      LayersUpdateFlags{.mIsFirstPaint = false, .mThisLayerTreeUpdated = true});
 
   // The layout/visual scroll ofsets and the relative scroll update need to be
   // reflected.
-  ASSERT_EQ(apzc->GetFrameMetrics().GetLayoutScrollOffset(), CSSPoint(20, 20))
-      << "If the actual value is (15, 15), you fixed bug 1978682, thanks!";
-  ASSERT_EQ(apzc->GetFrameMetrics().GetVisualScrollOffset(), CSSPoint(20, 20))
-      << "If the actual value is (15, 15), you fixed bug 1978682, thanks!";
+  ASSERT_EQ(apzc->GetFrameMetrics().GetLayoutScrollOffset(), CSSPoint(15, 15));
+  ASSERT_EQ(apzc->GetFrameMetrics().GetVisualScrollOffset(), CSSPoint(15, 15));
+}
+
+TEST_F(APZCBasicTester, NotifyLayersUpdate_WithMultipleScrollUpdates) {
+  // Set an empty metadata as if the APZC is now newly created.
+  // This replicates when a document in a background tab now becomes foreground.
+  ScrollMetadata metadata;
+  apzc->SetScrollMetadata(metadata);
+  ASSERT_TRUE(apzc->GetScrollMetadata().IsDefault());
+
+  FrameMetrics& metrics = metadata.GetMetrics();
+  metrics.SetDisplayPort(CSSRect(0, 0, 10, 10));
+  metrics.SetCompositionBounds(ParentLayerRect(0, 0, 10, 10));
+  metrics.SetScrollableRect(CSSRect(0, 0, 100, 100));
+
+  metrics.SetVisualScrollOffset(CSSPoint(0, 0));
+  metrics.SetLayoutViewport(CSSRect(0, 0, 10, 10));
+  metrics.SetScrollId(ScrollableLayerGuid::START_SCROLL_ID);
+
+  AutoTArray<ScrollPositionUpdate, 2> scrollUpdates;
+  // Append a new scroll frame as if the scroll frame was reconstructed.
+  scrollUpdates.AppendElement(ScrollPositionUpdate::NewScrollframe(
+      CSSPoint::ToAppUnits(CSSPoint(0, 0))));
+  // Append a new relative scroll update (0, 0) -> (20, 20).
+  scrollUpdates.AppendElement(ScrollPositionUpdate::NewRelativeScroll(
+      CSSPoint::ToAppUnits(CSSPoint(0, 0)),
+      CSSPoint::ToAppUnits(CSSPoint(20, 20))));
+  metadata.SetScrollUpdates(scrollUpdates);
+  metrics.SetScrollGeneration(scrollUpdates.LastElement().GetGeneration());
+  // With the above scroll updates, now the layout/visual scroll offsets (on the
+  // main-thread) need to be updated.
+  metrics.SetVisualScrollOffset(CSSPoint(20, 20));
+  metrics.SetLayoutViewport(CSSRect(20, 20, 10, 10));
+
+  // It's not first-paint when switching tab.
+  apzc->NotifyLayersUpdated(
+      metadata,
+      LayersUpdateFlags{.mIsFirstPaint = false, .mThisLayerTreeUpdated = true});
+
+  // The layout/visual scroll ofsets and the relative scroll update need to be
+  // reflected.
+  ASSERT_EQ(apzc->GetFrameMetrics().GetLayoutScrollOffset(), CSSPoint(20, 20));
+  ASSERT_EQ(apzc->GetFrameMetrics().GetVisualScrollOffset(), CSSPoint(20, 20));
 }
 
 class APZCSmoothScrollTester : public APZCBasicTester {
@@ -456,7 +510,9 @@ class APZCSmoothScrollTester : public APZCBasicTester {
         CSSPoint::ToAppUnits(CSSPoint(0, 1000))));
     metadata.SetScrollUpdates(scrollUpdates);
     metrics.SetScrollGeneration(scrollUpdates.LastElement().GetGeneration());
-    apzc->NotifyLayersUpdated(metadata, false, true);
+    apzc->NotifyLayersUpdated(metadata,
+                              LayersUpdateFlags{.mIsFirstPaint = false,
+                                                .mThisLayerTreeUpdated = true});
 
     // Sample the smooth scroll animation until we get past y=500.
     apzc->AssertInSmoothScroll();
@@ -473,7 +529,9 @@ class APZCSmoothScrollTester : public APZCBasicTester {
         CSSPoint::ToAppUnits(CSSPoint(0, 100))));
     metadata.SetScrollUpdates(scrollUpdates);
     metrics.SetScrollGeneration(scrollUpdates.LastElement().GetGeneration());
-    apzc->NotifyLayersUpdated(metadata, false, false);
+    apzc->NotifyLayersUpdated(
+        metadata, LayersUpdateFlags{.mIsFirstPaint = false,
+                                    .mThisLayerTreeUpdated = false});
 
     // Verify the relative scroll was applied but didn't cancel the animation.
     float y2 = apzc->GetFrameMetrics().GetVisualScrollOffset().y;
@@ -533,7 +591,9 @@ class APZCSmoothScrollTester : public APZCBasicTester {
         CSSPoint::ToAppUnits(CSSPoint(0, 300))));
     metadata.SetScrollUpdates(scrollUpdates);
     metrics.SetScrollGeneration(scrollUpdates.LastElement().GetGeneration());
-    apzc->NotifyLayersUpdated(metadata, false, true);
+    apzc->NotifyLayersUpdated(metadata,
+                              LayersUpdateFlags{.mIsFirstPaint = false,
+                                                .mThisLayerTreeUpdated = true});
 
     // Check that the content shift was applied but didn't cancel the animation.
     // At this point, the animation's internal state should be targeting a
@@ -595,7 +655,9 @@ class APZCSmoothScrollTester : public APZCBasicTester {
         CSSPoint::ToAppUnits(CSSPoint(0, 1200))));
     metadata.SetScrollUpdates(scrollUpdates);
     metrics.SetScrollGeneration(scrollUpdates.LastElement().GetGeneration());
-    apzc->NotifyLayersUpdated(metadata, false, true);
+    apzc->NotifyLayersUpdated(metadata,
+                              LayersUpdateFlags{.mIsFirstPaint = false,
+                                                .mThisLayerTreeUpdated = true});
     float y2 = apzc->GetFrameMetrics().GetVisualScrollOffset().y;
     ASSERT_EQ(y2, y + 1000);
     apzc->AssertInWheelScroll();
@@ -844,8 +906,9 @@ TEST_F(APZCBasicTester, ZoomAndScrollableRectChangeAfterZoomChange) {
   // Change the scrollable rect slightly to trigger a reclamp.
   ScrollMetadata metadata2 = metadata;
   metadata2.GetMetrics().SetScrollableRect(CSSRect(0, 0, 100, 1000.2));
-  apzc->NotifyLayersUpdated(metadata2, /*isFirstPaint=*/false,
-                            /*thisLayerTreeUpdated=*/true);
+  apzc->NotifyLayersUpdated(
+      metadata2,
+      LayersUpdateFlags{.mIsFirstPaint = false, .mThisLayerTreeUpdated = true});
 
   float newOffset =
       apzc->GetCurrentAsyncScrollOffset(AsyncPanZoomController::eForCompositing)
@@ -897,8 +960,9 @@ TEST_F(APZCBasicTester, ZoomToRectAndCompositionBoundsChange) {
   // mCompositionBoundsWidthIgnoringScrollbars unchanged.
   ScrollMetadata metadata2 = metadata;
   metadata2.GetMetrics().SetCompositionBounds(ParentLayerRect(0, 0, 90, 100));
-  apzc->NotifyLayersUpdated(metadata2, /*isFirstPaint=*/false,
-                            /*thisLayerTreeUpdated=*/true);
+  apzc->NotifyLayersUpdated(
+      metadata2,
+      LayersUpdateFlags{.mIsFirstPaint = false, .mThisLayerTreeUpdated = true});
 
   float scale =
       apzc->GetCurrentPinchZoomScale(AsyncPanZoomController::eForCompositing)
@@ -1010,7 +1074,9 @@ TEST_F(APZCFrameTimeTester, ImmediatelyInterruptedSmoothScroll_Bug1984589) {
       nullptr, ViewportType::Layout));
   metadata.SetScrollUpdates(scrollUpdates);
   metrics.SetScrollGeneration(scrollUpdates.LastElement().GetGeneration());
-  apzc->NotifyLayersUpdated(metadata, false, true);
+  apzc->NotifyLayersUpdated(
+      metadata,
+      LayersUpdateFlags{.mIsFirstPaint = false, .mThisLayerTreeUpdated = true});
 
   // Sample smooth scroll animations until they complete,
   // and assert that at no point does the scroll position leave (0, 900).

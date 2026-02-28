@@ -11,7 +11,6 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
-#include <type_traits>
 
 #include "Intervals.h"
 #include "mozilla/CheckedInt.h"
@@ -81,7 +80,7 @@ TimeUnit TimeUnit::FromSeconds(double aValue, int64_t aBase) {
   // base -- we can keep this for some time until we're confident this is
   // stable.
   double inBase = aValue * static_cast<double>(aBase);
-  if (std::abs(inBase) >
+  if (std::abs(inBase) >=
       static_cast<double>(std::numeric_limits<int64_t>::max())) {
     NS_WARNING(
         nsPrintfCString("Warning: base %" PRId64
@@ -284,7 +283,7 @@ TimeUnit TimeUnit::operator+(const TimeUnit& aOther) const {
 
   double error;
   TimeUnit inBase = aOther.ToBase(mBase, error);
-  if (error == 0.0) {
+  if (error == 0.0 && inBase.IsValid()) {
     return *this + inBase;
   }
 
@@ -315,7 +314,7 @@ TimeUnit TimeUnit::operator-(const TimeUnit& aOther) const {
 
   double error = 0.0;
   TimeUnit inBase = aOther.ToBase(mBase, error);
-  if (error == 0) {
+  if (error == 0 && inBase.IsValid()) {
     return *this - inBase;
   }
 

@@ -84,7 +84,7 @@ struct ListHelper {
   LinkedList<nsSHistory> mList;
 };
 
-MOZ_RUNINIT static ListHelper gSHistoryList;
+constinit static ListHelper gSHistoryList;
 // Max viewers allowed total, across all SHistory objects - negative default
 // means we will calculate how many viewers to cache based on total memory
 int32_t nsSHistory::sHistoryMaxTotalViewers = -1;
@@ -158,6 +158,7 @@ class MOZ_STACK_CLASS SHistoryChangeNotifier {
     }
   }
 
+  MOZ_CAN_RUN_SCRIPT
   ~SHistoryChangeNotifier() {
     if (mSHistory) {
       MOZ_ASSERT(mSHistory->HasOngoingUpdate());
@@ -165,7 +166,8 @@ class MOZ_STACK_CLASS SHistoryChangeNotifier {
 
       RefPtr<BrowsingContext> rootBC = mSHistory->GetBrowsingContext();
       if (mozilla::SessionHistoryInParent() && rootBC) {
-        rootBC->Canonical()->HistoryCommitIndexAndLength();
+        RefPtr canonical = rootBC->Canonical();
+        canonical->HistoryCommitIndexAndLength();
       }
     }
   }
@@ -550,7 +552,7 @@ nsresult nsSHistory::CloneAndReplaceChild(nsISHEntry* aEntry,
   if (data->destTreeParent) {
     data->destTreeParent->AddChild(dest, aChildIndex);
   }
-  data->resultEntry = dest;
+  data->resultEntry = std::move(dest);
   return rv;
 }
 
@@ -624,28 +626,111 @@ void nsSHistory::WalkContiguousEntriesInOrder(
   MOZ_ASSERT(aEntry);
   MOZ_ASSERT(SessionHistoryInParent());
 
-  // Walk backward to find the entries that have the same origin as the
-  // input entry.
   nsCOMPtr<SessionHistoryEntry> entry = do_QueryInterface(aEntry);
+  RefPtr<nsSHistory> shistory = entry->GetSessionHistory();
+  if (!shistory) {
+    // If there is no session history related to the entry there's not much to
+    // do, so just return.
+    return;
+  }
+
   MOZ_ASSERT(entry);
   nsCOMPtr<nsIURI> targetURI = entry->GetURIOrInheritedForAboutBlank();
-  while (nsCOMPtr previousEntry = entry->getPrevious()) {
+  AutoTArray<SessionHistoryEntry*, 16> previousEntries;
+
+  // Walk backward to find the entries that have the same origin as the
+  // input entry.
+  nsCOMPtr<SessionHistoryEntry> current = entry;
+  while (nsCOMPtr previousEntry =
+             shistory->FindLeftmostAdjacentContiguousEntryFor(
+                 current, SearchDirection::Left)) {
     nsCOMPtr<nsIURI> uri = previousEntry->GetURIOrInheritedForAboutBlank();
     if (NS_FAILED(nsContentUtils::GetSecurityManager()->CheckSameOriginURI(
             targetURI, uri, false, false))) {
       break;
     }
-    entry = previousEntry;
+    previousEntries.AppendElement(previousEntry);
+    current = previousEntry;
   }
 
-  bool shouldContinue = aCallback(entry);
-  while (shouldContinue && (entry = entry->getNext())) {
+  for (auto* previousEntry : Reversed(previousEntries)) {
+    if (!aCallback(previousEntry)) {
+      return;
+    }
+  }
+
+  if (!aCallback(entry)) {
+    return;
+  }
+
+  // Walk forward to find the entries that have the same origin as the
+  // input entry.
+  while ((entry = shistory->FindLeftmostAdjacentContiguousEntryFor(
+              entry, SearchDirection::Right))) {
     nsCOMPtr<nsIURI> uri = entry->GetURIOrInheritedForAboutBlank();
     if (NS_FAILED(nsContentUtils::GetSecurityManager()->CheckSameOriginURI(
             targetURI, uri, false, false))) {
       break;
     }
-    shouldContinue = aCallback(entry);
+    if (!aCallback(entry)) {
+      return;
+    }
+  }
+}
+
+// static
+void nsSHistory::WalkClosestContiguousEntriesFrom(
+    nsISHEntry* aEntry, const std::function<bool(nsISHEntry*)>& aCallback) {
+  MOZ_ASSERT(aEntry);
+  MOZ_ASSERT(SessionHistoryInParent());
+
+  nsCOMPtr<SessionHistoryEntry> entry = do_QueryInterface(aEntry);
+  RefPtr<nsSHistory> shistory = entry->GetSessionHistory();
+  if (!shistory) {
+    // If there is no session history related to the entry there's not much to
+    // do, so just return.
+    return;
+  }
+
+  MOZ_ASSERT(entry);
+  if (!aCallback(entry)) {
+    return;
+  }
+
+  nsCOMPtr<nsIURI> targetURI = entry->GetURIOrInheritedForAboutBlank();
+
+  // Walk backward to find the entries that have the same origin as the
+  // input entry.
+  for (nsCOMPtr<SessionHistoryEntry> current =
+           shistory->FindClosestAdjacentContiguousEntryFor(
+               entry, SearchDirection::Left);
+       current; current = shistory->FindClosestAdjacentContiguousEntryFor(
+                    current, SearchDirection::Left)) {
+    nsCOMPtr<nsIURI> uri = current->GetURIOrInheritedForAboutBlank();
+    if (NS_FAILED(nsContentUtils::GetSecurityManager()->CheckSameOriginURI(
+            targetURI, uri, false, false))) {
+      break;
+    }
+    if (!aCallback(current)) {
+      return;
+    }
+  }
+
+  // Walk forward to find the entries that have the same origin as the
+  // input entry.
+  for (nsCOMPtr<SessionHistoryEntry> current =
+           shistory->FindClosestAdjacentContiguousEntryFor(
+               entry, SearchDirection::Right);
+       current; current = shistory->FindClosestAdjacentContiguousEntryFor(
+                    current, SearchDirection::Right)) {
+    nsCOMPtr<nsIURI> uri = current->GetURIOrInheritedForAboutBlank();
+    if (NS_FAILED(nsContentUtils::GetSecurityManager()->CheckSameOriginURI(
+            targetURI, uri, false, false))) {
+      break;
+    }
+    if (!aCallback(current)) {
+      return;
+    }
   }
 }
 
@@ -790,7 +875,7 @@ nsSHistory::AddToRootSessionHistory(bool aCloneChildren, nsISHEntry* aOSHE,
     // Replace current entry in session history; If the requested index is
     // valid, it indicates the loading was triggered by a history load, and
     // we should replace the entry at requested index instead.
-    int32_t index = GetIndexForReplace();
+    int32_t index = GetTargetIndexForHistoryOperation();
 
     // Replace the current entry with the new entry
     if (index >= 0) {
@@ -886,6 +971,14 @@ void nsSHistory::NotifyOnHistoryReplaceEntry() {
   NotifyListeners(mListeners, [](auto l) { l->OnHistoryReplaceEntry(); });
 }
 
+NS_IMETHODIMP
+nsSHistory::NotifyOnEntryTitleUpdated(nsISHEntry* aEntry) {
+  NotifyListeners(mListeners, [entry = nsCOMPtr{aEntry}](auto l) {
+    l->OnEntryTitleUpdated(entry);
+  });
+  return NS_OK;
+}
+
 /* Get size of the history list */
 NS_IMETHODIMP
 nsSHistory::GetCount(int32_t* aResult) {
@@ -975,9 +1068,9 @@ static void LogEntry(nsISHEntry* aEntry, int32_t aIndex, int32_t aTotal,
   int32_t childCount = aEntry->GetChildCount();
 
   MOZ_LOG(gSHLog, LogLevel::Debug,
-          ("%s%s+- %i SH Entry %p %" PRIu64 " %s\n", aIsCurrent ? ">" : " ",
-           aPrefix.get(), aIndex, aEntry, shared->GetId(),
-           nsIDToCString(docShellId).get()));
+          ("%s%s+- %i SH Entry %p shared:%" PRIu64 " %s %i\n",
+           aIsCurrent ? ">" : " ", aPrefix.get(), aIndex, aEntry,
+           shared->GetId(), nsIDToCString(docShellId).get(), aEntry->GetID()));
 
   nsCString prefix(aPrefix);
   if (aIndex < aTotal - 1) {
@@ -1202,6 +1295,12 @@ nsSHistory::NotifyOnHistoryReload(bool* aCanReload) {
     }
   }
 
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsSHistory::NotifyOnHistoryCommit() {
+  NotifyListeners(mListeners, [](auto l) { l->OnHistoryCommit(); });
   return NS_OK;
 }
 
@@ -1508,7 +1607,8 @@ static bool MaybeCheckUnloadingIsCanceled(
   }
 
   nsCOMPtr<nsIPrincipal> targetPrincipal =
-      BasePrincipal::CreateContentPrincipal(targetURI, OriginAttributes{});
+      BasePrincipal::CreateContentPrincipal(targetURI,
+                                            traversable->OriginAttributesRef());
 
   // More of step 4.3
   if (!windowGlobalParent->DocumentPrincipal()->Equals(targetPrincipal)) {
@@ -1680,10 +1780,11 @@ nsresult nsSHistory::Reload(uint32_t aReloadFlags,
     return NS_OK;
   }
 
-  nsresult rv = LoadEntry(
-      mIndex, loadType, HIST_CMD_RELOAD, aLoadResults, /* aSameEpoch */ false,
-      /* aLoadCurrentEntry */ true,
-      aReloadFlags & nsIWebNavigation::LOAD_FLAGS_USER_ACTIVATION);
+  nsresult rv =
+      LoadEntry(/* aSourceBrowsingContext */ nullptr, mIndex, loadType,
+                HIST_CMD_RELOAD, aLoadResults, /* aSameEpoch */ false,
+                /* aLoadCurrentEntry */ true,
+                aReloadFlags & nsIWebNavigation::LOAD_FLAGS_USER_ACTIVATION);
   if (NS_FAILED(rv)) {
     aLoadResults.Clear();
     return rv;
@@ -1707,7 +1808,8 @@ nsresult nsSHistory::ReloadCurrentEntry(
   // Notify listeners
   NotifyListeners(mListeners, [](auto l) { l->OnHistoryGotoIndex(); });
 
-  return LoadEntry(mIndex, LOAD_HISTORY, HIST_CMD_RELOAD, aLoadResults,
+  return LoadEntry(/* aSourceBrowsingContext */ nullptr, mIndex, LOAD_HISTORY,
+                   HIST_CMD_RELOAD, aLoadResults,
                    /* aSameEpoch */ false, /* aLoadCurrentEntry */ true,
                    /* aUserActivation */ false);
 }
@@ -1842,7 +1944,7 @@ class EntryAndDistance {
   nsCOMPtr<nsIDocumentViewer> mViewer;
   RefPtr<nsFrameLoader> mFrameLoader;
   uint32_t mLastTouched;
-  int32_t mDistance;
+  uint32_t mDistance;
 };
 
 }  // namespace
@@ -1892,7 +1994,7 @@ void nsSHistory::GloballyEvictDocumentViewers() {
           EntryAndDistance& container = shEntries[j];
           if (container.mViewer == viewer) {
             container.mDistance =
-                std::min(container.mDistance, DeprecatedAbs(i - shist->mIndex));
+                std::min(container.mDistance, Abs(i - shist->mIndex));
             found = true;
             break;
           }
@@ -1904,8 +2006,8 @@ void nsSHistory::GloballyEvictDocumentViewers() {
           for (uint32_t j = 0; j < shEntries.Length(); j++) {
             EntryAndDistance& container = shEntries[j];
             if (container.mFrameLoader == frameLoader) {
-              container.mDistance = std::min(container.mDistance,
-                                             DeprecatedAbs(i - shist->mIndex));
+              container.mDistance =
+                  std::min(container.mDistance, Abs(i - shist->mIndex));
               found = true;
               break;
             }
@@ -1916,8 +2018,7 @@ void nsSHistory::GloballyEvictDocumentViewers() {
       // If we didn't find a EntryAndDistance for this content viewer /
       // frameloader, make a new one.
       if (hasDocumentViewerOrFrameLoader && !found) {
-        EntryAndDistance container(shist, entry,
-                                   DeprecatedAbs(i - shist->mIndex));
+        EntryAndDistance container(shist, entry, Abs(i - shist->mIndex));
         shEntries.AppendElement(container);
       }
     }
@@ -2245,8 +2346,9 @@ nsSHistory::UpdateIndex() {
 NS_IMETHODIMP
 nsSHistory::GotoIndex(int32_t aIndex, bool aUserActivation) {
   nsTArray<LoadEntryResult> loadResults;
-  nsresult rv = GotoIndex(aIndex, loadResults, /*aSameEpoch*/ false,
-                          aIndex == mIndex, aUserActivation);
+  nsresult rv =
+      GotoIndex(/* aSourceBrowsingContext */ nullptr, aIndex, loadResults,
+                /*aSameEpoch*/ false, aIndex == mIndex, aUserActivation);
   NS_ENSURE_SUCCESS(rv, rv);
 
   LoadURIs(loadResults, /* aCheckForCancelation */ true);
@@ -2261,12 +2363,14 @@ nsSHistory::EnsureCorrectEntryAtCurrIndex(nsISHEntry* aEntry) {
   }
 }
 
-nsresult nsSHistory::GotoIndex(int32_t aIndex,
+nsresult nsSHistory::GotoIndex(BrowsingContext* aSourceBrowsingContext,
+                               int32_t aIndex,
                                nsTArray<LoadEntryResult>& aLoadResults,
                                bool aSameEpoch, bool aLoadCurrentEntry,
                                bool aUserActivation) {
-  return LoadEntry(aIndex, LOAD_HISTORY, HIST_CMD_GOTOINDEX, aLoadResults,
-                   aSameEpoch, aLoadCurrentEntry, aUserActivation);
+  return LoadEntry(aSourceBrowsingContext, aIndex, LOAD_HISTORY,
+                   HIST_CMD_GOTOINDEX, aLoadResults, aSameEpoch,
+                   aLoadCurrentEntry, aUserActivation);
 }
 
 NS_IMETHODIMP_(bool)
@@ -2298,22 +2402,25 @@ nsSHistory::CanGoBackFromEntryAtIndex(int32_t aIndex, bool* aCanGoBack) {
 }
 
 nsresult nsSHistory::LoadNextPossibleEntry(
-    int32_t aNewIndex, long aLoadType, uint32_t aHistCmd,
-    nsTArray<LoadEntryResult>& aLoadResults, bool aLoadCurrentEntry,
-    bool aUserActivation) {
+    BrowsingContext* aSourceBrowsingContext, int32_t aNewIndex, long aLoadType,
+    uint32_t aHistCmd, nsTArray<LoadEntryResult>& aLoadResults,
+    bool aLoadCurrentEntry, bool aUserActivation) {
   mRequestedIndex = -1;
   if (aNewIndex < mIndex) {
-    return LoadEntry(aNewIndex - 1, aLoadType, aHistCmd, aLoadResults,
+    return LoadEntry(aSourceBrowsingContext, aNewIndex - 1, aLoadType, aHistCmd,
+                     aLoadResults,
                      /*aSameEpoch*/ false, aLoadCurrentEntry, aUserActivation);
   }
   if (aNewIndex > mIndex) {
-    return LoadEntry(aNewIndex + 1, aLoadType, aHistCmd, aLoadResults,
+    return LoadEntry(aSourceBrowsingContext, aNewIndex + 1, aLoadType, aHistCmd,
+                     aLoadResults,
                      /*aSameEpoch*/ false, aLoadCurrentEntry, aUserActivation);
   }
   return NS_ERROR_FAILURE;
 }
 
-nsresult nsSHistory::LoadEntry(int32_t aIndex, long aLoadType,
+nsresult nsSHistory::LoadEntry(BrowsingContext* aSourceBrowsingContext,
+                               int32_t aIndex, long aLoadType,
                                uint32_t aHistCmd,
                                nsTArray<LoadEntryResult>& aLoadResults,
                                bool aSameEpoch, bool aLoadCurrentEntry,
@@ -2396,21 +2503,24 @@ nsresult nsSHistory::LoadEntry(int32_t aIndex, long aLoadType,
 
   if (mRequestedIndex == mIndex) {
     // Possibly a reload case
-    InitiateLoad(nextEntry, rootBC, aLoadType, aLoadResults, aLoadCurrentEntry,
-                 aUserActivation, requestedOffset);
+    InitiateLoad(aSourceBrowsingContext, nextEntry, rootBC, aLoadType,
+                 aLoadResults, aLoadCurrentEntry, aUserActivation,
+                 requestedOffset);
     return NS_OK;
   }
 
   // Going back or forward.
   bool differenceFound = ForEachDifferingEntry(
       prevEntry, nextEntry, rootBC,
-      [self = RefPtr{this}, aLoadType, &aLoadResults, aLoadCurrentEntry,
-       aUserActivation,
+      [self = RefPtr{this},
+       sourceBrowsingContext = RefPtr{aSourceBrowsingContext}, aLoadType,
+       &aLoadResults, aLoadCurrentEntry, aUserActivation,
        requestedOffset](nsISHEntry* aEntry, BrowsingContext* aParent) {
         // Set the Subframe flag if not navigating the root docshell.
         aEntry->SetIsSubFrame(aParent->Id() != self->mRootBC);
-        self->InitiateLoad(aEntry, aParent, aLoadType, aLoadResults,
-                           aLoadCurrentEntry, aUserActivation, requestedOffset);
+        self->InitiateLoad(sourceBrowsingContext, aEntry, aParent, aLoadType,
+                           aLoadResults, aLoadCurrentEntry, aUserActivation,
+                           requestedOffset);
       });
   if (!differenceFound) {
     // LoadNextPossibleEntry will change the offset by one, and in order
@@ -2418,8 +2528,9 @@ nsresult nsSHistory::LoadEntry(int32_t aIndex, long aLoadType,
     // the value it had initially.
     mRequestedIndex = originalRequestedIndex;
     // We did not find any differences. Go further in the history.
-    return LoadNextPossibleEntry(aIndex, aLoadType, aHistCmd, aLoadResults,
-                                 aLoadCurrentEntry, aUserActivation);
+    return LoadNextPossibleEntry(aSourceBrowsingContext, aIndex, aLoadType,
+                                 aHistCmd, aLoadResults, aLoadCurrentEntry,
+                                 aUserActivation);
   }
 
   return NS_OK;
@@ -2452,20 +2563,26 @@ class SessionHistoryEntryIDComparator {
  public:
   static bool Equals(const RefPtr<SessionHistoryEntry>& aLhs,
                      const RefPtr<SessionHistoryEntry>& aRhs) {
-    return aLhs && aRhs && aLhs->GetID() == aRhs->GetID();
+    return aLhs && aRhs && aLhs->DocshellID() == aRhs->DocshellID();
   }
 };
 
 }  // namespace
 
-mozilla::dom::SessionHistoryEntry* nsSHistory::FindAdjacentContiguousEntryFor(
-    mozilla::dom::SessionHistoryEntry* aEntry, int32_t aSearchDirection) {
-  MOZ_ASSERT(aSearchDirection == 1 || aSearchDirection == -1);
+mozilla::dom::SessionHistoryEntry* nsSHistory::FindAdjacentEntryFor(
+    mozilla::dom::SessionHistoryEntry* aEntry,
+    SearchDirection aSearchDirection) {
+  MOZ_ASSERT(static_cast<int8_t>(aSearchDirection) == 1 ||
+             static_cast<int8_t>(aSearchDirection) == -1);
+
+  if (!aEntry) {
+    return nullptr;
+  }
 
   // Construct the list of ancestors of aEntry, starting with the root entry
   // down to it's immediate parent.
   nsCOMPtr<nsISHEntry> ancestor = aEntry->GetParent();
-  nsTArray<SessionHistoryEntry*> ancestors;
+  AutoTArray<SessionHistoryEntry*, 8> ancestors;
   while (ancestor) {
     ancestors.AppendElement(static_cast<SessionHistoryEntry*>(ancestor.get()));
     ancestor = ancestor->GetParent();
@@ -2475,61 +2592,71 @@ mozilla::dom::SessionHistoryEntry* nsSHistory::FindAdjacentContiguousEntryFor(
   nsCOMPtr<nsISHEntry> rootEntry = ancestors.IsEmpty() ? aEntry : ancestors[0];
   nsCOMPtr<nsISHEntry> nextEntry;
   SessionHistoryEntry* foundParent = nullptr;
-  for (int32_t i = GetIndexOfEntry(rootEntry) + aSearchDirection;
-       i >= 0 && i < Length(); i += aSearchDirection) {
-    nextEntry = mEntries[i];
-    foundParent = FindParent(
-        ancestors, static_cast<SessionHistoryEntry*>(nextEntry.get()));
-    if ((!foundParent && nextEntry->GetID() != aEntry->GetID()) ||
-        (foundParent && !foundParent->Children().Contains(
-                            aEntry, SessionHistoryEntryIDComparator()))) {
+  int32_t i =
+      GetIndexOfEntry(rootEntry) + static_cast<int8_t>(aSearchDirection);
+  if (i < 0 || i >= Length()) {
+    return nullptr;
+  }
+
+  nextEntry = mEntries[i];
+  if (ancestors.IsEmpty()) {
+    return static_cast<SessionHistoryEntry*>(nextEntry.get());
+  }
+
+  foundParent =
+      FindParent(ancestors, static_cast<SessionHistoryEntry*>(nextEntry.get()));
+  if (foundParent) {
+    for (const auto& child : foundParent->Children()) {
+      if (child && child->DocshellID() == aEntry->DocshellID()) {
+        return child;
+      }
+    }
+  }
+
+  return nullptr;
+}
+
+mozilla::dom::SessionHistoryEntry*
+nsSHistory::FindClosestAdjacentContiguousEntryFor(
+    mozilla::dom::SessionHistoryEntry* aEntry,
+    SearchDirection aSearchDirection) {
+  for (SessionHistoryEntry* current =
+           FindAdjacentEntryFor(aEntry, aSearchDirection);
+       current; current = FindAdjacentEntryFor(current, aSearchDirection)) {
+    if (aEntry->GetID() != current->GetID()) {
+      return current;
+    }
+  }
+
+  return nullptr;
+}
+
+mozilla::dom::SessionHistoryEntry*
+nsSHistory::FindLeftmostAdjacentContiguousEntryFor(
+    mozilla::dom::SessionHistoryEntry* aEntry,
+    SearchDirection aSearchDirection) {
+  SessionHistoryEntry* current = nullptr;
+  for (current = FindAdjacentEntryFor(aEntry, aSearchDirection); current;
+       current = FindAdjacentEntryFor(current, aSearchDirection)) {
+    if (aEntry->GetID() != current->GetID()) {
       break;
     }
   }
 
-  if (foundParent) {
-    for (const auto& child : foundParent->Children()) {
-      if (child && child->DocshellID() == aEntry->DocshellID()) {
-        return child->GetID() != aEntry->GetID() ? child.get() : nullptr;
-      }
-    }
-  } else if (ancestors.IsEmpty() && nextEntry &&
-             nextEntry->GetID() != aEntry->GetID()) {
-    return static_cast<SessionHistoryEntry*>(nextEntry.get());
-  }
-  return nullptr;
-}
-
-LinkedList<SessionHistoryEntry> nsSHistory::ConstructContiguousEntryListFrom(
-    SessionHistoryEntry* aEntry) {
-  if (aEntry->isInList()) {
-    aEntry->remove();
+  if (aSearchDirection == SearchDirection::Right) {
+    return current;
   }
 
-  LinkedList<SessionHistoryEntry> entryList;
-  entryList.insertBack(aEntry);
-  for (auto* entry = aEntry;
-       (entry = FindAdjacentContiguousEntryFor(entry, -1));) {
-    if (entry->isInList()) {
-      entry->remove();
+  while (SessionHistoryEntry* left =
+             FindAdjacentEntryFor(current, aSearchDirection)) {
+    if (left->GetID() != current->GetID()) {
+      break;
     }
-    entryList.insertFront(entry);
-  }
-  for (auto* entry = aEntry;
-       (entry = FindAdjacentContiguousEntryFor(entry, 1));) {
-    if (entry->isInList()) {
-      entry->remove();
-    }
-    entryList.insertBack(entry);
-  }
-  return entryList;
-}
 
-LinkedList<SessionHistoryEntry> nsSHistory::ConstructContiguousEntryList() {
-  MOZ_ASSERT(mIndex >= 0 && mIndex < Length());
-  nsCOMPtr currentEntry = mEntries[mIndex];
-  return ConstructContiguousEntryListFrom(
-      static_cast<SessionHistoryEntry*>(currentEntry.get()));
+    current = left;
+  }
+
+  return current;
 }
 
 bool nsSHistory::ForEachDifferingEntry(
@@ -2540,10 +2667,22 @@ bool nsSHistory::ForEachDifferingEntry(
   uint32_t prevID = aPrevEntry->GetID();
   uint32_t nextID = aNextEntry->GetID();
 
+  bool differenceFound = false;
   // Check the IDs to verify if the pages are different.
   if (prevID != nextID) {
     aCallback(aNextEntry, aParent);
-    return true;
+    // if it's not same doc, any potential children will just be unloaded
+    // https://html.spec.whatwg.org/#get-all-navigables-whose-current-session-history-entry-will-change-or-reload
+    // step 3.3:
+    // If targetEntry's document is navigable's document, and targetEntry's
+    // document state's reload pending is false, then extend navigablesToCheck
+    // with the child navigables of navigable.
+    bool sameDoc = false;
+    aPrevEntry->SharesDocumentWith(aNextEntry, &sameDoc);
+    if (!sameDoc) {
+      return true;
+    }
+    differenceFound = true;
   }
 
   // The entries are the same, so compare any child frames
@@ -2555,7 +2694,6 @@ bool nsSHistory::ForEachDifferingEntry(
   aParent->GetChildren(browsingContexts);
 
   // Search for something to load next.
-  bool differenceFound = false;
   for (int32_t i = 0; i < ncnt; ++i) {
     // First get an entry which may cause a new page to be loaded.
     nsCOMPtr<nsISHEntry> nChild;
@@ -2604,7 +2742,8 @@ bool nsSHistory::ForEachDifferingEntry(
   return differenceFound;
 }
 
-void nsSHistory::InitiateLoad(nsISHEntry* aFrameEntry,
+void nsSHistory::InitiateLoad(BrowsingContext* aSourceBrowsingContext,
+                              nsISHEntry* aFrameEntry,
                               BrowsingContext* aFrameBC, long aLoadType,
                               nsTArray<LoadEntryResult>& aLoadResults,
                               bool aLoadCurrentEntry, bool aUserActivation,
@@ -2616,6 +2755,8 @@ void nsSHistory::InitiateLoad(nsISHEntry* aFrameEntry,
 
   nsCOMPtr<nsIURI> newURI = aFrameEntry->GetURI();
   RefPtr<nsDocShellLoadState> loadState = new nsDocShellLoadState(newURI);
+
+  loadState->SetSourceBrowsingContext(aSourceBrowsingContext);
 
   loadState->SetHasValidUserGestureActivation(aUserActivation);
 

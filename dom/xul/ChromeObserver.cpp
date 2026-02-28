@@ -15,7 +15,6 @@
 #include "nsIMutationObserver.h"
 #include "nsIWidget.h"
 #include "nsPresContext.h"
-#include "nsView.h"
 #include "nsXULElement.h"
 
 namespace mozilla::dom {
@@ -24,8 +23,6 @@ NS_IMPL_ISUPPORTS(ChromeObserver, nsIMutationObserver)
 
 ChromeObserver::ChromeObserver(Document* aDocument)
     : nsStubMutationObserver(), mDocument(aDocument) {}
-
-ChromeObserver::~ChromeObserver() = default;
 
 void ChromeObserver::Init() {
   mDocument->AddMutationObserver(this);
@@ -121,27 +118,10 @@ void ChromeObserver::SetCustomTitlebar(bool aCustomTitlebar) {
   }
 }
 
-nsresult ChromeObserver::HideWindowChrome(bool aShouldHide) {
-  // only top level chrome documents can hide the window chrome
-  if (!mDocument->IsRootDisplayDocument()) return NS_OK;
-
-  nsPresContext* presContext = mDocument->GetPresContext();
-
-  if (presContext && presContext->IsChrome()) {
-    nsIFrame* frame = mDocument->GetDocumentElement()->GetPrimaryFrame();
-
-    if (frame) {
-      nsView* view = frame->GetClosestView();
-
-      if (view) {
-        nsIWidget* w = view->GetWidget();
-        NS_ENSURE_STATE(w);
-        w->HideWindowChrome(aShouldHide);
-      }
-    }
+void ChromeObserver::HideWindowChrome(bool aShouldHide) {
+  if (nsCOMPtr<nsIWidget> mainWidget = GetWindowWidget()) {
+    mainWidget->HideWindowChrome(aShouldHide);
   }
-
-  return NS_OK;
 }
 
 }  // namespace mozilla::dom

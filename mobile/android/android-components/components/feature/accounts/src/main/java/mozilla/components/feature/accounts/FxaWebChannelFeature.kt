@@ -5,6 +5,7 @@
 package mozilla.components.feature.accounts
 
 import androidx.annotation.VisibleForTesting
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
@@ -71,6 +72,7 @@ class FxaWebChannelFeature(
     private val accountManager: FxaAccountManager,
     private val serverConfig: ServerConfig,
     private val fxaCapabilities: Set<FxaCapability> = emptySet(),
+    private val mainDispatcher: CoroutineDispatcher = Dispatchers.Main,
     private val onCommandExecuted: (WebChannelCommand) -> Unit = {},
 ) : LifecycleAwareFeature {
 
@@ -90,7 +92,7 @@ class FxaWebChannelFeature(
 
         extensionController.install(runtime)
 
-        scope = store.flowScoped { flow ->
+        scope = store.flowScoped(dispatcher = mainDispatcher) { flow ->
             flow.mapNotNull { state -> state.findCustomTabOrSelectedTab(customTabSessionId) }
                 .distinctUntilChangedBy { it.engineState.engineSession }
                 .collect {
@@ -105,7 +107,6 @@ class FxaWebChannelFeature(
         scope?.cancel()
     }
 
-    @Suppress("MaxLineLength", "")
     /**
      * Communication channel is established from fxa-web-content to this class via webextension, as follows:
      * [fxa-web-content] <--js events--> [fxawebchannel.js webextension] <--port messages--> [FxaWebChannelFeature]
@@ -123,6 +124,7 @@ class FxaWebChannelFeature(
      *     oauth-login      ------>                             authentication completed within fxa web content, this class receives OAuth code & state
      * ```
      */
+    @Suppress("MaxLineLength")
     private class WebChannelViewContentMessageHandler(
         private val accountManager: FxaAccountManager,
         private val serverConfig: ServerConfig,

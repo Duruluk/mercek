@@ -980,10 +980,22 @@ void nsSSLIOLayerHelpers::GlobalCleanup() {
   MOZ_ASSERT(NS_IsMainThread(), "Not on main thread");
 
   if (gPrivateSSLIOLayerHelpers) {
+    Preferences::RemoveObserver(gPrivateSSLIOLayerHelpers,
+                                "security.tls.version.fallback-limit");
+#ifdef DEBUG
+    gPrivateSSLIOLayerHelpers->mRegisteredPrefObservers = false;
+#endif
     gPrivateSSLIOLayerHelpers = nullptr;
   }
 
   if (gPublicSSLIOLayerHelpers) {
+    Preferences::RemoveObserver(gPublicSSLIOLayerHelpers,
+                                "security.tls.version.fallback-limit");
+    Preferences::RemoveObserver(gPublicSSLIOLayerHelpers,
+                                "security.tls.insecure_fallback_hosts");
+#ifdef DEBUG
+    gPublicSSLIOLayerHelpers->mRegisteredPrefObservers = false;
+#endif
     gPublicSSLIOLayerHelpers = nullptr;
   }
 }
@@ -1013,8 +1025,10 @@ static int32_t PlaintextRecv(PRFileDesc* fd, void* buf, int32_t amount,
 }
 
 nsSSLIOLayerHelpers::~nsSSLIOLayerHelpers() {
-  Preferences::RemoveObserver(this, "security.tls.version.fallback-limit");
-  Preferences::RemoveObserver(this, "security.tls.insecure_fallback_hosts");
+  // Pref observers must have been removed before destruction, since the
+  // destructor may run off the main thread.
+  MOZ_ASSERT(!mRegisteredPrefObservers,
+             "Pref observers should have been removed before destruction");
 }
 
 template <typename R, R return_value, typename... Args>
@@ -1095,6 +1109,9 @@ nsresult nsSSLIOLayerHelpers::Init() {
   if (NS_IsMainThread()) {
     initInsecureFallbackSites();
 
+#ifdef DEBUG
+    mRegisteredPrefObservers = true;
+#endif
     Preferences::AddStrongObserver(this, "security.tls.version.fallback-limit");
     if (isPublic()) {
       // Changes to the allowlist on the public side will update the pref.
@@ -1256,9 +1273,6 @@ static PRFileDesc* nsSSLIOLayerImportFD(PRFileDesc* fd,
   // success of this function.
   PRFileDesc* sslSock = SSL_ImportFD(nullptr, fd);
   if (!sslSock) {
-    return nullptr;
-  }
-  if (SSL_SetPKCS11PinArg(sslSock, infoObject) != SECSuccess) {
     return nullptr;
   }
   if (SSL_HandshakeCallback(sslSock, HandshakeCallback, infoObject) !=

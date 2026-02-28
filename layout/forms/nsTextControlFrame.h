@@ -4,13 +4,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsTextControlFrame_h___
-#define nsTextControlFrame_h___
+#ifndef nsTextControlFrame_h_
+#define nsTextControlFrame_h_
 
 #include "mozilla/Attributes.h"
 #include "mozilla/TextControlElement.h"
 #include "nsContainerFrame.h"
-#include "nsIAnonymousContentCreator.h"
 #include "nsIContent.h"
 #include "nsIStatefulFrame.h"
 
@@ -28,9 +27,7 @@ class Element;
 }  // namespace dom
 }  // namespace mozilla
 
-class nsTextControlFrame : public nsContainerFrame,
-                           public nsIAnonymousContentCreator,
-                           public nsIStatefulFrame {
+class nsTextControlFrame : public nsContainerFrame, public nsIStatefulFrame {
   using Element = mozilla::dom::Element;
 
  public:
@@ -99,11 +96,6 @@ class nsTextControlFrame : public nsContainerFrame,
   }
 #endif
 
-  // nsIAnonymousContentCreator
-  nsresult CreateAnonymousContent(nsTArray<ContentInfo>& aElements) override;
-  void AppendAnonymousContentTo(nsTArray<nsIContent*>& aElements,
-                                uint32_t aFilter) override;
-
   void SetInitialChildList(ChildListID, nsFrameList&&) override;
 
   void BuildDisplayList(nsDisplayListBuilder* aBuilder,
@@ -119,11 +111,6 @@ class nsTextControlFrame : public nsContainerFrame,
   nsFrameSelection* GetOwnedFrameSelection() {
     return ControlElement()->GetIndependentFrameSelection();
   }
-  nsISelectionController* GetSelectionController() {
-    return ControlElement()->GetSelectionController();
-  }
-
-  void PlaceholderChanged(const nsAttrValue* aOld, const nsAttrValue* aNew);
 
   /**
    * Ensure mEditor is initialized with the proper flags and the default value.
@@ -175,16 +162,21 @@ class nsTextControlFrame : public nsContainerFrame,
   static Maybe<nscoord> ComputeBaseline(const nsIFrame*, const ReflowInput&,
                                         bool aForSingleLineControl);
 
-  Element* GetRootNode() const { return mRootNode; }
+  Element* GetRootNode() const { return ControlElement()->GetTextEditorRoot(); }
 
-  Element* GetPreviewNode() const { return mPreviewDiv; }
+  Element* GetPreviewNode() const {
+    return ControlElement()->GetTextEditorPreview();
+  }
 
-  Element* GetPlaceholderNode() const { return mPlaceholderDiv; }
+  Element* GetPlaceholderNode() const {
+    return ControlElement()->GetTextEditorPlaceholder();
+  }
 
-  Element* GetButton() const { return mButton; }
+  Element* GetButton() const { return ControlElement()->GetTextEditorButton(); }
 
   bool IsButtonBox(const nsIFrame* aFrame) const {
-    return aFrame->GetContent() == GetButton();
+    return mozilla::TextControlElement::IsButtonPseudoElement(
+        aFrame->Style()->GetPseudoType());
   }
 
   // called by the focus listener
@@ -213,9 +205,10 @@ class nsTextControlFrame : public nsContainerFrame,
  protected:
   class EditorInitializer;
   friend class EditorInitializer;
-  friend class mozilla::AutoTextControlHandlingState;  // needs access to
-                                                       // CacheValue
-  friend class mozilla::TextControlState;  // needs access to UpdateValueDisplay
+
+  // needed for access to CacheValue and co.
+  friend class mozilla::AutoTextControlHandlingState;
+  friend class mozilla::TextControlState;
 
   // Temp reference to scriptrunner
   NS_DECLARE_FRAME_PROPERTY_WITH_DTOR(TextControlInitializer, EditorInitializer,
@@ -244,13 +237,6 @@ class nsTextControlFrame : public nsContainerFrame,
                             uint32_t* aPosition);
 
   /**
-   * Update the textnode under our anonymous div to show the new
-   * value. This should only be called when we have no editor yet.
-   * @throws NS_ERROR_UNEXPECTED if the div has no text content
-   */
-  nsresult UpdateValueDisplay(bool aNotify);
-
-  /**
    * Find out whether an attribute exists on the content or not.
    * @param aAtt the attribute to determine the existence of
    * @returns false if it does not exist
@@ -270,6 +256,9 @@ class nsTextControlFrame : public nsContainerFrame,
   // for <textarea>).
   mozilla::LogicalSize CalcIntrinsicSize(gfxContext* aRenderingContext,
                                          mozilla::WritingMode aWM) const;
+
+  void Init(nsIContent* aContent, nsContainerFrame* aParent,
+            nsIFrame* aPrevInFlow) override;
 
  private:
   // helper methods
@@ -305,21 +294,10 @@ class nsTextControlFrame : public nsContainerFrame,
   void CreatePlaceholderIfNeeded();
   void UpdatePlaceholderText(nsString&, bool aNotify);
   void CreatePreviewIfNeeded();
-  already_AddRefed<Element> MakeAnonElement(
-      mozilla::PseudoStyleType, Element* aParent = nullptr,
-      nsAtom* aTag = nsGkAtoms::div) const;
-  already_AddRefed<Element> MakeAnonDivWithTextNode(
-      mozilla::PseudoStyleType) const;
 
   bool ShouldInitializeEagerly() const;
   void InitializeEagerlyIfNeeded();
 
-  RefPtr<Element> mRootNode;
-  RefPtr<Element> mPlaceholderDiv;
-  RefPtr<Element> mPreviewDiv;
-  // If we have type=password, number, or search, then mButton is our
-  // reveal-password, spinner, or search button box. Otherwise, it's nullptr.
-  RefPtr<Element> mButton;
   RefPtr<nsAnonDivObserver> mMutationObserver;
   // Cache of the |.value| of <input> or <textarea> element without hard-wrap.
   // If its IsVoid() returns true, it doesn't cache |.value|.

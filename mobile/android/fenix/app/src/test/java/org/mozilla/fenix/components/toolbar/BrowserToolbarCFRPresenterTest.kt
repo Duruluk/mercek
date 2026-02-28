@@ -14,6 +14,7 @@ import io.mockk.spyk
 import io.mockk.verify
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.test.StandardTestDispatcher
 import mozilla.components.browser.state.action.CookieBannerAction
 import mozilla.components.browser.state.state.BrowserState
 import mozilla.components.browser.state.state.CustomTabSessionState
@@ -22,14 +23,11 @@ import mozilla.components.browser.state.state.createTab
 import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.browser.toolbar.BrowserToolbar
 import mozilla.components.concept.engine.EngineSession
-import mozilla.components.support.test.ext.joinBlocking
 import mozilla.components.support.test.robolectric.testContext
-import mozilla.components.support.test.rule.MainCoroutineRule
 import org.junit.Assert.assertNotNull
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.mozilla.fenix.R
 import org.mozilla.fenix.ext.isLargeWindow
 import org.mozilla.fenix.helpers.FenixGleanTestRule
 import org.mozilla.fenix.utils.Settings
@@ -38,8 +36,8 @@ import mozilla.components.browser.toolbar.R as toolbarR
 
 @RunWith(RobolectricTestRunner::class)
 class BrowserToolbarCFRPresenterTest {
-    @get:Rule
-    val coroutinesTestRule = MainCoroutineRule()
+
+    private val testDispatcher = StandardTestDispatcher()
 
     @get:Rule
     val gleanTestRule = FenixGleanTestRule(testContext)
@@ -59,6 +57,7 @@ class BrowserToolbarCFRPresenterTest {
         )
 
         presenter.start()
+        testDispatcher.scheduler.advanceUntilIdle()
 
         assertNotNull(presenter.scope)
 
@@ -67,7 +66,8 @@ class BrowserToolbarCFRPresenterTest {
                 privateTab.id,
                 EngineSession.CookieBannerHandlingStatus.HANDLED,
             ),
-        ).joinBlocking()
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
 
         verify { presenter.showCookieBannersCFR() }
         verify { settings.shouldShowCookieBannersCFR = false }
@@ -106,6 +106,7 @@ class BrowserToolbarCFRPresenterTest {
         )
 
         presenter.start()
+        testDispatcher.scheduler.advanceUntilIdle()
 
         verify { presenter.showTabSwipeCFR() }
         verify { settings.hasShownTabSwipeCFR = true }
@@ -132,6 +133,7 @@ class BrowserToolbarCFRPresenterTest {
         )
 
         presenter.start()
+        testDispatcher.scheduler.advanceUntilIdle()
 
         verify(exactly = 0) { presenter.showTabSwipeCFR() }
         verify(exactly = 0) { settings.hasShownTabSwipeCFR = any() }
@@ -157,6 +159,7 @@ class BrowserToolbarCFRPresenterTest {
         )
 
         presenter.start()
+        testDispatcher.scheduler.advanceUntilIdle()
 
         verify(exactly = 0) { presenter.showTabSwipeCFR() }
         verify(exactly = 0) { settings.hasShownTabSwipeCFR = any() }
@@ -172,7 +175,7 @@ class BrowserToolbarCFRPresenterTest {
             every { getColor(any()) } returns 0
         },
         anchor: View = mockk(relaxed = true),
-        browserStore: BrowserStore = mockk(),
+        browserStore: BrowserStore = BrowserStore(),
         settings: Settings = mockk(relaxed = true) {
             every { openTabsCount } returns 5
             every { shouldShowCookieBannersCFR } returns true
@@ -195,6 +198,7 @@ class BrowserToolbarCFRPresenterTest {
             toolbar = toolbar,
             customTabId = sessionId,
             isPrivate = isPrivate,
+            mainDispatcher = testDispatcher,
         ),
     ) {
         every { showCookieBannersCFR() } just Runs

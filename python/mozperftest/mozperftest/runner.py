@@ -14,6 +14,7 @@ This runner can be executed in two different ways:
 When the module is executed directly, if the --on-try option is used,
 it will fetch arguments from Tascluster's parameters.
 """
+
 import json
 import logging
 import os
@@ -41,14 +42,12 @@ def _activate_virtualenvs(flavor):
 
     # We need the "mach" module to access the logic to parse virtualenv
     # requirements. Since that depends on "packaging", we add that to the path too.
-    # We need filelock for solving a virtualenv race condition
     sys.path[0:0] = [
         os.path.join(SRC_ROOT, module)
         for module in (
             os.path.join("python", "mach"),
             os.path.join("testing", "mozbase", "mozfile"),
             os.path.join("third_party", "python", "packaging"),
-            os.path.join("third_party", "python", "filelock"),
         )
     ]
 
@@ -245,7 +244,7 @@ def main(argv=sys.argv[1:]):
     if os.getenv("PERF_FLAGS"):
         extra_args = []
         for extra_arg in os.getenv("PERF_FLAGS").split():
-            extra_args.append(f"--{extra_arg}")
+            extra_args.append(f"--{os.path.expandvars(extra_arg)}")
         argv.extend(extra_args)
 
     mozconfig = SRC_ROOT / "browser" / "config" / "mozconfig"

@@ -47,7 +47,7 @@ const CONTENT_MIME_TYPE_ABBREVIATIONS = new Map([
  * @param {object} headers - the "requestHeaders".
  * @param {object} uploadHeaders - the "requestHeadersFromUploadStream".
  * @param {object} postData - the "requestPostData".
- * @return {array} a promise list that is resolved with the extracted form data.
+ * @return {Array} a promise list that is resolved with the extracted form data.
  */
 async function getFormDataSections(
   headers,
@@ -83,7 +83,6 @@ async function getFormDataSections(
       }
     }
   }
-
   return formDataSections;
 }
 
@@ -106,7 +105,7 @@ async function fetchHeaders(headers, getLongString) {
  *
  * @param {function} requestData - requestData function for lazily fetch data
  * @param {object} request - request object
- * @param {array} updateTypes - a list of network event update types
+ * @param {Array} updateTypes - a list of network event update types
  */
 function fetchNetworkUpdatePacket(requestData, request, updateTypes) {
   const promises = [];
@@ -159,7 +158,7 @@ function formDataURI(mimeType, encoding, text) {
 /**
  * Write out a list of headers into a chunk of text
  *
- * @param {array} headers - array of headers info { name, value }
+ * @param {Array} headers - array of headers info { name, value }
  * @param {string} preHeaderText - first line of the headers request/response
  * @return {string} list of headers in text format
  */
@@ -405,7 +404,7 @@ function getUrlToolTip(urlDetails) {
  * Parse a url's query string into its components
  *
  * @param {string} query - query string of a url portion
- * @return {array} array of query params { name, value }
+ * @return {Array} array of query params { name, value }
  */
 function parseQueryString(query) {
   if (!query) {
@@ -428,28 +427,29 @@ function parseQueryString(query) {
 /**
  * Parse a string of formdata sections into its components
  *
- * @param {string} sections - sections of formdata joined by &
- * @return {array} array of formdata params { name, value }
+ * @param {Array<string>} sections Array of sections of formdata
+ *                                 e.g ["", "a=x&b=y", "c=z"]
+ * @return {Array<object>}  Array of formdata params
+ *                          e.g [{ name: 'a', value: 'x' }, { name: 'b', value: 'y'}, { name: 'c', value: 'z'}]
  */
 function parseFormData(sections) {
-  if (!sections) {
+  if (!sections || !sections.length) {
     return [];
   }
+  const formDataParams = [];
+  const searchStr = sections
+    // Filter out empty sections
+    .filter(str => /\S/.test(str))
+    .join("&");
 
-  return sections
-    .replace(/^&/, "")
-    .split("&")
-    .map(e => {
-      const firstEqualSignIndex = e.indexOf("=");
-      const paramName =
-        firstEqualSignIndex !== -1 ? e.slice(0, firstEqualSignIndex) : e;
-      const paramValue =
-        firstEqualSignIndex !== -1 ? e.slice(firstEqualSignIndex + 1) : "";
-      return {
-        name: paramName ? getUnicodeUrlPath(paramName) : "",
-        value: paramValue ? getUnicodeUrlPath(paramValue) : "",
-      };
+  const params = new URLSearchParams(searchStr);
+  for (const [key, value] of params) {
+    formDataParams.push({
+      name: getUnicodeUrlPath(key),
+      value: getUnicodeUrlPath(value),
     });
+  }
+  return formDataParams;
 }
 
 /**
@@ -666,6 +666,7 @@ async function getMessagePayload(payload, getLongString) {
  * incoming network update packets. It makes sure the only valid
  * update properties and the values are correct.
  * It's used by Network and Console panel reducers.
+ *
  * @param {object} update
  *        The new update payload
  * @param {object} request
@@ -706,7 +707,8 @@ function isBase64(payload) {
  * This function also handles JSON with XSSI-escaping characters by stripping them
  * and returning the stripped chars in the strippedChars property
  * This function also handles Base64 encoded JSON.
- * @returns {Object} shape:
+ *
+ * @returns {object} shape:
  *  {Object} json: parsed JSON object
  *  {Error} error: JSON parsing error
  *  {string} strippedChars: XSSI stripped chars removed from JSON payload
@@ -765,9 +767,10 @@ function parseJSON(payloadUnclean) {
 
 /**
  * Removes XSSI prevention sequences from JSON payloads
+ *
  * @param {string} payloadUnclean: JSON payload that may or may have a
  *                                 XSSI prevention sequence
- * @returns {Object} Shape:
+ * @returns {object} Shape:
  *   {string} payload: the JSON witht the XSSI prevention sequence removed
  *   {string} strippedChars: XSSI string that was removed, null if no XSSI
  *                           prevention sequence was found

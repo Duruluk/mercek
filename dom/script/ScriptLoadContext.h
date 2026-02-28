@@ -20,16 +20,12 @@
 #include "mozilla/AlreadyAddRefed.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/CORSMode.h"
-#include "mozilla/LinkedList.h"
-#include "mozilla/Maybe.h"
-#include "mozilla/MaybeOneOf.h"
 #include "mozilla/Mutex.h"
 #include "mozilla/PreloaderBase.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/TaskController.h"  // mozilla::Task
 #include "mozilla/Utf8.h"            // mozilla::Utf8Unit
-#include "mozilla/Variant.h"
 #include "mozilla/dom/SRIMetadata.h"
 #include "mozilla/net/UrlClassifierCommon.h"
 #include "nsCOMPtr.h"
@@ -287,11 +283,21 @@ class ScriptLoadContext : public JS::loader::LoadContextBase,
   bool mIsNonAsyncScriptInserted;  // True if we live in
                                    // mNonAsyncExternalScriptInsertedRequests
   bool mIsXSLT;                    // True if we live in mXSLTRequests.
-  bool mInCompilingList;     // True if we are in mOffThreadCompilingRequests.
-  net::ClassificationFlags   // Classification flags
-      mClassificationFlags;  // of the source of the script.
-  bool mWasCompiledOMT;      // True if the script has been compiled off main
-                             // thread.
+  bool mInCompilingList;  // True if we are in mOffThreadCompilingRequests.
+  bool mWasCompiledOMT;   // True if the script has been compiled off main
+                          // thread.
+  // Set on scripts and top level modules.
+  bool mIsPreload;
+
+  // For preload requests, we defer reporting errors to the console until the
+  // request is used.
+  nsresult mUnreportedPreloadError;
+
+  uint32_t mLineNo;
+  JS::ColumnNumberOneOrigin mColumnNo;
+
+  // Classification flags of the source of the script.
+  net::ClassificationFlags mClassificationFlags;
 
   // Task that performs off-thread compilation or off-thread decode.
   // This field is used to take the result of the task, or cancel the task.
@@ -299,12 +305,6 @@ class ScriptLoadContext : public JS::loader::LoadContextBase,
   // Set to non-null on the task creation, and set to null when taking the
   // result or cancelling the task.
   RefPtr<CompileOrDecodeTask> mCompileOrDecodeTask;
-
-  uint32_t mLineNo;
-  JS::ColumnNumberOneOrigin mColumnNo;
-
-  // Set on scripts and top level modules.
-  bool mIsPreload;
 
   // Non-null if there is a document that this request is blocking from loading.
   RefPtr<Document> mLoadBlockedDocument;
@@ -314,10 +314,6 @@ class ScriptLoadContext : public JS::loader::LoadContextBase,
   nsCOMPtr<nsIScriptElement> mScriptElement;
 
   nsString mSourceText;
-
-  // For preload requests, we defer reporting errors to the console until the
-  // request is used.
-  nsresult mUnreportedPreloadError;
 };
 
 }  // namespace mozilla::dom

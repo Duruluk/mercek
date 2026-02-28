@@ -18,6 +18,7 @@ transforms:
 # https://wiki.mozilla.org/Sheriffing/Job_Visibility_Policy
 
 task-defaults:
+    run-on-repo-type: [hg]
     attributes:
         retrigger: true
     use-python: default
@@ -31,11 +32,7 @@ task-defaults:
                     default: true
             default: false
     docker-image:
-        by-test-platform:
-            linux1804.*:
-                in-tree: ubuntu1804-test
-            default:
-                in-tree: ubuntu2404-test
+        in-tree: ubuntu2404-test
     fetches:
         toolchain:
             by-test-platform:
@@ -110,6 +107,10 @@ tasks:
                 default: null  # don't load tests in the taskgraph
         chunks:
             by-test-platform:
+                linux.*64-tsan(-qr)?/opt: dynamic
+                default: 1
+        default-chunks:
+            by-test-platform:
                 linux.*64-tsan(-qr)?/opt: 4
                 default: 1
         variants:
@@ -122,9 +123,6 @@ tasks:
                 webrender-sw+no-fission:
                     by-test-platform:
                         android-em.*/debug: built-projects
-                        linux1804-64(-qr)?/.*: ['mozilla-central']
-                        linux1804-64-shippable(-qr)?/opt: ['mozilla-central']
-                        linux1804-64-asan(-qr)?/opt: ['mozilla-central']
                         linux2404-64/.*: ['mozilla-central']
                         linux2404-64-shippable/opt: ['mozilla-central']
                         linux2404-64-asan/opt: ['mozilla-central']
@@ -141,9 +139,6 @@ tasks:
                 no-fission:
                     by-test-platform:
                         android-em.*/debug-isolated-process: []
-                        linux1804-64(-qr)?/.*: ['mozilla-central']
-                        linux1804-64-shippable(-qr)?/opt: ['mozilla-central']
-                        linux1804-64-asan(-qr)?/opt: ['mozilla-central']
                         linux2404-64/.*: ['mozilla-central']
                         linux2404-64-shippable/opt: ['mozilla-central']
                         linux2404-64-asan/opt: ['mozilla-central']
@@ -211,7 +206,6 @@ tasks:
                 windows.*-ccov.*/opt: 5
                 windows.*/opt: 2
                 linux.*64-ccov.*/.*: 5
-                linux1804-64(-qr)?/opt: 4
                 linux2404-64/opt: 4
                 linux.*/debug: 5
                 .*-tsan(-qr)?/opt: 8
@@ -228,9 +222,6 @@ tasks:
             by-variant:
                 no-fission:
                     by-test-platform:
-                        linux1804-64(-qr)?/.*: ['mozilla-central']
-                        linux1804-64-shippable(-qr)?/opt: ['mozilla-central']
-                        linux1804-64-asan(-qr)?/opt: ['mozilla-central']
                         linux2404-64/.*: ['mozilla-central']
                         linux2404-64-shippable/opt: ['mozilla-central']
                         linux2404-64-asan/opt: ['mozilla-central']
@@ -255,11 +246,10 @@ tasks:
         description: "Reftest run"
         treeherder-symbol: R(R)
         virtualization: virtual-with-gpu
-        chunks:
+        chunks: dynamic
+        default-chunks:
             by-test-platform:
                 android-em.*: 6
-                linux1804-64(-shippable)?(-qr)?/opt: 5
-                linux1804-64-devedition(-qr)?/opt: 5
                 linux2404-64(-shippable)?/opt: 5
                 linux2404-64-devedition/opt: 5
                 linux.*64-tsan(-qr)?/opt: 16
@@ -269,6 +259,7 @@ tasks:
                 windows.*32.*/debug: 6
                 windows.*-ccov.*/opt: 9
                 windows10.*/opt: 2
+                windows11.*asan/opt: 4
                 windows11.*/opt: 3
                 default: 8
         variants:
@@ -286,24 +277,17 @@ tasks:
             by-variant:
                 draw-snapshot:
                     by-test-platform:
-                        linux1804.*/debug: built-projects
                         linux2404.*/debug: built-projects
                         default: []
                 webrender-sw+no-fission:
                     by-test-platform:
                         android-em.*/debug: built-projects
-                        linux1804-64(-qr)?/debug: ['mozilla-central']
-                        linux1804-64(-shippable)?(-qr)?/opt: ['mozilla-central']
-                        linux1804-64-asan(-qr)?/opt: ['mozilla-central']
                         linux2404-64/debug: ['mozilla-central']
                         linux2404-64(-shippable)?/opt: ['mozilla-central']
                         linux2404-64-asan/opt: ['mozilla-central']
                         default: []
                 webrender-sw:
                     by-test-platform:
-                        linux1804-64(-qr)?/.*: built-projects
-                        linux1804-64-asan(-qr)?/opt: built-projects
-                        linux1804-64-tsan(-qr)?/opt: built-projects
                         linux2404-64/.*: built-projects
                         linux2404-64-asan/opt: built-projects
                         linux2404-64-tsan/opt: built-projects
@@ -313,9 +297,6 @@ tasks:
                 no-fission:
                     by-test-platform:
                         android-em.*/debug-isolated-process: ['trunk']
-                        linux1804-64(-qr)?/debug: ['mozilla-central']
-                        linux1804-64(-shippable)?(-qr)?/opt: ['mozilla-central']
-                        linux1804-64-asan(-qr)?/opt: ['mozilla-central']
                         linux2404-64/debug: ['mozilla-central']
                         linux2404-64(-shippable)?/opt: ['mozilla-central']
                         linux2404-64-asan/opt: ['mozilla-central']

@@ -64,6 +64,8 @@ import "chrome://browser/content/profiles/profiles-theme-card.mjs";
 import "chrome://browser/content/profiles/profile-avatar-selector.mjs";
 // eslint-disable-next-line import/no-unassigned-import
 import "chrome://global/content/elements/moz-toggle.mjs";
+// eslint-disable-next-line import/no-unassigned-import
+import "chrome://global/content/elements/moz-support-link.mjs";
 
 const SAVE_NAME_TIMEOUT = 2000;
 const SAVED_MESSAGE_TIMEOUT = 5000;
@@ -78,6 +80,7 @@ export class EditProfileCard extends MozLitElement {
     profiles: { type: Array },
     themes: { type: Array },
     isCopy: { type: Boolean, reflect: true },
+    isRestored: { type: Boolean, reflect: true },
   };
 
   static queries = {
@@ -133,6 +136,8 @@ export class EditProfileCard extends MozLitElement {
     }
 
     this.isCopy = document.location.hash.includes("#copiedProfileName");
+    this.isRestored = document.location.hash.includes("#restoredProfile");
+
     let fakeParams = new URLSearchParams(
       document.location.hash.replace("#", "")
     );
@@ -161,7 +166,7 @@ export class EditProfileCard extends MozLitElement {
   }
 
   async setInitialInput() {
-    if (!this.isCopy) {
+    if (!this.isCopy && !this.isRestored) {
       return;
     }
 
@@ -361,6 +366,23 @@ export class EditProfileCard extends MozLitElement {
       </div>`;
     }
 
+    if (this.isRestored) {
+      return html`<div>
+        <h1
+          id="restored-profile-header"
+          data-l10n-id="restored-profile-page-header"
+        ></h1>
+        <p>
+          <span data-l10n-id="restored-profile-page-header-description"></span>
+          <a
+            is="moz-support-link"
+            support-page="profile-management"
+            data-l10n-id="restored-profile-page-learn-more"
+          ></a>
+        </p>
+      </div>`;
+    }
+
     return html`<h1
       id="profile-header"
       data-l10n-id="edit-profile-page-header"
@@ -419,6 +441,7 @@ export class EditProfileCard extends MozLitElement {
       id="themes"
       value=${this.profile.themeId}
       data-l10n-id="edit-profile-page-theme-header-2"
+      headingLevel="2"
       name="theme"
       @change=${this.handleThemeChange}
     >
@@ -452,6 +475,7 @@ export class EditProfileCard extends MozLitElement {
       ></label>
       <moz-toggle
         id="desktop-shortcut-toggle"
+        data-l10n-id="edit-profile-page-desktop-shortcut-toggle"
         ?pressed=${this.hasDesktopShortcut}
         @click=${this.handleDesktopShortcutToggle}
       ></moz-toggle>

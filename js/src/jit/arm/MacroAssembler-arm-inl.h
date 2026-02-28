@@ -327,6 +327,14 @@ void MacroAssembler::add32(Imm32 imm, const Address& dest) {
   ma_str(scratch, dest, scratch2);
 }
 
+void MacroAssembler::add32(const Address& src, Register dest) {
+  ScratchRegisterScope scratch(*this);
+  SecondScratchRegisterScope scratch2(*this);
+
+  ma_ldr(src, scratch, scratch2);
+  ma_add(scratch, dest, SetCC);
+}
+
 void MacroAssembler::addPtr(Register src, Register dest) { ma_add(src, dest); }
 
 void MacroAssembler::addPtr(Imm32 imm, Register dest) {
@@ -473,6 +481,12 @@ void MacroAssembler::mulHighUnsigned32(Imm32 imm, Register src, Register dest) {
 
 void MacroAssembler::mulPtr(Register rhs, Register srcDest) {
   as_mul(srcDest, srcDest, rhs);
+}
+
+void MacroAssembler::mulPtr(ImmWord rhs, Register srcDest) {
+  ScratchRegisterScope scratch(*this);
+  movePtr(rhs, scratch);
+  mulPtr(scratch, srcDest);
 }
 
 void MacroAssembler::mul64(Imm64 imm, const Register64& dest) {

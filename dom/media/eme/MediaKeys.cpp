@@ -189,9 +189,15 @@ void MediaKeys::Terminated() {
 }
 
 void MediaKeys::Shutdown() {
+  // Hold a self reference to keep us alive after we clear the self reference
+  // for each promise. This ensures we stay alive until we're done shutting
+  // down.
+  RefPtr<MediaKeys> selfReference = this;
+
   EME_LOG("MediaKeys[%p]::Shutdown()", this);
   if (mProxy) {
-    mProxy->Shutdown();
+    RefPtr<CDMProxy> proxy = mProxy;
+    proxy->Shutdown();
     mProxy = nullptr;
   }
 
@@ -200,11 +206,6 @@ void MediaKeys::Shutdown() {
   if (observerService && mObserverAdded) {
     observerService->RemoveObserver(this, kMediaKeysResponseTopic);
   }
-
-  // Hold a self reference to keep us alive after we clear the self reference
-  // for each promise. This ensures we stay alive until we're done shutting
-  // down.
-  RefPtr<MediaKeys> selfReference = this;
 
   for (const RefPtr<dom::DetailedPromise>& promise : mPromises.Values()) {
     promise->MaybeRejectWithInvalidStateError(
@@ -327,6 +328,7 @@ void MediaKeys::RejectPromise(PromiseId aId, ErrorResult&& aException,
             this, aId, errorCodeAsInt);
     return;
   }
+  RefPtr<MediaKeys> keys(this);
 
   // This promise could be a createSession or loadSession promise,
   // so we might have a pending session waiting to be resolved into
@@ -381,6 +383,7 @@ void MediaKeys::ResolvePromise(PromiseId aId) {
   if (!promise) {
     return;
   }
+  RefPtr<MediaKeys> keys(this);
 
   uint32_t token = 0;
   if (!mPromiseIdToken.Get(aId, &token)) {

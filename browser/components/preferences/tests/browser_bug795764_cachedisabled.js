@@ -25,8 +25,9 @@ function test() {
 }
 
 async function runTest(win) {
-  const ipProtectionExperiment = SpecialPowers.getStringPref(
-    "browser.ipProtection.variant"
+  const ipProtectionEnabled = SpecialPowers.getBoolPref(
+    "browser.ipProtection.enabled",
+    false
   );
   is(gBrowser.currentURI.spec, "about:preferences", "about:preferences loaded");
 
@@ -44,11 +45,14 @@ async function runTest(win) {
       continue;
     }
 
-    // IP Protection is only enabled by browser.ipProtection.variant = beta
-    if (
-      element.id === "dataIPProtectionGroup" &&
-      ipProtectionExperiment !== "beta"
-    ) {
+    // IP Protection section is gated by browser.ipProtection.enabled
+    if (element.id === "dataIPProtectionGroup" && !ipProtectionEnabled) {
+      is_element_hidden(element, "Disabled ipProtection should be hidden");
+      continue;
+    }
+
+    if (element.getAttribute("data-hidden-from-search") == "true") {
+      is_element_hidden(element, "Hidden from search element should be hidden");
       continue;
     }
 

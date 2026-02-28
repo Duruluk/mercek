@@ -5,7 +5,7 @@
  */
 
 import valueParser from "postcss-value-parser";
-import { tokensTable } from "../../../../toolkit/themes/shared/design-system/tokens-table.mjs";
+import { tokensTable } from "../../../../toolkit/themes/shared/design-system/dist/semantic-categories.mjs";
 import {
   DEPRECATED_SYSTEM_COLORS,
   NAMED_COLORS,
@@ -45,6 +45,11 @@ export const ALLOW_LIST = [
   "revert-layer",
   "unset",
 ];
+
+/**
+ * Regex capturing numeric values, em values, ch values, and percentage values
+ */
+export const FIXED_UNITS = /^\d*\.?\d*(em|ch|%)?$/;
 
 /**
  * Extends our base ALLOW_LIST with additional allowed values.
@@ -166,6 +171,9 @@ export const isFunction = node => node.type === "function";
 export const isVariableFunction = node =>
   isFunction(node) && node.value === "var";
 
+// checks if a node is a `calc()` function
+export const isCalcFunction = node => isFunction(node) && node.value === "calc";
+
 // checks if a node is a url() function
 export const isUrlFunction = node => isFunction(node) && node.value === "url";
 
@@ -226,6 +234,19 @@ export const containsColorFunction = value => {
 };
 
 /**
+ * Checks if a node contains a value using vw/vh units
+ * e.g., `100vh`.
+ *
+ * @param {string} value some CSS declaration to match
+ * @returns {boolean}
+ */
+export const containsViewportUnit = value => {
+  return valueParser(String(value)).nodes.some(
+    node => node.type === "word" && /^(0|[\d.]+)(vh|vw)$/.test(node.value)
+  );
+};
+
+/**
  * Returns only the properties in the declaration that are colors, or at least likely to be colors.
  * This allows for ignoring properties in shorthand that are not relevant to color rules.
  *
@@ -262,15 +283,20 @@ export const getColorProperties = value => {
 export const isToken = (value, tokenCSS) => tokenCSS.includes(value);
 
 /**
- * Checks if a CSS value is allowed.
+ * Checks if a CSS value is allowed, given exact strings or a
+ * regex pattern in an allowList.
  *
  * @param {string} value some CSS declaration to match
  * @param {string[]} allowList
  * @returns {boolean}
  */
 export const isAllowed = (value, allowList) => {
+  const allowListPattern = pattern => {
+    pattern instanceof RegExp ? pattern.test(value) : pattern === value;
+  };
+
   // If the value is in the allowList
-  if (allowList.includes(value)) {
+  if (allowList.some(allowListPattern)) {
     return true;
   }
 
@@ -281,7 +307,13 @@ export const isAllowed = (value, allowList) => {
 
   // If the value is in the allowList but the string is CSS shorthand, e.g. `border` properties
   return valueParser(value).nodes.some(
-    node => isWord(node) && allowList.includes(node.value)
+    node =>
+      isWord(node) &&
+      allowList.some(pattern =>
+        pattern instanceof RegExp
+          ? pattern.test(node.value)
+          : pattern === node.value
+      )
   );
 };
 
@@ -328,9 +360,15 @@ export const isValidFallback = (value, tokenCSS) => {
  * @param {string} value some CSS declaration to match
  * @param {object} cssCustomProperties
  * @param {string[]} tokenCSS
+ * @param {string[]} allowList
  * @returns {boolean}
  */
-export const isValidLocalProperty = (value, cssCustomProperties, tokenCSS) => {
+export const isValidLocalProperty = (
+  value,
+  cssCustomProperties,
+  tokenCSS,
+  allowList = ALLOW_LIST
+) => {
   const parsed = valueParser(String(value));
   let customProperty = null;
 
@@ -344,7 +382,12 @@ export const isValidLocalProperty = (value, cssCustomProperties, tokenCSS) => {
   });
 
   if (customProperty && cssCustomProperties[customProperty]) {
-    return isToken(cssCustomProperties[customProperty].trim(), tokenCSS);
+    return isValidTokenUsage(
+      cssCustomProperties[customProperty],
+      tokenCSS,
+      cssCustomProperties,
+      allowList
+    );
   }
   return false;
 };
@@ -384,7 +427,7 @@ export const isValidValue = (
 /**
  * Checks if CSS value uses tokens correctly (as a group).
  *
- * @param {string} value some CSS declaration to match
+ * @param {string | import('postcss').Node} value some CSS declaration to match
  * @param {string[]} tokenCSS
  * @param {object} cssCustomProperties
  * @param {string[]} allowList defaults to the base list in this file
@@ -396,7 +439,9 @@ export const isValidTokenUsage = (
   cssCustomProperties,
   allowList = ALLOW_LIST
 ) => {
-  const parsed = valueParser(value);
+  // TODO: this handles both string and postcss node values to support the old rule implementation
+  // once all design token rules are consolidated, we can remove this and use only postcss nodes
+  const parsed = typeof value === "string" ? valueParser(value) : value;
   let isValid = false;
 
   parsed.walk(node => {
@@ -412,7 +457,12 @@ export const isValidTokenUsage = (
           let variableNode = `var(${node.nodes[0].value})`;
           isValid =
             isToken(variableNode, tokenCSS) ||
-            isValidLocalProperty(variableNode, cssCustomProperties, tokenCSS);
+            isValidLocalProperty(
+              variableNode,
+              cssCustomProperties,
+              tokenCSS,
+              allowList
+            );
         }
         break;
       }
@@ -424,6 +474,63 @@ export const isValidTokenUsage = (
   });
 
   return isValid;
+};
+
+/**
+ * Checks if a calc() function contains valid token usage.
+ *
+ * @param {string} value - CSS declaration to match
+ * @param {string[]} tokenCSS
+ * @param {object} cssCustomProperties
+ * @param {string[]} allowList
+ * @returns {boolean}
+ */
+export const isValidTokenUsageInCalc = (
+  value,
+  tokenCSS,
+  cssCustomProperties,
+  allowList = ALLOW_LIST
+) => {
+  const parsed = valueParser(String(value));
+  let isEveryChildValid = true;
+
+  parsed.walk(node => {
+    if (!isEveryChildValid || !isCalcFunction(node)) {
+      return;
+    }
+
+    isEveryChildValid = node.nodes.every(child => {
+      if (
+        child.type === "space" ||
+        (child.type === "word" && /^[+\-*/]$/.test(child.value))
+      ) {
+        return true;
+      }
+
+      if (child.type === "word") {
+        if (
+          isAllowed(child.value, allowList) ||
+          /^\d*\.?\d*(vh|vw|em|%)?$/.test(child.value)
+        ) {
+          return true;
+        }
+      }
+
+      if (isVariableFunction(child)) {
+        const variableNode = `var(${child.nodes[0].value})`;
+        if (
+          isToken(variableNode, tokenCSS) ||
+          isValidLocalProperty(variableNode, cssCustomProperties, tokenCSS)
+        ) {
+          return true;
+        }
+      }
+
+      return false;
+    });
+  });
+
+  return isEveryChildValid;
 };
 
 /**

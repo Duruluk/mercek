@@ -3,8 +3,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import json
-
-from mozsystemmonitor.resourcemonitor import SystemResourceMonitor
+import os
 
 from ..reader import LogHandler
 
@@ -13,10 +12,20 @@ class ResourceHandler(LogHandler):
     """Handler class for recording a resource usage profile."""
 
     def __init__(self, command_context, **kwargs):
-        super(ResourceHandler, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
+        from mozbuild.util import construct_log_filename
+        from mozsystemmonitor.resourcemonitor import SystemResourceMonitor
+
+        # Get command name for log subdirectory
+        handler = getattr(command_context, "handler", None)
+        command_name = handler.name if handler else "test"
+        log_subdir = os.path.join("logs", command_name)
+
+        # Ensure log directory exists and create timestamped profile filename
+        command_context._ensure_state_subdir_exists(log_subdir)
         self.build_resources_profile_path = command_context._get_state_filename(
-            "profile_build_resources.json"
+            construct_log_filename("profile"), subdir=log_subdir
         )
         self.resources = SystemResourceMonitor(
             poll_interval=0.1,
@@ -36,31 +45,31 @@ class ResourceHandler(LogHandler):
 
     def suite_start(self, data):
         self.current_suite = data.get("name")
-        SystemResourceMonitor.begin_marker("suite", self.current_suite)
+        self.resources.begin_marker("suite", self.current_suite)
 
     def suite_end(self, data):
-        SystemResourceMonitor.end_marker("suite", self.current_suite)
+        self.resources.end_marker("suite", self.current_suite)
 
     def group_start(self, data):
-        SystemResourceMonitor.begin_marker("test", data["name"])
+        self.resources.begin_marker("test", data["name"])
 
     def group_end(self, data):
-        SystemResourceMonitor.end_marker("test", data["name"])
+        self.resources.end_marker("test", data["name"])
 
     def test_start(self, data):
-        SystemResourceMonitor.begin_test(data)
+        self.resources.begin_test(data)
 
     def test_end(self, data):
-        SystemResourceMonitor.end_test(data)
+        self.resources.end_test(data)
 
     def test_status(self, data):
-        SystemResourceMonitor.test_status(data)
+        self.resources.test_status(data)
 
     def log(self, data):
-        SystemResourceMonitor.test_status(data)
+        self.resources.test_status(data)
 
     def process_output(self, data):
-        SystemResourceMonitor.test_status(data)
+        self.resources.test_status(data)
 
     def crash(self, data):
-        SystemResourceMonitor.crash(data)
+        self.resources.crash(data)

@@ -80,7 +80,83 @@ The answer lies in a special type of feature definition that has been made avail
 
 This feature has two variables: `type (string)` and `payload (JSON)`. Notably, this feature also has `allowCoenrollment` set to `true`.
 
-What this means is that this feature may actually have an *array* of matching features for the client to implement. It is up to the New Tab code to check that array for feature `type`s that it cares about, and to interpret the `payload` appropriately. It also means that we only need to monitor this one `newtabTrainhop` feature for changes to determine if we need to recompute what features are enabled and with which settings.
+The `newtabTrainhop` feature supports two payload formats:
+
+**Single Payload Format:**
+A single feature configuration with a `type` and `payload`:
+```json
+{
+  "type": "stockWidget",
+  "payload": {
+    "enabled": true
+  }
+}
+```
+
+**Multi-Payload Format:**
+Multiple feature configurations bundled together using `type: "multi-payload"`:
+```json
+{
+  "type": "multi-payload",
+  "payload": [
+    {
+      "type": "stockWidget",
+      "payload": {
+        "enabled": true
+      }
+    },
+    {
+      "type": "otherWidget",
+      "payload": {
+        "enabled": false
+      }
+    }
+  ]
+}
+```
+
+What this means is that this feature may actually have an *array* of matching features for the client to implement. Additionally, the multi-payload format allows a single enrollment to specify multiple feature configurations. It is up to the New Tab code to process all enrollments and extract the feature `type`s that it cares about, interpreting each `payload` appropriately. This means we only need to monitor this one `newtabTrainhop` feature for changes to determine if we need to recompute what features are enabled and with which settings.
+
+In practice, this is done for you via the `PrefsFeed`, which converts the payload into something that can be consulted at runtime. For example, the single payload example could have its value checked with:
+
+```js
+ // This presumes we're executing in the context of a feed, although the
+ // `values` property can also be retrieved off of the Prefs property
+ // in content.
+
+ const prefs = this.store.getState().Prefs.values;
+ const {
+   enabled = false,
+ } = prefs?.trainhopConfig?.stockWidget ?? {};
+
+ if (enabled) {
+   // ...
+ }
+
+```
+
+and the multi-payload example could be similarly checked with:
+
+```js
+ const prefs = this.store.getState().Prefs.values;
+ const {
+   enabled = false, // Default value if undefined
+ } = prefs?.trainhopConfig?.stockWidget ?? {};
+
+ if (enabled) {
+   // ...
+ }
+
+ // ... Elsewhere
+
+ const {
+   enabled = false, // Default value if undefined
+ } = prefs?.trainhopConfig?.otherWidget ?? {};
+
+ if (clickOnly) {
+   // ...
+ }
+```
 
 This monitoring and parsing of `newtabTrainhop` has already landed in the New Tab source code as of [this bug](https://bugzilla.mozilla.org/show_bug.cgi?id=1982731).
 
@@ -183,13 +259,13 @@ These tests are currently `Tier 2`, so failures do not automatically result in a
 
 [This link](https://treeherder.mozilla.org/jobs?repo=mozilla-central&searchStr=trainhop) should show the most recent `trainhop` jobs occurring on `main`.
 
-The Treeherder "group name" for those jobs is `nt-trainhop`, and the symbol for the `mochitest-browser` tests are `Mbc-beta` and `Mbc-release` for the tests running on the most recent Beta and Release versions, respectively.
+The Treeherder "group name" for those jobs is `M-trainhop-rel` and `M-trainhop-beta`, and the symbol is `bc` for the tests running on the most recent Beta and Release versions, respectively.
 
 As these are `mochitest-browser` tests, they suffer some of the same issues with intermittency that plague all `mochitest-browser` tests. The jobs can be retriggered in the event that a given failure appears to be intermittent, but we should all continue to strive to write more resilient and less non-deterministic tests when possible. It is righteous and useful to attempt to fix intermittent test failures for these jobs.
 
 ## Debugging automated tests
 
-If it comes to pass that the automated train-hop compatibility tests report a permanent failure on Beta and/or Release via the `Mbc-beta` or `Mbc-release` jobs, train-hop compatibility should be considered broken for that channel, and an investigation should begin immediately to determine what needs to be done to restore train-hop compatibility. No train-hops should be performed on the channel for which train-hop compatibility is broken.
+If it comes to pass that the automated train-hop compatibility tests report a permanent failure on Beta and/or Release via the `M-trainhop-*(bc)` jobs, train-hop compatibility should be considered broken for that channel, and an investigation should begin immediately to determine what needs to be done to restore train-hop compatibility. No train-hops should be performed on the channel for which train-hop compatibility is broken.
 
 The first step is to examine the failure logs from automation to determine if anything immediately obvious jumps out as a “smoking gun”. Look for relevant error messages near the point where the test job failed. If a specific test failed, look for clues around when that test started and concluded. If no tests managed to run correctly, then the issue is likely to do with initializing the XPI (or in rare cases, [might be related to the test framework itself](https://bugzilla.mozilla.org/show_bug.cgi?id=1971180)).
 

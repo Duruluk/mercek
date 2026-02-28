@@ -20,6 +20,8 @@ ChromeUtils.defineESModuleGetters(lazy, {
   PERMISSION_L10N: "resource://gre/modules/ExtensionPermissionMessages.sys.mjs",
   SITEPERMS_ADDON_TYPE:
     "resource://gre/modules/addons/siteperms-addon-utils.sys.mjs",
+  getSitePermsInstallPromptStringIds:
+    "resource://gre/modules/addons/siteperms-addon-utils.sys.mjs",
 });
 ChromeUtils.defineLazyGetter(lazy, "l10n", function () {
   return new Localization(
@@ -97,7 +99,7 @@ const ERROR_L10N_IDS = new Map([
   ],
   [
     -14,
-    ["addon-install-error-soft-blocked", "addon-install-error-soft-blocked"],
+    ["addon-install-error-soft-blocked2", "addon-install-error-soft-blocked2"],
   ],
 ]);
 
@@ -441,13 +443,8 @@ customElements.define(
     #setAllowButtonEnabled(allowed) {
       let disabled = !allowed;
       // "mainactiondisabled" mirrors the "disabled" boolean attribute of the
-      // "Allow" button. toggleAttribute("mainactiondisabled", disabled) cannot
-      // be used due to bug 1938481.
-      if (disabled) {
-        this.setAttribute("mainactiondisabled", "true");
-      } else {
-        this.removeAttribute("mainactiondisabled");
-      }
+      // "Allow" button.
+      this.toggleAttribute("mainactiondisabled", disabled);
 
       // The "mainactiondisabled" attribute may also be toggled by the
       // PopupNotifications._setNotificationUIState() method, which can be
@@ -715,7 +712,7 @@ customElements.define(
       const { messagebar } = this;
       if (this.isSoftBlocked) {
         const SOFTBLOCK_FLUENTID =
-          "unified-extensions-item-messagebar-softblocked";
+          "unified-extensions-item-messagebar-softblocked2";
         if (
           messagebar.messageL10nId === SOFTBLOCK_FLUENTID &&
           messagebar.messageL10nArgs?.extensionName === this.extensionName
@@ -824,7 +821,6 @@ customElements.define(
   class MozAddonInstalledNotification extends customElements.get(
     "popupnotification"
   ) {
-    #shouldIgnoreCheckboxStateChangeEvent = false;
     #browserActionWidgetObserver;
     connectedCallback() {
       this.descriptionEl = this.querySelector("#addon-install-description");
@@ -833,13 +829,13 @@ customElements.define(
       );
 
       this.addEventListener("click", this);
-      this.pinExtensionEl.addEventListener("CheckboxStateChange", this);
+      this.pinExtensionEl.addEventListener("command", this);
       this.#browserActionWidgetObserver?.startObserving();
     }
 
     disconnectedCallback() {
       this.removeEventListener("click", this);
-      this.pinExtensionEl.removeEventListener("CheckboxStateChange", this);
+      this.pinExtensionEl.removeEventListener("command", this);
       this.#browserActionWidgetObserver?.stopObserving();
     }
 
@@ -867,10 +863,8 @@ customElements.define(
           }
           break;
         }
-        case "CheckboxStateChange":
-          // CheckboxStateChange fires whenever the checked value changes.
-          // Ignore the event if triggered by us instead of the user.
-          if (!this.#shouldIgnoreCheckboxStateChangeEvent) {
+        case "command":
+          if (target == this.pinExtensionEl) {
             this.#handlePinnedCheckboxStateChange();
           }
           break;
@@ -954,9 +948,7 @@ customElements.define(
         // We only support AREA_ADDONS and AREA_NAVBAR for now.
         return;
       }
-      this.#shouldIgnoreCheckboxStateChangeEvent = true;
       this.pinExtensionEl.checked = shouldPinToToolbar;
-      this.#shouldIgnoreCheckboxStateChangeEvent = false;
       this.pinExtensionEl.hidden = false;
     }
 
@@ -1263,6 +1255,7 @@ var gXPInstallObserver = {
     Services.console.logMessage(consoleMsg);
   },
 
+  // eslint-disable-next-line complexity
   async observe(aSubject, aTopic) {
     var installInfo = aSubject.wrappedJSObject;
     var browser = installInfo.browser;
@@ -1271,6 +1264,17 @@ var gXPInstallObserver = {
     if (!browser || !gBrowser.browsers.includes(browser)) {
       return;
     }
+
+    const cancelInstallation = () => {
+      for (let install of installInfo.installs) {
+        if (install.state != AddonManager.STATE_CANCELLED) {
+          install.cancel();
+        }
+      }
+      if (installInfo.cancel) {
+        installInfo.cancel();
+      }
+    };
 
     // Make notifications persistent
     var options = {
@@ -1374,12 +1378,22 @@ var gXPInstallObserver = {
         let hasHost = false;
         let headerId, msgId;
         if (isSitePermissionAddon) {
-          // At present, WebMIDI is the only consumer of the site permission
-          // add-on infrastructure, and so we can hard-code a midi string here.
-          // If and when we use it for other things, we'll need to plumb that
-          // information through. See bug 1826747.
-          headerId = "site-permission-install-first-prompt-midi-header";
-          msgId = "site-permission-install-first-prompt-midi-message";
+          const permissionType =
+            installInfo.installs[0].addon.sitePermissions?.[0];
+          const stringIds =
+            lazy.getSitePermsInstallPromptStringIds(permissionType);
+
+          if (stringIds?.header && stringIds?.message) {
+            headerId = stringIds.header;
+            msgId = stringIds.message;
+          } else {
+            console.error(
+              `Unexpected missing or incomplete fluentIds for site permission "${permissionType}", ` +
+                "siteperms-addon-utils.sys.mjs should be updated."
+            );
+            cancelInstallation();
+            return;
+          }
         } else if (options.displayURI) {
           // PopupNotifications.show replaces <> with options.name.
           headerId = { id: "xpinstall-prompt-header", args: { host: "<>" } };
@@ -1461,27 +1475,11 @@ var gXPInstallObserver = {
             "install",
             SitePermissions.BLOCK
           );
-          for (let install of installInfo.installs) {
-            if (install.state != AddonManager.STATE_CANCELLED) {
-              install.cancel();
-            }
-          }
-          if (installInfo.cancel) {
-            installInfo.cancel();
-          }
+          cancelInstallation();
         };
 
         const declineActions = [
-          buildNotificationAction(dontAllowMsg, () => {
-            for (let install of installInfo.installs) {
-              if (install.state != AddonManager.STATE_CANCELLED) {
-                install.cancel();
-              }
-            }
-            if (installInfo.cancel) {
-              installInfo.cancel();
-            }
-          }),
+          buildNotificationAction(dontAllowMsg, cancelInstallation),
           buildNotificationAction(neverAllowMsg, neverAllowCallback),
         ];
 
@@ -1910,10 +1908,11 @@ var BrowserAddonUI = {
 
   /**
    * Open about:addons page by given view id.
-   * @param {String} aView
+   *
+   * @param {string} aView
    *                 View id of page that will open.
    *                 e.g. "addons://discover/"
-   * @param {Object} options
+   * @param {object} options
    *        {
    *          selectTabByViewId: If true, if there is the tab opening page having
    *                             same view id, select the tab. Else if the current
@@ -2782,6 +2781,14 @@ var gUnifiedExtensions = {
     await this.togglePanel(event, reason);
   },
 
+  /**
+   * @returns {boolean} Whether we are showing the Extensions Panel, or another
+   * (browserAction) panel anchored to the extensions button.
+   */
+  isPanelOpen() {
+    return this._button?.open ?? false;
+  },
+
   updateContextMenu(menu, event) {
     // When the context menu is open, `onpopupshowing` is called when menu
     // items open sub-menus. We don't want to update the context menu in this
@@ -2830,7 +2837,7 @@ var gUnifiedExtensions = {
     if (forBrowserAction) {
       let area = CustomizableUI.getPlacementOfWidget(widgetId).area;
       let inToolbar = area != CustomizableUI.AREA_ADDONS;
-      pinButton.setAttribute("checked", inToolbar);
+      pinButton.toggleAttribute("checked", inToolbar);
 
       const placement = CustomizableUI.getPlacementOfWidget(widgetId);
       const notInPanel = placement?.area !== CustomizableUI.AREA_ADDONS;
@@ -2917,14 +2924,14 @@ var gUnifiedExtensions = {
   },
 
   async onPinToToolbarChange(menu, event) {
-    let shouldPinToToolbar = event.target.getAttribute("checked") == "true";
+    let shouldPinToToolbar = event.target.hasAttribute("checked");
     // Revert the checkbox back to its original state. This is because the
     // addon context menu handlers are asynchronous, and there seems to be
     // a race where the checkbox state won't get set in time to show the
     // right state. So we err on the side of caution, and presume that future
     // attempts to open this context menu on an extension button will show
     // the same checked state that we started in.
-    event.target.setAttribute("checked", !shouldPinToToolbar);
+    event.target.toggleAttribute("checked", !shouldPinToToolbar);
 
     let widgetId = this._getWidgetId(menu);
     if (!widgetId) {
@@ -3092,11 +3099,11 @@ var gUnifiedExtensions = {
       extensionName = addons[0].name;
       messageBarFluentId = hasHardBlocked
         ? "unified-extensions-mb-blocklist-error-single"
-        : "unified-extensions-mb-blocklist-warning-single";
+        : "unified-extensions-mb-blocklist-warning-single2";
     } else {
       messageBarFluentId = hasHardBlocked
         ? "unified-extensions-mb-blocklist-error-multiple"
-        : "unified-extensions-mb-blocklist-warning-multiple";
+        : "unified-extensions-mb-blocklist-warning-multiple2";
     }
 
     const messageBarBlocklist = this._makeMessageBar({

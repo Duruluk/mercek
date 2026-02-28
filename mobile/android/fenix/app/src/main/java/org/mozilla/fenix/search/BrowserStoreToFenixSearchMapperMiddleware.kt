@@ -5,9 +5,7 @@
 package org.mozilla.fenix.search
 
 import androidx.annotation.VisibleForTesting
-import androidx.lifecycle.Lifecycle.State.RESUMED
-import androidx.lifecycle.lifecycleScope
-import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -15,12 +13,10 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.lib.state.Middleware
-import mozilla.components.lib.state.MiddlewareContext
 import mozilla.components.lib.state.State
 import mozilla.components.lib.state.Store
 import mozilla.components.lib.state.ext.flow
-import org.mozilla.fenix.search.SearchFragmentAction.EnvironmentCleared
-import org.mozilla.fenix.search.SearchFragmentAction.EnvironmentRehydrated
+import org.mozilla.fenix.search.SearchFragmentAction.Init
 import org.mozilla.fenix.search.SearchFragmentAction.UpdateSearchState
 import org.mozilla.fenix.search.SearchFragmentStore.Environment
 import mozilla.components.lib.state.Action as MVIAction
@@ -29,37 +25,34 @@ import mozilla.components.lib.state.Action as MVIAction
  * [SearchFragmentStore] [Middleware] to synchronize search related details from [BrowserStore].
  *
  * @param browserStore The [BrowserStore] to sync from.
+ * @param scope [CoroutineScope] used for running long running operations in background.
  */
 class BrowserStoreToFenixSearchMapperMiddleware(
     private val browserStore: BrowserStore,
+    private val scope: CoroutineScope,
 ) : Middleware<SearchFragmentState, SearchFragmentAction> {
     @VisibleForTesting
     internal var environment: Environment? = null
     private var observeBrowserSearchStateJob: Job? = null
 
     override fun invoke(
-        context: MiddlewareContext<SearchFragmentState, SearchFragmentAction>,
+        store: Store<SearchFragmentState, SearchFragmentAction>,
         next: (SearchFragmentAction) -> Unit,
         action: SearchFragmentAction,
     ) {
         next(action)
 
-        if (action is EnvironmentRehydrated) {
-            environment = action.environment
-
-            observeBrowserSearchState(context)
-        } else if (action is EnvironmentCleared) {
-            observeBrowserSearchStateJob?.cancel()
-            environment = null
+        if (action is Init) {
+            observeBrowserSearchState(store)
         }
     }
 
-    private fun observeBrowserSearchState(context: MiddlewareContext<SearchFragmentState, SearchFragmentAction>) {
+    private fun observeBrowserSearchState(store: Store<SearchFragmentState, SearchFragmentAction>) {
         observeBrowserSearchStateJob = browserStore.observeWhileActive {
             map { it.search }
                 .distinctUntilChanged()
                 .collect { searchState ->
-                    context.dispatch(
+                    store.dispatch(
                         UpdateSearchState(searchState, true),
                     )
                 }
@@ -68,11 +61,5 @@ class BrowserStoreToFenixSearchMapperMiddleware(
 
     private inline fun <S : State, A : MVIAction> Store<S, A>.observeWhileActive(
         crossinline observe: suspend (Flow<S>.() -> Unit),
-    ): Job? = environment?.viewLifecycleOwner?.run {
-        lifecycleScope.launch {
-            repeatOnLifecycle(RESUMED) {
-                flow().observe()
-            }
-        }
-    }
+    ): Job = scope.launch { flow().observe() }
 }

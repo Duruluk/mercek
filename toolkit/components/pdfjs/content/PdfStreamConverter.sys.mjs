@@ -501,6 +501,11 @@ class ChromeActions {
     actor?.sendAsyncMessage("PDFJS:Parent:reportTelemetry", data);
   }
 
+  reportText(data) {
+    const actor = getActor(this.domWindow);
+    actor?.sendAsyncMessage("PDFJS:Parent:reportText", data);
+  }
+
   updateFindControlState(data) {
     if (!this.supportsIntegratedFind()) {
       return;
@@ -611,7 +616,8 @@ class ChromeActions {
   /**
    * Set the different editor states in order to be able to update the context
    * menu.
-   * @param {Object} details
+   *
+   * @param {object} details
    */
   updateEditorStates({ details }) {
     const doc = this.domWindow.document;
@@ -1207,6 +1213,9 @@ PdfStreamConverter.prototype = {
       );
       // The viewer does not need to handle HTTP Refresh header.
       aRequest.setResponseHeader("Refresh", "", false);
+      // There is no reason to load something via <link>: the only external
+      // resource is the pdf itself.
+      aRequest.setResponseHeader("Link", "", false);
     }
 
     lazy.PdfJsTelemetryContent.onViewerIsUsed();

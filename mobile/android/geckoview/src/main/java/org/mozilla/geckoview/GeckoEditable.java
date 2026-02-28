@@ -47,7 +47,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.mozilla.gecko.GeckoEditableChild;
 import org.mozilla.gecko.IGeckoEditableChild;
 import org.mozilla.gecko.IGeckoEditableParent;
-import org.mozilla.gecko.InputMethods;
 import org.mozilla.gecko.MozLog;
 import org.mozilla.gecko.util.GeckoBundle;
 import org.mozilla.gecko.util.ThreadUtils;
@@ -99,6 +98,7 @@ import org.mozilla.geckoview.SessionTextInput.EditableListener.IMEState;
 
   /* package */ boolean mInBatchMode; // Used by IC thread
   /* package */ boolean mNeedSync; // Used by IC thread
+  private boolean mHasCompositionOnBeginningBatchMode = false; // Used by IC thread
   // Gecko side needs an updated composition from Java;
   private boolean mNeedUpdateComposition; // Used by IC thread
   private boolean mSuppressKeyUp; // Used by IC thread
@@ -113,6 +113,7 @@ import org.mozilla.geckoview.SessionTextInput.EditableListener.IMEState;
   private String mIMEAutocapitalize = ""; // Used by IC thread.
   private boolean mIMEAutocorrect = false; // Used by IC thread.
   @IMEContextFlags private int mIMEFlags; // Used by IC thread.
+  private volatile boolean mIsNewICCreated = false; // Used by IC and UI
 
   private boolean mIgnoreSelectionChange; // Used by Gecko thread
   // Combined offsets from the previous batch of onTextChange calls; valid
@@ -539,6 +540,43 @@ import org.mozilla.geckoview.SessionTextInput.EditableListener.IMEState;
       mType = type;
     }
 
+    @Override
+    public String toString() {
+      final StringBuilder sb = new StringBuilder("Action(mType=");
+      sb.append(getConstantName(Action.class, "TYPE_", mType));
+      switch (mType) {
+        case TYPE_SET_SPAN:
+          sb.append(", mSpanObject=")
+              .append(mSpanObject)
+              .append(", mStart=")
+              .append(mStart)
+              .append(", mEnd=")
+              .append(mEnd)
+              .append(", mSpanFlags=")
+              .append(mSpanFlags);
+          break;
+        case TYPE_REMOVE_SPAN:
+          sb.append(", mSpanObject=")
+              .append(mSpanObject)
+              .append(", mSpanFlags=")
+              .append(mSpanFlags);
+          break;
+        case TYPE_REPLACE_TEXT:
+          sb.append(", mStart=")
+              .append(mStart)
+              .append(", mEnd=")
+              .append(mEnd)
+              .append(", mSequence=\"")
+              .append(mSequence)
+              .append("\"");
+          break;
+        default:
+          break;
+      }
+      sb.append(")");
+      return sb.toString();
+    }
+
     static Action newReplaceText(final CharSequence text, final int start, final int end) {
       if (start < 0 || start > end) {
         Log.e(LOGTAG, "invalid replace text offsets: " + start + " to " + end);
@@ -583,8 +621,8 @@ import org.mozilla.geckoview.SessionTextInput.EditableListener.IMEState;
       assertOnIcThread();
     }
     if (LOGGING) {
-      final StringBuilder sb = new StringBuilder("offer: Action(");
-      sb.append(getConstantName(Action.class, "TYPE_", action.mType)).append(")");
+      final StringBuilder sb = new StringBuilder("offer: action=");
+      sb.append(action.toString());
       MozLog.d(MOZLOGTAG, sb.toString());
     }
 
@@ -639,9 +677,10 @@ import org.mozilla.geckoview.SessionTextInput.EditableListener.IMEState;
 
       case Action.TYPE_SET_SPAN:
         {
+          final boolean isAddingComposition = (action.mSpanFlags & Spanned.SPAN_COMPOSING) != 0;
           final boolean needUpdate =
               (action.mSpanFlags & Spanned.SPAN_INTERMEDIATE) == 0
-                  && ((action.mSpanFlags & Spanned.SPAN_COMPOSING) != 0
+                  && (isAddingComposition
                       || action.mSpanObject == Selection.SELECTION_START
                       || action.mSpanObject == Selection.SELECTION_END);
 
@@ -649,9 +688,18 @@ import org.mozilla.geckoview.SessionTextInput.EditableListener.IMEState;
 
           mNeedUpdateComposition |= needUpdate;
           if (needUpdate) {
-            icMaybeSendComposition(
-                mText.getShadowText(),
-                SEND_COMPOSITION_NOTIFY_GECKO | SEND_COMPOSITION_KEEP_CURRENT);
+            if (mInBatchMode && isAddingComposition) {
+              // In batch mode, we defer composition updates until the end of the batch.
+              if (LOGGING) {
+                MozLog.d(
+                    MOZLOGTAG,
+                    "Defer composition update due to batch mode: action=" + action.toString());
+              }
+            } else {
+              icMaybeSendComposition(
+                  mText.getShadowText(),
+                  SEND_COMPOSITION_NOTIFY_GECKO | SEND_COMPOSITION_KEEP_CURRENT);
+            }
           }
 
           mFocusedChild.onImeSynchronize();
@@ -659,15 +707,24 @@ import org.mozilla.geckoview.SessionTextInput.EditableListener.IMEState;
         }
       case Action.TYPE_REMOVE_SPAN:
         {
+          final boolean isRemovingComposition = (action.mSpanFlags & Spanned.SPAN_COMPOSING) != 0;
           final boolean needUpdate =
-              (action.mSpanFlags & Spanned.SPAN_INTERMEDIATE) == 0
-                  && (action.mSpanFlags & Spanned.SPAN_COMPOSING) != 0;
+              (action.mSpanFlags & Spanned.SPAN_INTERMEDIATE) == 0 && isRemovingComposition;
 
           mNeedUpdateComposition |= needUpdate;
           if (needUpdate) {
-            icMaybeSendComposition(
-                mText.getShadowText(),
-                SEND_COMPOSITION_NOTIFY_GECKO | SEND_COMPOSITION_KEEP_CURRENT);
+            if (mInBatchMode && isRemovingComposition) {
+              // In batch mode, we defer composition updates until the end of the batch.
+              if (LOGGING) {
+                MozLog.d(
+                    MOZLOGTAG,
+                    "Defer composition update due to batch mode: action=" + action.toString());
+              }
+            } else {
+              icMaybeSendComposition(
+                  mText.getShadowText(),
+                  SEND_COMPOSITION_NOTIFY_GECKO | SEND_COMPOSITION_KEEP_CURRENT);
+            }
           }
 
           mFocusedChild.onImeSynchronize();
@@ -932,17 +989,7 @@ import org.mozilla.geckoview.SessionTextInput.EditableListener.IMEState;
 
     if (notifyGecko) {
       // Set the selection by using a composition without ranges.
-      final Spanned currentText = mText.getCurrentText();
-      if (Selection.getSelectionStart(currentText) != selStart
-          || Selection.getSelectionEnd(currentText) != selEnd) {
-        // Gecko's selection is different of requested selection, so
-        // we have to set selection of Gecko side.
-        // If selection is same, it is unnecessary to update it.
-        // This may be race with Gecko's updating selection via
-        // JavaScript or keyboard event. But we don't know whether
-        // Gecko is during updating selection.
-        mFocusedChild.onImeUpdateComposition(selStart, selEnd, updateFlags);
-      }
+      mFocusedChild.onImeUpdateComposition(selStart, selEnd, updateFlags);
     }
 
     if (DEBUG) {
@@ -1034,12 +1081,18 @@ import org.mozilla.geckoview.SessionTextInput.EditableListener.IMEState;
         for (final CharacterStyle span : styleSpans) {
           span.updateDrawState(tp);
         }
-        int tpUnderlineColor = 0;
-        float tpUnderlineThickness = 0.0f;
 
-        // These TextPaint fields only exist on Android ICS+ and are not in the SDK.
-        tpUnderlineColor = (Integer) getField(tp, "underlineColor", 0);
-        tpUnderlineThickness = (Float) getField(tp, "underlineThickness", 0.0f);
+        final int tpUnderlineColor;
+        final float tpUnderlineThickness;
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+          tpUnderlineColor = tp.underlineColor;
+          tpUnderlineThickness = tp.underlineThickness;
+        } else {
+          // These TextPaint fields only exist on Android ICS+ and are not in the SDK.
+          tpUnderlineColor = (Integer) getField(tp, "underlineColor", 0);
+          tpUnderlineThickness = (Float) getField(tp, "underlineThickness", 0.0f);
+        }
         if (tpUnderlineColor != 0) {
           rangeStyles |= IME_RANGE_UNDERLINE | IME_RANGE_LINECOLOR;
           rangeLineColor = tpUnderlineColor;
@@ -1315,6 +1368,31 @@ import org.mozilla.geckoview.SessionTextInput.EditableListener.IMEState;
       return;
     }
 
+    if (mInBatchMode != inBatchMode) {
+      mInBatchMode = inBatchMode;
+
+      final boolean hasComposition = isComposing(mText.getShadowText());
+
+      if (inBatchMode) {
+        mHasCompositionOnBeginningBatchMode = hasComposition;
+      } else {
+        // Exiting batch mode. If composing state is changed, or we have a composition, send it to
+        // Gecko.
+        if (mNeedUpdateComposition && mFocusedChild != null) {
+          try {
+            if (mHasCompositionOnBeginningBatchMode || hasComposition) {
+              icMaybeSendComposition(
+                  mText.getShadowText(),
+                  SEND_COMPOSITION_NOTIFY_GECKO | SEND_COMPOSITION_KEEP_CURRENT);
+            }
+            mFocusedChild.onImeSynchronize();
+          } catch (final RemoteException e) {
+            Log.e(LOGTAG, "Remote call failed", e);
+          }
+        }
+      }
+    }
+
     mInBatchMode = inBatchMode;
 
     if (!inBatchMode && mFocusedChild != null) {
@@ -1460,8 +1538,8 @@ import org.mozilla.geckoview.SessionTextInput.EditableListener.IMEState;
       return;
     }
     if (LOGGING) {
-      final StringBuilder sb = new StringBuilder("reply: Action(");
-      sb.append(getConstantName(Action.class, "TYPE_", action.mType)).append(")");
+      final StringBuilder sb = new StringBuilder("reply: action=");
+      sb.append(action.toString());
       MozLog.d(MOZLOGTAG, sb.toString());
     }
     switch (action.mType) {
@@ -1839,9 +1917,20 @@ import org.mozilla.geckoview.SessionTextInput.EditableListener.IMEState;
         new Runnable() {
           @Override
           public void run() {
-            if (DEBUG) {
-              Log.d(LOGTAG, "restartInput(" + reason + ", " + toggleSoftInput + ')');
+            if (LOGGING) {
+              final StringBuilder sb = new StringBuilder("restartInput(reason=");
+              sb.append(
+                      getConstantName(
+                          GeckoSession.TextInputDelegate.class, "RESTART_REASON_", reason))
+                  .append(", toggleSoftInput=")
+                  .append(toggleSoftInput)
+                  .append(")");
+              MozLog.d(MOZLOGTAG, sb.toString());
             }
+
+            // Avoid multiple toggleSoftInput call. If this becomes true, onCreateInputConnection is
+            // called.
+            mIsNewICCreated = false;
 
             final GeckoSession session = mSession.get();
             if (session != null) {
@@ -1862,7 +1951,22 @@ import org.mozilla.geckoview.SessionTextInput.EditableListener.IMEState;
                       // mIMEState is not up-to-date here and we need to override it.
                       state = SessionTextInput.EditableListener.IME_STATE_DISABLED;
                     }
-                    toggleSoftInput(/* force */ false, state);
+                    if (state != SessionTextInput.EditableListener.IME_STATE_DISABLED
+                        && mIsNewICCreated) {
+                      // If state isn't disabled, and new InputConnection is created during
+                      // icRestartInput, we don't call toggleSoftInput twice.
+                      return;
+                    }
+
+                    // Unnecessary to track onCreateInputConnection.
+                    mIsNewICCreated = true;
+
+                    // GeckoSession and mFocusedChild would be null due to navigating away or blur.
+                    // So we should set force flag to dismiss software keyboard.
+                    final boolean force =
+                        reason == GeckoSession.TextInputDelegate.RESTART_REASON_BLUR
+                            && state == SessionTextInput.EditableListener.IME_STATE_DISABLED;
+                    toggleSoftInput(force, state);
                   }
                 });
           }
@@ -1877,6 +1981,9 @@ import org.mozilla.geckoview.SessionTextInput.EditableListener.IMEState;
     final String autocapitalize = mIMEAutocapitalize;
     boolean autocorrect = mIMEAutocorrect;
     final int flags = mIMEFlags;
+
+    // New InputConnection is created.
+    mIsNewICCreated = true;
 
     // Some keyboards require us to fill out outAttrs even if we return null.
     outAttrs.imeOptions = EditorInfo.IME_ACTION_NONE;
@@ -1984,7 +2091,7 @@ import org.mozilla.geckoview.SessionTextInput.EditableListener.IMEState;
     }
 
     if ((flags & SessionTextInput.EditableListener.IME_FLAG_PRIVATE_BROWSING) != 0) {
-      outAttrs.imeOptions |= InputMethods.IME_FLAG_NO_PERSONALIZED_LEARNING;
+      outAttrs.imeOptions |= EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING;
     }
 
     if (typeHint.length() == 0) {

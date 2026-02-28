@@ -7,7 +7,7 @@ use wgt::error::{ErrorType, WebGpuError};
 use super::bind::BinderError;
 use crate::command::pass;
 use crate::{
-    binding_model::{BindingError, LateMinBufferBindingSizeMismatch, PushConstantUploadError},
+    binding_model::{BindingError, ImmediateUploadError, LateMinBufferBindingSizeMismatch},
     resource::{
         DestroyedResourceError, MissingBufferUsageError, MissingTextureUsageError,
         ResourceErrorIdent,
@@ -46,17 +46,14 @@ pub enum DrawError {
     },
     #[error("Index {last_index} extends beyond limit {index_limit}. Did you bind the correct index buffer?")]
     IndexBeyondLimit { last_index: u64, index_limit: u64 },
-    #[error(
-        "Index buffer format {buffer_format:?} doesn't match {pipeline}'s index format {pipeline_format:?}"
-    )]
-    UnmatchedIndexFormats {
+    #[error("For indexed drawing with strip topology, {pipeline}'s strip index format {strip_index_format:?} must match index buffer format {buffer_format:?}")]
+    UnmatchedStripIndexFormat {
         pipeline: ResourceErrorIdent,
-        pipeline_format: wgt::IndexFormat,
+        strip_index_format: Option<wgt::IndexFormat>,
         buffer_format: wgt::IndexFormat,
     },
     #[error(transparent)]
     BindingSizeTooSmall(#[from] LateMinBufferBindingSizeMismatch),
-
     #[error(
         "Wrong pipeline type for this draw command. Attempted to call {} draw command on {} pipeline",
         if *wanted_mesh_pipeline {"mesh shader"} else {"standard"},
@@ -70,6 +67,13 @@ pub enum DrawError {
         current: [u32; 3],
         limit: u32,
         max_total: u32,
+    },
+    #[error(
+        "Mesh shader calls in multiview render passes require enabling the `EXPERIMENTAL_MESH_SHADER_MULTIVIEW` feature, and the highest bit ({highest_view_index}) in the multiview mask must be <= `Limits::max_multiview_view_count` ({max_multiviews})"
+    )]
+    MeshPipelineMultiviewLimitsViolated {
+        highest_view_index: u32,
+        max_multiviews: u32,
     },
 }
 
@@ -109,7 +113,7 @@ pub enum RenderCommandError {
     #[error(transparent)]
     MissingTextureUsage(#[from] MissingTextureUsageError),
     #[error(transparent)]
-    PushConstants(#[from] PushConstantUploadError),
+    ImmediateData(#[from] ImmediateUploadError),
     #[error(transparent)]
     BindingError(#[from] BindingError),
     #[error("Viewport size {{ w: {w}, h: {h} }} greater than device's requested `max_texture_dimension_2d` limit {max}, or less than zero")]
@@ -132,7 +136,7 @@ impl WebGpuError for RenderCommandError {
             Self::DestroyedResource(e) => e,
             Self::MissingBufferUsage(e) => e,
             Self::MissingTextureUsage(e) => e,
-            Self::PushConstants(e) => e,
+            Self::ImmediateData(e) => e,
             Self::BindingError(e) => e,
 
             Self::BindGroupIndexOutOfRange { .. }

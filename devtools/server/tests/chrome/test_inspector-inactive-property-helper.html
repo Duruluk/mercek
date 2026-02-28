@@ -14,14 +14,11 @@ SimpleTest.waitForExplicitFinish();
   const { getInactiveCssDataForProperty } = require("devtools/server/actors/utils/inactive-property-helper");
   const { DocumentWalker } = require("devtools/server/actors/inspector/document-walker");
 
-  const CUSTOM_HIGHLIGHT_API = "dom.customHighlightAPI.enabled";
   const TEXT_FRAGMENTS = "dom.text_fragments.enabled";
 
-  Services.prefs.setBoolPref(CUSTOM_HIGHLIGHT_API, true);
   Services.prefs.setBoolPref(TEXT_FRAGMENTS, true);
 
   SimpleTest.registerCleanupFunction(() => {
-    Services.prefs.clearUserPref(CUSTOM_HIGHLIGHT_API);
     Services.prefs.clearUserPref(TEXT_FRAGMENTS);
   });
 
@@ -46,6 +43,7 @@ SimpleTest.waitForExplicitFinish();
   // - {Boolean} isActive: should the property be active (e.g. getInactiveCssDataForProperty returns null).
   const testFiles = [
     "align-content.mjs",
+    "at-position-try-rules.mjs",
     "anchor-name.mjs",
     "block-container-properties.mjs",
     "block-flex-grid-container-properties.mjs",
@@ -69,9 +67,11 @@ SimpleTest.waitForExplicitFinish();
     "place-items-content.mjs",
     "placeholder-pseudo-element.mjs",
     "positioned.mjs",
+    "position-area.mjs",
     "replaced-element-properties.mjs",
     "resize.mjs",
     "scroll-padding.mjs",
+    "self-position-properties.mjs",
     "vertical-align.mjs",
     "table.mjs",
     "table-cell.mjs",

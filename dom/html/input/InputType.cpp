@@ -285,7 +285,7 @@ nsresult InputType::GetBadInputMessage(nsAString& aMessage) {
   return NS_ERROR_UNEXPECTED;
 }
 
-auto InputType::ConvertStringToNumber(const nsAString& aValue) const
+auto InputType::ConvertStringToNumber(const nsAString& aValue, Localized) const
     -> StringToNumberResult {
   NS_WARNING("InputType::ConvertStringToNumber called");
   return {};

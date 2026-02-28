@@ -2,8 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef CacheEntry__h__
-#define CacheEntry__h__
+#ifndef CacheEntry_h_
+#define CacheEntry_h_
 
 #include "mozilla/LinkedList.h"
 #include "nsICacheEntry.h"
@@ -90,6 +90,7 @@ class CacheEntry final : public nsIRunnable,
   nsresult AsyncDoom(nsICacheEntryDoomCallback* aCallback);
   nsresult GetMetaDataElement(const char* key, char** aRetval);
   nsresult SetMetaDataElement(const char* key, const char* value);
+  nsresult GetIsEmpty(bool* aEmpty);
   nsresult VisitMetaData(nsICacheEntryMetaDataVisitor* visitor);
   nsresult MetaDataReady(void);
   nsresult SetValid(void);
@@ -186,7 +187,8 @@ class CacheEntry final : public nsIRunnable,
   class Callback {
    public:
     Callback(CacheEntry* aEntry, nsICacheEntryOpenCallback* aCallback,
-             bool aReadOnly, bool aCheckOnAnyThread, bool aSecret);
+             bool aReadOnly, bool aReadAlways, bool aCheckOnAnyThread,
+             bool aSecret);
     // Special constructor for Callback objects added to the chain
     // just to ensure proper defer dooming (recreation) of this entry.
     Callback(CacheEntry* aEntry, bool aDoomWhenFoundInPinStatus);
@@ -209,6 +211,7 @@ class CacheEntry final : public nsIRunnable,
     nsCOMPtr<nsICacheEntryOpenCallback> mCallback;
     nsCOMPtr<nsIEventTarget> mTarget;
     bool mReadOnly : 1;
+    bool mReadAlways : 1;  // used for dictionary reads
     bool mRevalidating : 1;
     bool mCheckOnAnyThread : 1;
     bool mRecheckAfterWrite : 1;
@@ -524,6 +527,9 @@ class CacheEntryHandle final : public nsICacheEntry {
   }
   NS_IMETHOD SetMetaDataElement(const char* key, const char* value) override {
     return mEntry->SetMetaDataElement(key, value);
+  }
+  NS_IMETHOD GetIsEmpty(bool* empty) override {
+    return mEntry->GetIsEmpty(empty);
   }
   NS_IMETHOD VisitMetaData(nsICacheEntryMetaDataVisitor* visitor) override {
     return mEntry->VisitMetaData(visitor);

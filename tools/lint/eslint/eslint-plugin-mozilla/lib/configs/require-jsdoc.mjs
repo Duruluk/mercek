@@ -2,9 +2,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+import jsdoc from "eslint-plugin-jsdoc";
+
 export default {
   name: "mozilla/require-jsdoc",
-  plugins: ["jsdoc"],
+  plugins: { jsdoc },
 
   rules: {
     "jsdoc/require-jsdoc": [
@@ -16,6 +18,7 @@ export default {
         },
       },
     ],
+    "jsdoc/require-next-type": "error",
     "jsdoc/require-param": "error",
     "jsdoc/require-param-name": "error",
     "jsdoc/require-param-type": "error",
@@ -24,7 +27,9 @@ export default {
     "jsdoc/require-property-name": "error",
     "jsdoc/require-property-type": "error",
     "jsdoc/require-returns-check": "error",
+    // "jsdoc/require-throws-type": "error",
     "jsdoc/require-yields": "error",
     "jsdoc/require-yields-check": "error",
+    "jsdoc/require-yields-type": "error",
   },
 };

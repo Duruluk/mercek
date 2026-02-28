@@ -136,6 +136,7 @@ void MacroAssembler::sub64(Register64 src, Register64 dest) { MOZ_CRASH(); }
 void MacroAssembler::sub64(Imm64 imm, Register64 dest) { MOZ_CRASH(); }
 
 void MacroAssembler::mulPtr(Register rhs, Register srcDest) { MOZ_CRASH(); }
+void MacroAssembler::mulPtr(ImmWord rhs, Register srcDest) { MOZ_CRASH(); }
 
 void MacroAssembler::mul64(Imm64 imm, const Register64& dest) { MOZ_CRASH(); }
 
@@ -287,6 +288,8 @@ void MacroAssembler::add32(Imm32 imm, Register src, Register dest) {
 }
 
 void MacroAssembler::add32(Imm32 imm, const Address& dest) { MOZ_CRASH(); }
+
+void MacroAssembler::add32(const Address& src, Register dest) { MOZ_CRASH(); }
 
 void MacroAssembler::addFloat32(FloatRegister src, FloatRegister dest) {
   MOZ_CRASH();

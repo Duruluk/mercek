@@ -49,7 +49,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_gravity="bottom"
-                android:background="?attr/layer1"
+                android:background="?attr/colorSurface"
                 android:elevation="24dp"
                 android:visibility="gone" />
 
@@ -79,6 +79,13 @@
                 android:id="@+id/suggestStrongPasswordBarStub"
                 android:inflatedId="@+id/suggestStrongPasswordBar"
                 android:layout="@layout/suggest_strong_password_bar"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <ViewStub
+                android:id="@+id/emailMaskBarStub"
+                android:inflatedId="@+id/emailMaskBar"
+                android:layout="@layout/email_mask_bar"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
 

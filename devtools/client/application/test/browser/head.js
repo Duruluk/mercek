@@ -11,6 +11,11 @@ Services.scriptloader.loadSubScript(
   this
 );
 
+// Cleanup preferences that may be set by tests when interacting with the UI
+registerCleanupFunction(function () {
+  Services.prefs.clearUserPref("devtools.application.selectedSidebar");
+});
+
 /**
  * Set all preferences needed to enable service worker debugging and testing.
  */
@@ -126,6 +131,7 @@ async function waitForWorkerRegistration(swTab) {
 function selectPage(panel, page) {
   /**
    * Select a page by simulating a user click in the sidebar.
+   *
    * @param {string} page The page we want to select (see `PAGE_TYPES`)
    */
   info(`Selecting application page: ${page}`);

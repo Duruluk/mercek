@@ -2,6 +2,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, # You can obtain one at http://mozilla.org/MPL/2.0/.
 
+import copy
 import errno
 import hashlib
 import json
@@ -16,6 +17,7 @@ from pathlib import Path
 
 import mozpack.path as mozpath
 import toml
+import tomlkit
 from looseversion import LooseVersion
 from mozboot.util import MINIMUM_RUST_VERSION
 
@@ -95,8 +97,7 @@ PACKAGES_WE_DONT_WANT = {
     #    "unicode-ident": "Use icu_properties instead",
     "unicode-joining-type": "Use icu_properties instead",
     "unicode-linebreak": "Use icu_segmenter instead",
-    # Exception until bug 1986265 is fixed.
-    #    "unicode-normalization": "Use icu_normalizer instead",
+    "unicode-normalization": "Use icu_normalizer instead",
     "unicode-properties": "Use icu_properties instead",
     "unicode-script": "Use icu_properties instead",
     "unicode-segmentation": "Use icu_segmenter instead",
@@ -128,7 +129,6 @@ ALLOWED_DESPITE_PREFIX = {
     "unicode-bidi",  # Out of scope for ICU4X; used with ICU4X data
     "unicode-bidi-ffi",  # FFI for previous
     "unicode-ident",  # Impractical to require icu_properties at this time
-    "unicode-normalization",  # Exception until bug 1986265 is fixed.
     "unicode-width",  # icu_properties has the raw data but not the algorithm
     "unic-langid",  # We want to migrate to icu_locale eventually
     "unic-langid-ffi",  # FFI for previous
@@ -163,20 +163,18 @@ class VendorRust(MozbuildObject):
         self._issues = []
 
     def serialize_issues_json(self):
-        return json.dumps(
-            {
-                "Cargo.lock": [
-                    {
-                        "path": "Cargo.lock",
-                        "column": None,
-                        "line": None,
-                        "level": "error" if level == logging.ERROR else "warning",
-                        "message": msg,
-                    }
-                    for (level, msg) in self._issues
-                ]
-            }
-        )
+        return json.dumps({
+            "Cargo.lock": [
+                {
+                    "path": "Cargo.lock",
+                    "column": None,
+                    "line": None,
+                    "level": "error" if level == logging.ERROR else "warning",
+                    "message": msg,
+                }
+                for (level, msg) in self._issues
+            ]
+        })
 
     def generate_diff_stream(self):
         return self.repository.diff_stream()
@@ -228,12 +226,12 @@ class VendorRust(MozbuildObject):
             version = self.cargo_version(cargo)
         except RuntimeError:
             return False
-        # Cargo 1.85.0 changed vendoring in a way that creates a lot of noise
+        # Cargo 1.90.0 changed vendoring in a way that creates a lot of noise
         # if we go back and forth between vendoring with an older version and
         # a newer version. Only allow the newer versions.
         minimum_rust_version = MINIMUM_RUST_VERSION
-        if LooseVersion("1.85.0") >= MINIMUM_RUST_VERSION:
-            minimum_rust_version = "1.85.0"
+        if LooseVersion("1.90.0") >= MINIMUM_RUST_VERSION:
+            minimum_rust_version = "1.90.0"
         if version < minimum_rust_version:
             self.log(
                 logging.ERROR,
@@ -268,9 +266,7 @@ class VendorRust(MozbuildObject):
 {files}
 
 Please commit or stash these changes before vendoring, or re-run with `--ignore-modified`.
-""".format(
-                    files="\n".join(sorted(modified))
-                ),
+""".format(files="\n".join(sorted(modified))),
             )
         return modified
 
@@ -300,6 +296,7 @@ Please commit or stash these changes before vendoring, or re-run with `--ignore-
     # Licenses for code used at runtime. Please see the above comment before
     # adding anything to this list.
     RUNTIME_LICENSE_WHITELIST = [
+        "0BSD",
         "Apache-2.0",
         "Apache-2.0 WITH LLVM-exception",
         # BSD-2-Clause and BSD-3-Clause are ok, but packages using them
@@ -339,6 +336,10 @@ Please commit or stash these changes before vendoring, or re-run with `--ignore-
             "qlog",
         ],
         "BSD-3-Clause": [
+            "jxl",
+            "jxl_macros",
+            "jxl_simd",
+            "jxl_transforms",
             "subtle",
             "uritemplate-next",
         ],
@@ -706,13 +707,11 @@ license file's hash.
 
             for name, packages in grouped.items():
                 # Allow to have crates of the same name when one depends on the other.
-                num = len(
-                    [
-                        p
-                        for p in packages
-                        if all(d.split()[0] != name for d in p.get("dependencies", []))
-                    ]
-                )
+                num = len([
+                    p
+                    for p in packages
+                    if all(d.split()[0] != name for d in p.get("dependencies", []))
+                ])
                 if num > 1:
                     self.log(
                         logging.ERROR,
@@ -728,12 +727,10 @@ license file's hash.
 
         # Only emit warnings for cargo-vet for now.
         env = os.environ.copy()
-        env["PATH"] = os.pathsep.join(
-            (
-                str(Path(cargo).parent),
-                os.environ["PATH"],
-            )
-        )
+        env["PATH"] = os.pathsep.join((
+            str(Path(cargo).parent),
+            os.environ["PATH"],
+        ))
         flags = ["--output-format=json"]
         if "MOZ_AUTOMATION" in os.environ:
             flags.append("--locked")
@@ -879,80 +876,29 @@ license file's hash.
                 )
             )
 
-        # cargo 1.89 started adding things that older versions didn't add, but
-        # it's a tough sell to bump the vendoring requirement to 1.89 when we're
-        # still using 1.86 on CI.
-        if self.cargo_version(cargo) >= "1.89":
-            for package in cargo_lock["package"]:
-                # Crates vendored from crates.io are affected by changes, but not
-                # those vendored from git.
-                if not package.get("source", "").startswith("registry+"):
-                    continue
-                package_dir = Path(vendor_dir) / package["name"]
-                # Cargo.toml.orig was not included before but now is.
-                unlinked = ["Cargo.toml.orig"]
-                with (package_dir / "Cargo.toml").open(encoding="utf-8") as fh:
-                    toml_data = toml.load(fh)
-                    cargo_package = toml_data.get("package", {})
-                    # A readme explicitly listed in package.readme is now included
-                    # even when it's not in package.include.
-                    if readme := cargo_package.get("readme"):
-                        if includes := cargo_package.get("include"):
-                            if not any(
-                                mozpath.match(readme, include.removeprefix("/"))
-                                for include in includes
-                            ):
-                                try:
-                                    (package_dir / readme).unlink()
-                                    unlinked.append(readme)
-                                except FileNotFoundError:
-                                    pass
-
-                # dotfiles weren't included before, but now are.
-                for path in package_dir.glob("**/.*"):
-                    # The checksum file is handled separately because it needs to
-                    # be updated.
-                    if path.name == ".cargo-checksum.json":
-                        continue
-                    if path.is_dir():
-                        for root_path, dirs, files in os.walk(path, topdown=False):
-                            root = Path(root_path)
-                            for name in files:
-                                to_unlink = root / name
-                                try:
-                                    to_unlink.unlink()
-                                    unlinked.append(
-                                        mozpath.normsep(
-                                            str(to_unlink.relative_to(package_dir))
-                                        )
-                                    )
-                                except FileNotFoundError:
-                                    pass
-                            for name in dirs:
-                                try:
-                                    (root / name).rmdir()
-                                except OSError:
-                                    pass
-                    else:
-                        try:
-                            path.unlink()
-                            unlinked.append(
-                                mozpath.normsep(str(path.relative_to(package_dir)))
-                            )
-                        except FileNotFoundError:
-                            pass
-
-                # Update the checksums with the changes we made.
-                checksum_json = package_dir / ".cargo-checksum.json"
-                with checksum_json.open(encoding="utf-8") as fh:
-                    checksum_data = json.load(fh)
-                for path in unlinked:
-                    try:
-                        del checksum_data["files"][path]
-                    except KeyError:
-                        pass
-                with checksum_json.open(mode="w", encoding="utf-8") as fh:
-                    json.dump(checksum_data, fh, separators=(",", ":"))
+        def recursive_sort(obj):
+            if isinstance(obj, tomlkit.items.Table):
+                new_obj = obj.copy()
+                body = [(k, recursive_sort(v)) for k, v in new_obj.value.body]
+                # Only order the direct elements in the Table. Anything after
+                # the first whitespace (key is None) or AoT is not expected to
+                # be a direct element. This is a more or less assumption based
+                # on the original order cargo will have written out.
+                for n, (k, v) in enumerate(body):
+                    if k is None or v.is_aot():
+                        break
+                else:
+                    n = len(body)
+                body[:n] = sorted(body[:n], key=lambda x: str(x[0]))
+                new_obj.value.body[:] = body
+                return new_obj
+            if isinstance(obj, tomlkit.items.AoT):
+                # Somehow obj.copy() yields a list instead of a AoT
+                new_obj = copy.copy(obj)
+                body = [recursive_sort(v) for v in new_obj.body]
+                new_obj.body[:] = body
+                return new_obj
+            return obj
 
         if not self._check_licenses(vendor_dir) and not force:
             self.log(
@@ -967,6 +913,13 @@ license file's hash.
             return False
 
         self.repository.add_remove_files(vendor_dir)
+        # explicitly add the content of the Cargo.toml.orig files as they are
+        # covered by the hgignore pattern "*.orig".
+        vendor_path = Path(vendor_dir)
+        extra_files = list(vendor_path.glob("**/Cargo.toml.orig"))
+        extra_files += list(vendor_path.glob("**/.*"))
+        if extra_files:
+            self.repository.add_remove_files(*extra_files, force=True)
 
         # 100k is a reasonable upper bound on source file size.
         FILESIZE_LIMIT = 100 * 1024

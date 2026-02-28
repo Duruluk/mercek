@@ -655,14 +655,6 @@ RefPtr<CubebHandle> GetCubebUnlocked() {
     return sCubebHandle;
   }
 
-  if (!sBrandName && NS_IsMainThread()) {
-    InitBrandName();
-  } else {
-    NS_WARNING_ASSERTION(
-        sBrandName,
-        "Did not initialize sbrandName, and not on the main thread?");
-  }
-
   int rv = CUBEB_ERROR;
 #ifdef MOZ_CUBEB_REMOTING
   MOZ_LOG(gCubebLog, LogLevel::Info,
@@ -670,6 +662,9 @@ RefPtr<CubebHandle> GetCubebUnlocked() {
 
   if (sCubebSandbox) {
     if (XRE_IsParentProcess() && !sIPCConnection) {
+      if (!sBrandName && NS_IsMainThread()) {
+        InitBrandName();
+      }
       // TODO: Don't use audio IPC when within the same process.
       auto fd = CreateAudioIPCConnectionUnlocked();
       if (fd.IsValid()) {
@@ -695,12 +690,19 @@ RefPtr<CubebHandle> GetCubebUnlocked() {
     initParams.mThreadDestroyCallback = []() { PROFILER_UNREGISTER_THREAD(); };
 
     cubeb* temp = nullptr;
-    rv = audioipc2::audioipc2_client_init(&temp, sBrandName, &initParams);
+    rv = audioipc2::audioipc2_client_init(&temp, &initParams);
     if (temp) {
       sCubebHandle = new CubebHandle(temp);
     }
   } else {
 #endif  // MOZ_CUBEB_REMOTING
+    // When not using the audio IPC sandbox, cubeb_init below consumes
+    // sBrandName directly. InitLibrary dispatches InitBrandName
+    // asynchronously, so initialize it here if we are on the main thread and
+    // it hasn't been set yet.
+    if (!sBrandName && NS_IsMainThread()) {
+      InitBrandName();
+    }
 #ifdef XP_WIN
     mozilla::mscom::EnsureMTA([&]() -> void {
 #endif
@@ -900,7 +902,7 @@ bool SandboxEnabled() {
 }
 
 already_AddRefed<SharedThreadPool> GetCubebOperationThread() {
-  RefPtr<SharedThreadPool> pool = SharedThreadPool::Get("CubebOperation"_ns, 1);
+  RefPtr<SharedThreadPool> pool = SharedThreadPool::Get("CubebOperation", 1);
   const uint32_t kIdleThreadTimeoutMs = 2000;
   pool->SetIdleThreadMaximumTimeout(
       PR_MillisecondsToInterval(kIdleThreadTimeoutMs));

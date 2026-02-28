@@ -3,11 +3,13 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import React, { useCallback } from "react";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import { actionCreators as ac, actionTypes as at } from "common/Actions.mjs";
 import { useIntersectionObserver } from "../../../lib/utils";
 
 const PREF_PROMO_CARD_DISMISSED = "discoverystream.promoCard.visible";
+const DEFAULT_PROMO_URL =
+  "https://addons.mozilla.org/firefox/collections/4757633/b4d5649fb087446aa05add5f0258c3/";
 
 /**
  * The PromoCard component displays a promotional message.
@@ -16,6 +18,13 @@ const PREF_PROMO_CARD_DISMISSED = "discoverystream.promoCard.visible";
 
 const PromoCard = () => {
   const dispatch = useDispatch();
+  const prefs = useSelector(state => state.Prefs.values);
+
+  const trainhopConfigPromoCardUrl = prefs.trainhopConfig?.promoCard?.url;
+  const promoUrl =
+    typeof trainhopConfigPromoCardUrl === "string" && trainhopConfigPromoCardUrl
+      ? trainhopConfigPromoCardUrl
+      : DEFAULT_PROMO_URL;
 
   const onCtaClick = useCallback(() => {
     dispatch(
@@ -70,20 +79,20 @@ const PromoCard = () => {
         </div>
         <span
           className="promo-card-title"
-          data-l10n-id="newtab-promo-card-title"
+          data-l10n-id="newtab-promo-card-title-addons"
         />
         <span
           className="promo-card-body"
-          data-l10n-id="newtab-promo-card-body"
+          data-l10n-id="newtab-promo-card-body-addons"
         />
         <span className="promo-card-cta-wrapper">
           <a
-            href="https://support.mozilla.org/kb/sponsor-privacy"
-            data-l10n-id="newtab-promo-card-cta"
+            href={promoUrl}
             target="_blank"
             rel="noreferrer"
+            data-l10n-id="newtab-promo-card-cta-addons"
             onClick={onCtaClick}
-          ></a>
+          />
         </span>
       </div>
     </div>

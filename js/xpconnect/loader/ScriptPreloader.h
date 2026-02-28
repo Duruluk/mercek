@@ -66,6 +66,8 @@ struct Matcher {
 
 using namespace mozilla::loader;
 
+struct CachedStencilRefAndTime;
+
 class ScriptPreloader : public nsIObserver,
                         public nsIMemoryReporter,
                         public nsIRunnable,
@@ -125,6 +127,10 @@ class ScriptPreloader : public nsIObserver,
                    ProcessType processType, nsTArray<uint8_t>&& xdrData,
                    TimeStamp loadTime);
 
+  // Notes that we have received all script data of a child process with
+  // the given type. Must be called on the child preloader.
+  void NoteReceivedAllChildStencilsForProcess(ProcessType processType);
+
   // Initializes the script cache from the startup script cache file.
   Result<Ok, nsresult> InitCache(const nsAString& = u"scriptCache"_ns)
       MOZ_REQUIRES(sMainThreadCapability);
@@ -133,7 +139,7 @@ class ScriptPreloader : public nsIObserver,
                                  ScriptCacheChild* cacheChild)
       MOZ_REQUIRES(sMainThreadCapability);
 
-  bool Active() const { return mCacheInitialized && !mStartupFinished; }
+  bool Active() const;
 
  private:
   Result<Ok, nsresult> InitCacheInternal(JS::Handle<JSObject*> scope = nullptr);
@@ -214,21 +220,6 @@ class ScriptPreloader : public nsIObserver,
       return mProcessTypes.isEmpty() ? ScriptStatus::Restored
                                      : ScriptStatus::Saved;
     }
-
-    // For use with nsTArray::Sort.
-    //
-    // Orders scripts by script load time, so that scripts which are needed
-    // earlier are stored earlier, and scripts needed at approximately the
-    // same time are stored approximately contiguously.
-    struct Comparator {
-      bool Equals(const CachedStencil* a, const CachedStencil* b) const {
-        return a->mLoadTime == b->mLoadTime;
-      }
-
-      bool LessThan(const CachedStencil* a, const CachedStencil* b) const {
-        return a->mLoadTime < b->mLoadTime;
-      }
-    };
 
     struct StatusMatcher final : public Matcher<CachedStencil*> {
       explicit StatusMatcher(ScriptStatus status) : mStatus(status) {}
@@ -387,6 +378,8 @@ class ScriptPreloader : public nsIObserver,
     MaybeOneOf<JS::TranscodeBuffer, nsTArray<uint8_t>> mXDRData;
   } JS_HAZ_NON_GC_POINTER;
 
+  friend struct CachedStencilRefAndTime;
+
   template <ScriptStatus status>
   static Matcher<CachedStencil*>* Match() {
     static CachedStencil::StatusMatcher matcher{status};
@@ -412,6 +405,11 @@ class ScriptPreloader : public nsIObserver,
 
   // Writes a new cache file to disk. Must not be called on the main thread.
   Result<Ok, nsresult> WriteCache() MOZ_REQUIRES(mSaveMonitor.Lock());
+
+  // Checks if everything's ready for cache writing, and calls StartCacheWrite
+  // if so. Can be called multiple times; won't do anything if a cache write has
+  // already been kicked off (or even finished).
+  void StartCacheWriteIfReady();
 
   void StartCacheWrite();
 
@@ -501,6 +499,9 @@ class ScriptPreloader : public nsIObserver,
   // scripts to the cache.
   bool mStartupFinished = false;
 
+  // True once the startup sequence has reached CACHE_WRITE_TOPIC.
+  bool mStartupHasAdvancedToCacheWritingStage = false;
+
   bool mCacheInitialized = false;
   bool mSaveComplete = false;
   bool mDataPrepared = false;
@@ -526,9 +527,17 @@ class ScriptPreloader : public nsIObserver,
   // The process type of the current process.
   static ProcessType sProcessType;
 
+  // The process types we expect to see at some point during startup, and whose
+  // script data we want to wait for before kicking off the cache write.
+  EnumSet<ProcessType> mRequiredChildProcessStencils;
+
   // The process types for which remote processes have been initialized, and
-  // are expected to send back script data.
-  EnumSet<ProcessType> mInitializedProcesses{};
+  // are expected to send back script data. Only used in the *child cache* in
+  // the parent process.
+  EnumSet<ProcessType> mRequestedChildProcessStencils;
+
+  // The process types from which we have received script data.
+  EnumSet<ProcessType> mReceivedChildProcessStencils;
 
   RefPtr<ScriptPreloader> mChildCache;
   ScriptCacheChild* mChildActor = nullptr;

@@ -22,6 +22,7 @@
 #include "mozilla/dom/HTMLButtonElementBinding.h"
 #include "mozilla/dom/HTMLFormElement.h"
 #include "nsAttrValueInlines.h"
+#include "nsAttrValueOrString.h"
 #include "nsError.h"
 #include "nsFocusManager.h"
 #include "nsGkAtoms.h"
@@ -353,7 +354,7 @@ void HTMLButtonElement::ActivationBehavior(EventChainPostVisitor& aVisitor) {
 
   // 4. Let target be the result of running element's get the
   // commandfor-associated element.
-  RefPtr<Element> target = GetCommandForElement();
+  RefPtr<Element> target = GetCommandForElementInternal();
 
   // 5. If target is not null:
   if (target) {
@@ -575,8 +576,9 @@ void HTMLButtonElement::GetCommand(nsAString& aCommand) const {
   }
   if (command == Command::Custom) {
     const nsAttrValue* attr = GetParsedAttr(nsGkAtoms::command);
-    MOZ_ASSERT(attr->Type() == nsAttrValue::eString);
-    aCommand.Assign(attr->GetStringValue());
+    MOZ_ASSERT(attr->Type() == nsAttrValue::eString ||
+               attr->Type() == nsAttrValue::eAtom);
+    aCommand.Assign(nsAttrValueOrString(attr).String());
     MOZ_ASSERT(
         aCommand.Length() >= 2,
         "Custom commands start with '--' so must be atleast 2 chars long!");
@@ -602,21 +604,28 @@ Element::Command HTMLButtonElement::GetCommand() const {
       }
       return command;
     }
-    if (StringBeginsWith(attr->GetStringValue(), u"--"_ns)) {
+    if (StringBeginsWith(nsAttrValueOrString(attr).String(), u"--"_ns)) {
       return Command::Custom;
     }
   }
   return Command::Invalid;
 }
 
-Element* HTMLButtonElement::GetCommandForElement() const {
+Element* HTMLButtonElement::GetCommandForElementForBindings() const {
   if (StaticPrefs::dom_element_commandfor_enabled()) {
-    return GetAttrAssociatedElement(nsGkAtoms::commandfor);
+    return GetAttrAssociatedElementForBindings(nsGkAtoms::commandfor);
   }
   return nullptr;
 }
 
-void HTMLButtonElement::SetCommandForElement(Element* aElement) {
+Element* HTMLButtonElement::GetCommandForElementInternal() const {
+  if (StaticPrefs::dom_element_commandfor_enabled()) {
+    return GetAttrAssociatedElementInternal(nsGkAtoms::commandfor);
+  }
+  return nullptr;
+}
+
+void HTMLButtonElement::SetCommandForElementForBindings(Element* aElement) {
   ExplicitlySetAttrElement(nsGkAtoms::commandfor, aElement);
 }
 
@@ -626,3 +635,5 @@ JSObject* HTMLButtonElement::WrapNode(JSContext* aCx,
 }
 
 }  // namespace mozilla::dom
+#undef NS_IN_SUBMIT_CLICK
+#undef NS_OUTER_ACTIVATE_EVENT

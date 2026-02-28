@@ -170,38 +170,6 @@ nsClipboard::SetNativeClipboardData(nsITransferable* aTransferable,
   NS_OBJC_END_TRY_BLOCK_RETURN(NS_ERROR_FAILURE);
 }
 
-nsresult nsClipboard::TransferableFromPasteboard(
-    nsITransferable* aTransferable, NSPasteboard* cocoaPasteboard) {
-  NS_OBJC_BEGIN_TRY_BLOCK_RETURN;
-
-  // get flavor list that includes all acceptable flavors (including ones
-  // obtained through conversion)
-  nsTArray<nsCString> flavors;
-  nsresult rv = aTransferable->FlavorsTransferableCanImport(flavors);
-  if (NS_FAILED(rv)) {
-    return NS_ERROR_FAILURE;
-  }
-
-  for (uint32_t i = 0; i < flavors.Length(); i++) {
-    nsCString& flavorStr = flavors[i];
-
-    auto dataOrError = GetDataFromPasteboard(flavorStr, cocoaPasteboard);
-    if (dataOrError.isErr()) {
-      continue;
-    }
-
-    if (auto data = dataOrError.inspect()) {
-      aTransferable->SetTransferData(flavorStr.get(), data);
-      // XXX Maybe try to fill in more types? Is there a point?
-      break;
-    }
-  }
-
-  return NS_OK;
-
-  NS_OBJC_END_TRY_BLOCK_RETURN(NS_ERROR_FAILURE);
-}
-
 mozilla::Result<nsCOMPtr<nsISupports>, nsresult>
 nsClipboard::GetDataFromPasteboard(const nsACString& aFlavor,
                                    NSPasteboard* aPasteboard) {
@@ -238,12 +206,15 @@ nsClipboard::GetDataFromPasteboard(const nsACString& aFlavor,
                                                        &signedDataLength);
     dataLength = signedDataLength;
 
-    // skip BOM (Byte Order Mark to distinguish little or big endian)
+    // skip BOM (Byte Order Mark to distinguish little or big endian), but
+    // not for RTF since that is ASCII encoded
     char16_t* clipboardDataPtrNoBOM = (char16_t*)clipboardDataPtr;
-    if ((dataLength > 2) && ((clipboardDataPtrNoBOM[0] == 0xFEFF) ||
-                             (clipboardDataPtrNoBOM[0] == 0xFFFE))) {
-      dataLength -= sizeof(char16_t);
-      clipboardDataPtrNoBOM += 1;
+    if (!isRTF && (dataLength > 2)) {
+      if ((clipboardDataPtrNoBOM[0] == 0xFEFF) ||
+          (clipboardDataPtrNoBOM[0] == 0xFFFE)) {
+        dataLength -= sizeof(char16_t);
+        clipboardDataPtrNoBOM += 1;
+      }
     }
 
     nsCOMPtr<nsISupports> genericDataWrapper;
@@ -348,7 +319,9 @@ nsClipboard::GetDataFromPasteboard(const nsACString& aFlavor,
                                      kCGImageSourceShouldAllowFloat, type,
                                      kCGImageSourceTypeIdentifierHint, nil];
     CGImageSourceRef source = nullptr;
-    if (type == [UTIHelper stringFromPboardType:(NSString*)kUTTypeFileURL]) {
+    if ([type isEqualToString:[UTIHelper
+                                  stringFromPboardType:(NSString*)
+                                                           kUTTypeFileURL]]) {
       NSString* urlStr = [aPasteboard stringForType:type];
       NSURL* url = [NSURL URLWithString:urlStr];
       source =
@@ -358,9 +331,17 @@ nsClipboard::GetDataFromPasteboard(const nsACString& aFlavor,
                                            (CFDictionaryRef)options);
     }
 
+    if (!source) {
+      return nsCOMPtr<nsISupports>{};
+    }
+
     NSMutableData* encodedData = [NSMutableData data];
     CGImageDestinationRef dest = CGImageDestinationCreateWithData(
         (CFMutableDataRef)encodedData, outputType, 1, NULL);
+    if (!dest) {
+      CFRelease(source);
+      return nsCOMPtr<nsISupports>{};
+    }
     CGImageDestinationAddImageFromSource(dest, source, 0, NULL);
 
     nsCOMPtr<nsIInputStream> byteStream;
@@ -465,7 +446,7 @@ nsClipboard::HasNativeClipboardDataMatchingFlavors(
   if (MOZ_CLIPBOARD_LOG_ENABLED()) {
     NSArray* types = [cocoaPasteboard types];
     uint32_t count = [types count];
-    MOZ_CLIPBOARD_LOG("    Pasteboard types (nums %d)\n", count);
+    MOZ_CLIPBOARD_LOG("    Pasteboard types (nums %u)\n", count);
     for (uint32_t i = 0; i < count; i++) {
       NSPasteboardType type = [types objectAtIndex:i];
       if (!type) {
@@ -581,7 +562,7 @@ NSDictionary* nsClipboard::PasteboardDictFromTransferable(
   for (uint32_t i = 0; i < flavors.Length(); i++) {
     nsCString& flavorStr = flavors[i];
 
-    MOZ_CLIPBOARD_LOG("writing out clipboard data of type %s (%d)\n",
+    MOZ_CLIPBOARD_LOG("writing out clipboard data of type %s (%u)\n",
                       flavorStr.get(), i);
 
     NSString* pboardType = nil;
@@ -762,7 +743,13 @@ NSDictionary* nsClipboard::PasteboardDictFromTransferable(
       nsCOMPtr<nsISupports> genericURL;
       rv = aTransferable->GetTransferData(flavorStr.get(),
                                           getter_AddRefs(genericURL));
+      if (NS_FAILED(rv)) {
+        continue;
+      }
       nsCOMPtr<nsISupportsString> urlObject(do_QueryInterface(genericURL));
+      if (!urlObject) {
+        continue;
+      }
 
       nsAutoString url;
       urlObject->GetData(url);

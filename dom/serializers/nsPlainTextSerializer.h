@@ -11,8 +11,8 @@
  * (eg for copy/paste as plaintext).
  */
 
-#ifndef nsPlainTextSerializer_h__
-#define nsPlainTextSerializer_h__
+#ifndef nsPlainTextSerializer_h_
+#define nsPlainTextSerializer_h_
 
 #include <stack>
 
@@ -283,7 +283,12 @@ class nsPlainTextSerializer final : public nsIContentSerializer {
     void Append(const CurrentLine& aCurrentLine,
                 StripTrailingWhitespaces aStripTrailingWhitespaces);
 
-    void AppendLineBreak();
+    /**
+     * @param aString Last character is expected to not be a line break.
+     */
+    void Append(const nsAString& aString);
+
+    void AppendLineBreak(bool aForceCRLF = false);
 
     /**
      * This empties the current line cache without adding a NEWLINE.
@@ -300,11 +305,6 @@ class nsPlainTextSerializer final : public nsIContentSerializer {
     uint32_t GetOutputLength() const;
 
    private:
-    /**
-     * @param aString Last character is expected to not be a line break.
-     */
-    void Append(const nsAString& aString);
-
     // As defined in nsIDocumentEncoder.idl.
     const int32_t mFlags;
 
@@ -317,7 +317,8 @@ class nsPlainTextSerializer final : public nsIContentSerializer {
 
   static void PerformWrapAndOutputCompleteLines(
       const Settings& aSettings, CurrentLine& aLine, OutputManager& aOutput,
-      bool aUseLineBreaker, nsPlainTextSerializer* aSerializer);
+      bool aUseLineBreaker, bool aAllowBonusWidth,
+      nsPlainTextSerializer* aSerializer);
   static void AppendLineToOutput(const Settings& aSettings, CurrentLine& aLine,
                                  OutputManager& aOutput);
 

@@ -222,29 +222,6 @@ nsresult HTMLTextAreaElement::CreateEditor() {
   return mState->PrepareEditor();
 }
 
-void HTMLTextAreaElement::SetPreviewValue(const nsAString& aValue) {
-  MOZ_ASSERT(mState);
-  mState->SetPreviewText(aValue, true);
-}
-
-void HTMLTextAreaElement::GetPreviewValue(nsAString& aValue) {
-  MOZ_ASSERT(mState);
-  mState->GetPreviewText(aValue);
-}
-
-void HTMLTextAreaElement::EnablePreview() {
-  if (mIsPreviewEnabled) {
-    return;
-  }
-
-  mIsPreviewEnabled = true;
-  // Reconstruct the frame to append an anonymous preview node
-  nsLayoutUtils::PostRestyleEvent(this, RestyleHint{0},
-                                  nsChangeHint_ReconstructFrame);
-}
-
-bool HTMLTextAreaElement::IsPreviewEnabled() { return mIsPreviewEnabled; }
-
 nsresult HTMLTextAreaElement::SetValueInternal(
     const nsAString& aValue, const ValueSetterOptions& aOptions) {
   MOZ_ASSERT(mState);
@@ -380,7 +357,9 @@ void HTMLTextAreaElement::MapAttributesIntoRule(
     MappedDeclarationsBuilder& aBuilder) {
   // wrap=off
   const nsAttrValue* value = aBuilder.GetAttr(nsGkAtoms::wrap);
-  if (value && value->Type() == nsAttrValue::eString &&
+  if (value &&
+      (value->Type() == nsAttrValue::eString ||
+       value->Type() == nsAttrValue::eAtom) &&
       value->Equals(nsGkAtoms::OFF, eIgnoreCase)) {
     // Equivalent to expanding `white-space; pre`
     aBuilder.SetKeywordValue(eCSSProperty_white_space_collapse,
@@ -398,13 +377,9 @@ nsChangeHint HTMLTextAreaElement::GetAttributeChangeHint(
   nsChangeHint retval =
       nsGenericHTMLFormControlElementWithState::GetAttributeChangeHint(
           aAttribute, aModType);
-
-  const bool isAdditionOrRemoval = IsAdditionOrRemoval(aModType);
   if (aAttribute == nsGkAtoms::rows || aAttribute == nsGkAtoms::cols) {
     retval |= NS_STYLE_HINT_REFLOW;
   } else if (aAttribute == nsGkAtoms::wrap) {
-    retval |= nsChangeHint_ReconstructFrame;
-  } else if (aAttribute == nsGkAtoms::placeholder && isAdditionOrRemoval) {
     retval |= nsChangeHint_ReconstructFrame;
   }
   return retval;
@@ -775,10 +750,19 @@ nsresult HTMLTextAreaElement::BindToTree(BindContext& aContext,
   // And now make sure our state is up to date
   UpdateValidityElementStates(false);
 
+  if (IsInComposedDoc()) {
+    AttachAndSetUAShadowRoot(NotifyUAWidget::No, DelegatesFocus::No);
+    if (auto* sr = GetShadowRoot()) {
+      SetupShadowTree(*sr, /* aNotify = */ false);
+    }
+  }
   return rv;
 }
 
 void HTMLTextAreaElement::UnbindFromTree(UnbindContext& aContext) {
+  if (IsInComposedDoc()) {
+    TeardownUAShadowRoot(NotifyUAWidget::No);
+  }
   nsGenericHTMLFormControlElementWithState::UnbindFromTree(aContext);
 
   // We might be no longer disabled because of parent chain changed.
@@ -889,9 +873,7 @@ void HTMLTextAreaElement::AfterSetAttr(int32_t aNameSpaceID, nsAtom* aName,
       UpdateTooShortValidityState();
       UpdateValidityElementStates(aNotify);
     } else if (aName == nsGkAtoms::placeholder) {
-      if (nsTextControlFrame* f = do_QueryFrame(GetPrimaryFrame())) {
-        f->PlaceholderChanged(aOldValue, aValue);
-      }
+      UpdatePlaceholder(aOldValue, aValue);
       UpdatePlaceholderShownState();
     } else if (aName == nsGkAtoms::dir && aValue &&
                aValue->Equals(nsGkAtoms::_auto, eIgnoreCase)) {
@@ -1044,12 +1026,6 @@ nsresult HTMLTextAreaElement::GetValidationMessage(
 
   return rv;
 }
-
-bool HTMLTextAreaElement::IsSingleLineTextControl() const { return false; }
-
-bool HTMLTextAreaElement::IsTextArea() const { return true; }
-
-bool HTMLTextAreaElement::IsPasswordTextControl() const { return false; }
 
 Maybe<int32_t> HTMLTextAreaElement::GetCols() {
   const nsAttrValue* value = GetParsedAttr(nsGkAtoms::cols);

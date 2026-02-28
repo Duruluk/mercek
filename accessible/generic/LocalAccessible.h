@@ -3,8 +3,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef _LocalAccessible_H_
-#define _LocalAccessible_H_
+#ifndef LocalAccessible_H_
+#define LocalAccessible_H_
 
 #include "mozilla/ComputedStyle.h"
 #include "mozilla/a11y/Accessible.h"
@@ -155,7 +155,9 @@ class LocalAccessible : public nsISupports, public Accessible {
   /**
    * Get the name of this accessible.
    */
-  virtual ENameValueFlag Name(nsString& aName) const override;
+  virtual ENameValueFlag Name(nsString& aName) const override final;
+
+  virtual ENameValueFlag DirectName(nsString& aName) const;
 
   /**
    * Maps ARIA state attributes to state of accessible. Note the given state
@@ -224,6 +226,12 @@ class LocalAccessible : public nsISupports, public Accessible {
    * Return true if native unavailable state present.
    */
   virtual bool NativelyUnavailable() const;
+
+  /**
+   * Return true if this accessible and all of its descendants have only
+   * plain-content roles (text, images, generic containers, etc.).
+   */
+  bool IsOnlyPlainContent() const;
 
   virtual already_AddRefed<AccAttributes> Attributes() override;
 
@@ -450,11 +458,6 @@ class LocalAccessible : public nsISupports, public Accessible {
   //////////////////////////////////////////////////////////////////////////////
   // Downcasting and types
 
-  inline bool IsAbbreviation() const {
-    return mContent &&
-           mContent->IsAnyOfHTMLElements(nsGkAtoms::abbr, nsGkAtoms::acronym);
-  }
-
   ApplicationAccessible* AsApplication();
 
   DocAccessible* AsDoc();
@@ -498,6 +501,8 @@ class LocalAccessible : public nsISupports, public Accessible {
   virtual void ActionNameAt(uint8_t aIndex, nsAString& aName) override;
 
   virtual bool DoAction(uint8_t aIndex) const override;
+
+  virtual bool HasCustomActions() const override;
 
   virtual KeyBinding AccessKey() const override;
 
@@ -878,6 +883,12 @@ class LocalAccessible : public nsISupports, public Accessible {
   bool ARIADescription(nsString& aDescription) const;
 
   /**
+   * Returns the accessible "tooltip", usually derived from title attribute in
+   * HTML or tooltiptext in XUL.
+   */
+  bool Tooltip(nsString& aTooltip) const;
+
+  /**
    * Returns the accessible name specified for this control using XUL
    * <label control="id" ...>.
    */
@@ -1032,6 +1043,10 @@ class LocalAccessible : public nsISupports, public Accessible {
   LocalAccessible* GetPopoverTargetDetailsRelation() const;
 
   LocalAccessible* GetAnchorPositionTargetDetailsRelation() const;
+
+  LocalAccessible* GetPopoverTargetDescribedByRelation() const;
+
+  LocalAccessible* GetCommandForDescribedByRelation() const;
 };
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -211,6 +211,8 @@ about-glean-label-for-filter-metrics = Filter
 about-glean-description-for-filter-metrics = This will filter the table below based on category, name, type, and value (if the value is a simple type).
 
 about-glean-button-load-all = Load All Values
+# A button that, when pressed, exports the data currently shown in the metrics table
+about-glean-button-export-data = Export Data
 about-glean-button-load-value = Load
 # "Docs" is shorthand for "documentation"
 about-glean-button-dictionary-link = Docs
@@ -221,7 +223,7 @@ about-glean-button-unwatch = Unwatch
 about-glean-no-data-to-display = No data to display.
 
 # Do not translate strings between <code> </code> tags.
-about-glean-labeled-metric-warning = Labeled metrics are not yet supported in the <code>about:glean</code> view.
+about-glean-dual-labeled-metric-warning = <code>DualLabeledCounter</code> metrics are not yet supported in the <code>about:glean</code> view.
 about-glean-unknown-metric-type-warning = Unknown metric type.
 
 about-glean-enable-new-features-promo =

@@ -4,11 +4,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "BaseProfiler.h"
-
 #include "mozilla/Attributes.h"
 #include "mozilla/BaseAndGeckoProfilerDetail.h"
 #include "mozilla/BaseProfileJSONWriter.h"
+#include "mozilla/BaseProfiler.h"
 #include "mozilla/BaseProfilerDetail.h"
 #include "mozilla/FailureLatch.h"
 #include "mozilla/NotNull.h"
@@ -4079,8 +4078,8 @@ void TestProfiler() {
         ::mozilla::baseprofiler::markers::NoPayload{}));
 
     MOZ_RELEASE_ASSERT(baseprofiler::AddMarker(
-        "tracing", mozilla::baseprofiler::category::OTHER, {},
-        mozilla::baseprofiler::markers::Tracing{}, "category"));
+        "stackmarker", mozilla::baseprofiler::category::OTHER, {},
+        mozilla::baseprofiler::markers::StackMarker{}));
 
     MOZ_RELEASE_ASSERT(baseprofiler::AddMarker(
         "text", mozilla::baseprofiler::category::OTHER, {},
@@ -4153,7 +4152,7 @@ void TestProfiler() {
     // Check for some expected marker schema JSON output.
     MOZ_RELEASE_ASSERT(profileSV.find("\"markerSchema\":[") != svnpos);
     MOZ_RELEASE_ASSERT(profileSV.find("\"name\":\"Text\",") != svnpos);
-    MOZ_RELEASE_ASSERT(profileSV.find("\"name\":\"tracing\",") != svnpos);
+    MOZ_RELEASE_ASSERT(profileSV.find("\"name\":\"StackMarker\",") != svnpos);
     MOZ_RELEASE_ASSERT(profileSV.find("\"name\":\"MediaSample\",") != svnpos);
     MOZ_RELEASE_ASSERT(profileSV.find("\"display\":[") != svnpos);
     MOZ_RELEASE_ASSERT(profileSV.find("\"marker-chart\"") != svnpos);
@@ -4632,8 +4631,7 @@ void TestUserMarker() {
       using MS = mozilla::MarkerSchema;
       MS schema{MS::Location::MarkerChart, MS::Location::MarkerTable};
       schema.SetTooltipLabel("tooltip for test-minimal");
-      schema.AddKeyLabelFormat("text", "Text", MS::Format::String,
-                               MS::PayloadFlags::Searchable);
+      schema.AddKeyLabelFormat("text", "Text", MS::Format::String);
       return schema;
     }
   };
@@ -4710,9 +4708,9 @@ void TestPredefinedMarkers() {
       mozilla::ProfileChunkedBuffer::ThreadSafety::WithoutMutex, chunkManager);
 
   MOZ_RELEASE_ASSERT(mozilla::baseprofiler::AddMarkerToBuffer(
-      buffer, std::string_view("tracing"),
+      buffer, std::string_view("stackmarker"),
       mozilla::baseprofiler::category::OTHER, {},
-      mozilla::baseprofiler::markers::Tracing{}, "category"));
+      mozilla::baseprofiler::markers::StackMarker{}));
 
   MOZ_RELEASE_ASSERT(mozilla::baseprofiler::AddMarkerToBuffer(
       buffer, std::string_view("text"), mozilla::baseprofiler::category::OTHER,

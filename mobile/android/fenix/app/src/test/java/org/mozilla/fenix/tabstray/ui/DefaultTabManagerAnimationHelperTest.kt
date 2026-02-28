@@ -14,7 +14,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.mozilla.fenix.R
-import org.mozilla.fenix.tabstray.Page
+import org.mozilla.fenix.tabstray.redux.state.Page
 
 private val ToolbarHeight = 10.dp
 private val ToolbarPaddingValues = PaddingValues(vertical = ToolbarHeight)

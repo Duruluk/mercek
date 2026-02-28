@@ -5,6 +5,7 @@
 package org.mozilla.fenix.ui
 
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
+import androidx.test.espresso.Espresso.closeSoftKeyboard
 import org.junit.Rule
 import org.junit.Test
 import org.mozilla.fenix.customannotations.SkipLeaks
@@ -14,9 +15,10 @@ import org.mozilla.fenix.helpers.AppAndSystemHelper.putAppToBackground
 import org.mozilla.fenix.helpers.HomeActivityIntentTestRule
 import org.mozilla.fenix.helpers.MatcherHelper.itemWithResId
 import org.mozilla.fenix.helpers.MatcherHelper.itemWithResIdContainingText
-import org.mozilla.fenix.helpers.TestAssetHelper
+import org.mozilla.fenix.helpers.TestAssetHelper.creditCardFormAsset
 import org.mozilla.fenix.helpers.TestHelper.exitMenu
 import org.mozilla.fenix.helpers.TestHelper.packageName
+import org.mozilla.fenix.helpers.TestHelper.waitForAppWindowToBeUpdated
 import org.mozilla.fenix.helpers.TestSetup
 import org.mozilla.fenix.helpers.perf.DetectMemoryLeaksRule
 import org.mozilla.fenix.ui.robots.clickPageObject
@@ -56,11 +58,11 @@ class CreditCardAutofillTest : TestSetup() {
     @SmokeTest
     @Test
     fun verifyCreditCardAutofillTest() {
-        val creditCardFormPage = TestAssetHelper.getCreditCardFormAsset(mockWebServer)
+        val creditCardFormPage = mockWebServer.creditCardFormAsset
 
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openThreeDotMenu {
-        }.openSettings {
+        }.clickSettingsButton {
         }.openAutofillSubMenu(composeTestRule) {
             clickAddCreditCardButton()
             fillAndSaveCreditCard(
@@ -74,13 +76,14 @@ class CreditCardAutofillTest : TestSetup() {
             clickSecuredCreditCardsLaterButton()
         }.goBackToAutofillSettings {
         }.goBack {
-        }.goBack {
+        }.goBack(composeTestRule) {
         }
-        navigationToolbar {
+        navigationToolbar(composeTestRule) {
         }.enterURLAndEnterToBrowser(creditCardFormPage.url) {
             clickCreditCardNumberTextBox()
-            clickPageObject(itemWithResId("$packageName:id/select_credit_card_header"))
+            clickPageObject(composeTestRule, itemWithResId("$packageName:id/select_credit_card_header"))
             clickPageObject(
+                composeTestRule,
                 itemWithResIdContainingText(
                     "$packageName:id/credit_card_number",
                     MockCreditCard1.MOCK_LAST_CARD_DIGITS,
@@ -94,9 +97,9 @@ class CreditCardAutofillTest : TestSetup() {
     @SmokeTest
     @Test
     fun deleteSavedCreditCardUsingToolbarButtonTest() {
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openThreeDotMenu {
-        }.openSettings {
+        }.clickSettingsButton {
         }.openAutofillSubMenu(composeTestRule) {
             clickAddCreditCardButton()
             fillAndSaveCreditCard(
@@ -121,9 +124,9 @@ class CreditCardAutofillTest : TestSetup() {
     @SmokeTest
     @Test
     fun deleteSavedCreditCardUsingMenuButtonTest() {
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openThreeDotMenu {
-        }.openSettings {
+        }.clickSettingsButton {
         }.openAutofillSubMenu(composeTestRule) {
             clickAddCreditCardButton()
             fillAndSaveCreditCard(
@@ -147,9 +150,9 @@ class CreditCardAutofillTest : TestSetup() {
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/1512788
     @Test
     fun verifyCreditCardsSectionTest() {
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openThreeDotMenu {
-        }.openSettings {
+        }.clickSettingsButton {
         }.openAutofillSubMenu(composeTestRule) {
             verifyCreditCardsAutofillSection(true, false)
             clickAddCreditCardButton()
@@ -171,11 +174,11 @@ class CreditCardAutofillTest : TestSetup() {
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/1859917
     @Test
     fun verifyManageCreditCardsPromptOptionTest() {
-        val creditCardFormPage = TestAssetHelper.getCreditCardFormAsset(mockWebServer)
+        val creditCardFormPage = mockWebServer.creditCardFormAsset
 
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openThreeDotMenu {
-        }.openSettings {
+        }.clickSettingsButton {
         }.openAutofillSubMenu(composeTestRule) {
             clickAddCreditCardButton()
             fillAndSaveCreditCard(
@@ -188,12 +191,12 @@ class CreditCardAutofillTest : TestSetup() {
 
         exitMenu()
 
-        navigationToolbar {
+        navigationToolbar(composeTestRule) {
         }.enterURLAndEnterToBrowser(creditCardFormPage.url) {
             clickCreditCardNumberTextBox()
-            clickPageObject(itemWithResId("$packageName:id/select_credit_card_header"))
-        }.clickManageCreditCardsButton(composeTestRule) {
-        }.goBackToBrowser {
+            clickPageObject(composeTestRule, itemWithResId("$packageName:id/select_credit_card_header"))
+        }.clickManageCreditCardsButton {
+        }.goBackToBrowser(composeTestRule) {
             verifySelectCreditCardPromptExists(false)
         }
     }
@@ -201,11 +204,11 @@ class CreditCardAutofillTest : TestSetup() {
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/1512790
     @Test
     fun verifyCreditCardsAutofillToggleTest() {
-        val creditCardFormPage = TestAssetHelper.getCreditCardFormAsset(mockWebServer)
+        val creditCardFormPage = mockWebServer.creditCardFormAsset
 
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openThreeDotMenu {
-        }.openSettings {
+        }.clickSettingsButton {
         }.openAutofillSubMenu(composeTestRule) {
             verifyCreditCardsAutofillSection(true, false)
             clickAddCreditCardButton()
@@ -219,12 +222,14 @@ class CreditCardAutofillTest : TestSetup() {
 
         exitMenu()
 
-        navigationToolbar {
+        navigationToolbar(composeTestRule) {
         }.enterURLAndEnterToBrowser(creditCardFormPage.url) {
             clickCreditCardNumberTextBox()
             verifySelectCreditCardPromptExists(true)
+            closeSoftKeyboard()
+            waitForAppWindowToBeUpdated()
         }.openThreeDotMenu {
-        }.openSettings {
+        }.clickSettingsButton {
         }.openAutofillSubMenu(composeTestRule) {
             clickSaveAndAutofillCreditCardsOption()
             verifyCreditCardsAutofillSection(false, true)
@@ -232,7 +237,7 @@ class CreditCardAutofillTest : TestSetup() {
 
         exitMenu()
 
-        navigationToolbar {
+        navigationToolbar(composeTestRule) {
         }.enterURLAndEnterToBrowser(creditCardFormPage.url) {
             clickCreditCardNumberTextBox()
             verifySelectCreditCardPromptExists(false)
@@ -242,9 +247,9 @@ class CreditCardAutofillTest : TestSetup() {
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/1512795
     @Test
     fun verifyEditCardsViewTest() {
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openThreeDotMenu {
-        }.openSettings {
+        }.clickSettingsButton {
         }.openAutofillSubMenu(composeTestRule) {
             verifyCreditCardsAutofillSection(true, false)
             clickAddCreditCardButton()
@@ -278,11 +283,11 @@ class CreditCardAutofillTest : TestSetup() {
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/1512796
     @Test
     fun verifyEditedCardIsSavedTest() {
-        val creditCardFormPage = TestAssetHelper.getCreditCardFormAsset(mockWebServer)
+        val creditCardFormPage = mockWebServer.creditCardFormAsset
 
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openThreeDotMenu {
-        }.openSettings {
+        }.clickSettingsButton {
         }.openAutofillSubMenu(composeTestRule) {
             verifyCreditCardsAutofillSection(true, false)
             clickAddCreditCardButton()
@@ -309,11 +314,12 @@ class CreditCardAutofillTest : TestSetup() {
 
         exitMenu()
 
-        navigationToolbar {
+        navigationToolbar(composeTestRule) {
         }.enterURLAndEnterToBrowser(creditCardFormPage.url) {
             clickCreditCardNumberTextBox()
-            clickPageObject(itemWithResId("$packageName:id/select_credit_card_header"))
+            clickPageObject(composeTestRule, itemWithResId("$packageName:id/select_credit_card_header"))
             clickPageObject(
+                composeTestRule,
                 itemWithResIdContainingText(
                     "$packageName:id/credit_card_number",
                     MockCreditCard2.MOCK_LAST_CARD_DIGITS,
@@ -327,9 +333,9 @@ class CreditCardAutofillTest : TestSetup() {
     @Test
     @SkipLeaks(reasons = ["https://bugzilla.mozilla.org/show_bug.cgi?id=1935999"])
     fun verifyCreditCardCannotBeSavedWithoutCardNumberOrNameTest() {
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openThreeDotMenu {
-        }.openSettings {
+        }.clickSettingsButton {
         }.openAutofillSubMenu(composeTestRule) {
             verifyCreditCardsAutofillSection(true, false)
             clickAddCreditCardButton()
@@ -362,11 +368,11 @@ class CreditCardAutofillTest : TestSetup() {
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/1512794
     @Test
     fun verifyMultipleCreditCardsCanBeAddedTest() {
-        val creditCardFormPage = TestAssetHelper.getCreditCardFormAsset(mockWebServer)
+        val creditCardFormPage = mockWebServer.creditCardFormAsset
 
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openThreeDotMenu {
-        }.openSettings {
+        }.clickSettingsButton {
         }.openAutofillSubMenu(composeTestRule) {
             verifyCreditCardsAutofillSection(true, false)
             clickAddCreditCardButton()
@@ -397,15 +403,16 @@ class CreditCardAutofillTest : TestSetup() {
 
         exitMenu()
 
-        navigationToolbar {
+        navigationToolbar(composeTestRule) {
         }.enterURLAndEnterToBrowser(creditCardFormPage.url) {
             clickCreditCardNumberTextBox()
-            clickPageObject(itemWithResId("$packageName:id/select_credit_card_header"))
+            clickPageObject(composeTestRule, itemWithResId("$packageName:id/select_credit_card_header"))
             verifyCreditCardSuggestion(
                 MockCreditCard1.MOCK_LAST_CARD_DIGITS,
                 MockCreditCard2.MOCK_LAST_CARD_DIGITS,
             )
             clickPageObject(
+                composeTestRule,
                 itemWithResIdContainingText(
                     "$packageName:id/credit_card_number",
                     MockCreditCard2.MOCK_LAST_CARD_DIGITS,
@@ -418,9 +425,9 @@ class CreditCardAutofillTest : TestSetup() {
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/2271304
     @Test
     fun verifyDoNotSaveCreditCardFromPromptTest() {
-        val creditCardFormPage = TestAssetHelper.getCreditCardFormAsset(mockWebServer)
+        val creditCardFormPage = mockWebServer.creditCardFormAsset
 
-        navigationToolbar {
+        navigationToolbar(composeTestRule) {
         }.enterURLAndEnterToBrowser(creditCardFormPage.url) {
             fillAndSaveCreditCard(
                 MockCreditCard1.MOCK_CREDIT_CARD_NUMBER,
@@ -430,7 +437,7 @@ class CreditCardAutofillTest : TestSetup() {
             clickNegativeSaveCreditCardPromptButton()
             verifyUpdateOrSaveCreditCardPromptExists(exists = false)
         }.openThreeDotMenu {
-        }.openSettings {
+        }.clickSettingsButton {
         }.openAutofillSubMenu(composeTestRule) {
             verifyCreditCardsAutofillSection(true, false)
         }
@@ -439,19 +446,19 @@ class CreditCardAutofillTest : TestSetup() {
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/1779194
     @Test
     fun verifySaveCreditCardFromPromptTest() {
-        val creditCardFormPage = TestAssetHelper.getCreditCardFormAsset(mockWebServer)
+        val creditCardFormPage = mockWebServer.creditCardFormAsset
 
-        navigationToolbar {
+        navigationToolbar(composeTestRule) {
         }.enterURLAndEnterToBrowser(creditCardFormPage.url) {
             fillAndSaveCreditCard(
                 MockCreditCard1.MOCK_CREDIT_CARD_NUMBER,
                 MockCreditCard1.MOCK_NAME_ON_CARD,
                 MockCreditCard1.MOCK_EXPIRATION_MONTH_AND_YEAR,
             )
-            clickPageObject(itemWithResId("$packageName:id/save_confirm"))
+            clickPageObject(composeTestRule, itemWithResId("$packageName:id/save_confirm"))
             verifyUpdateOrSaveCreditCardPromptExists(exists = false)
         }.openThreeDotMenu {
-        }.openSettings {
+        }.clickSettingsButton {
         }.openAutofillSubMenu(composeTestRule) {
             verifyCreditCardsAutofillSection(true, true)
             clickManageSavedCreditCardsButton()
@@ -466,11 +473,11 @@ class CreditCardAutofillTest : TestSetup() {
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/2271305
     @Test
     fun verifyCancelCreditCardUpdatePromptTest() {
-        val creditCardFormPage = TestAssetHelper.getCreditCardFormAsset(mockWebServer)
+        val creditCardFormPage = mockWebServer.creditCardFormAsset
 
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openThreeDotMenu {
-        }.openSettings {
+        }.clickSettingsButton {
         }.openAutofillSubMenu(composeTestRule) {
             verifyCreditCardsAutofillSection(true, false)
             clickAddCreditCardButton()
@@ -487,11 +494,12 @@ class CreditCardAutofillTest : TestSetup() {
 
         exitMenu()
 
-        navigationToolbar {
+        navigationToolbar(composeTestRule) {
         }.enterURLAndEnterToBrowser(creditCardFormPage.url) {
             clickCreditCardNumberTextBox()
-            clickPageObject(itemWithResId("$packageName:id/select_credit_card_header"))
+            clickPageObject(composeTestRule, itemWithResId("$packageName:id/select_credit_card_header"))
             clickPageObject(
+                composeTestRule,
                 itemWithResIdContainingText(
                     "$packageName:id/credit_card_number",
                     MockCreditCard2.MOCK_LAST_CARD_DIGITS,
@@ -503,7 +511,7 @@ class CreditCardAutofillTest : TestSetup() {
             clickNegativeSaveCreditCardPromptButton()
             verifyUpdateOrSaveCreditCardPromptExists(false)
         }.openThreeDotMenu {
-        }.openSettings {
+        }.clickSettingsButton {
         }.openAutofillSubMenu(composeTestRule) {
             verifyCreditCardsAutofillSection(true, true)
             clickManageSavedCreditCardsButton()
@@ -517,11 +525,11 @@ class CreditCardAutofillTest : TestSetup() {
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/1779195
     @Test
     fun verifyConfirmCreditCardUpdatePromptTest() {
-        val creditCardFormPage = TestAssetHelper.getCreditCardFormAsset(mockWebServer)
+        val creditCardFormPage = mockWebServer.creditCardFormAsset
 
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openThreeDotMenu {
-        }.openSettings {
+        }.clickSettingsButton {
         }.openAutofillSubMenu(composeTestRule) {
             verifyCreditCardsAutofillSection(true, false)
             clickAddCreditCardButton()
@@ -538,11 +546,12 @@ class CreditCardAutofillTest : TestSetup() {
 
         exitMenu()
 
-        navigationToolbar {
+        navigationToolbar(composeTestRule) {
         }.enterURLAndEnterToBrowser(creditCardFormPage.url) {
             clickCreditCardNumberTextBox()
-            clickPageObject(itemWithResId("$packageName:id/select_credit_card_header"))
+            clickPageObject(composeTestRule, itemWithResId("$packageName:id/select_credit_card_header"))
             clickPageObject(
+                composeTestRule,
                 itemWithResIdContainingText(
                     "$packageName:id/credit_card_number",
                     MockCreditCard2.MOCK_LAST_CARD_DIGITS,
@@ -551,10 +560,10 @@ class CreditCardAutofillTest : TestSetup() {
             verifyAutofilledCreditCard(MockCreditCard2.MOCK_CREDIT_CARD_NUMBER)
             changeCreditCardExpiryDate(MockCreditCard1.MOCK_EXPIRATION_MONTH_AND_YEAR)
             clickCreditCardFormSubmitButton()
-            clickPageObject(itemWithResId("$packageName:id/save_confirm"))
+            clickPageObject(composeTestRule, itemWithResId("$packageName:id/save_confirm"))
             verifyUpdateOrSaveCreditCardPromptExists(false)
         }.openThreeDotMenu {
-        }.openSettings {
+        }.clickSettingsButton {
         }.openAutofillSubMenu(composeTestRule) {
             verifyCreditCardsAutofillSection(true, true)
             clickManageSavedCreditCardsButton()
@@ -568,9 +577,9 @@ class CreditCardAutofillTest : TestSetup() {
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/1512791
     @Test
     fun verifyCreditCardRedirectionsToAutofillSectionAfterInterruptionTest() {
-        homeScreen {
+        homeScreen(composeTestRule) {
         }.openThreeDotMenu {
-        }.openSettings {
+        }.clickSettingsButton {
         }.openAutofillSubMenu(composeTestRule) {
             verifyCreditCardsAutofillSection(true, false)
             clickAddCreditCardButton()

@@ -319,6 +319,7 @@ struct PrivateCapabilities {
     can_present: bool,
     non_coherent_map_mask: wgt::BufferAddress,
     multi_draw_indirect: bool,
+    max_draw_indirect_count: u32,
 
     /// True if this adapter advertises the [`robustBufferAccess`][vrba] feature.
     ///
@@ -376,6 +377,23 @@ struct PrivateCapabilities {
     /// [`VK_KHR_shader_float16_int8`]: https://registry.khronos.org/vulkan/specs/latest/man/html/VK_KHR_shader_float16_int8.html
     /// [see spec]: https://registry.khronos.org/vulkan/specs/latest/man/html/VkPhysicalDeviceShaderFloat16Int8Features.html#extension-features-shaderInt8
     shader_int8: bool,
+
+    /// This is done to panic before undefined behavior, and is imperfect.
+    /// Basically, to allow implementations to emulate mv using instancing, if you
+    /// want to draw `n` instances to VR, you must draw `2n` instances, but you
+    /// can never draw more than `u32::MAX` instances. Therefore, when drawing
+    /// multiview on some vulkan implementations, it might restrict the instance
+    /// count, which isn't usually a thing in webgpu. We don't expose this limit
+    /// because its strange, i.e. only occurs on certain vulkan implementations
+    /// if you are drawing more than 128 million instances. We still want to avoid
+    /// undefined behavior in this situation, so we panic if the limit is violated.
+    multiview_instance_index_limit: u32,
+
+    /// BufferUsages::ACCELERATION_STRUCTURE_SCRATCH allows usage as a scratch buffer.
+    /// Vulkan has no way to specify this as a usage, and it maps to other usages, but
+    /// these usages do not have as high of an alignment requirement using the buffer as
+    ///  a scratch buffer when building acceleration structures.
+    scratch_buffer_alignment: u32,
 }
 
 bitflags::bitflags!(
@@ -447,7 +465,7 @@ struct RenderPassKey {
     colors: ArrayVec<Option<ColorAttachmentKey>, { crate::MAX_COLOR_ATTACHMENTS }>,
     depth_stencil: Option<DepthStencilAttachmentKey>,
     sample_count: u32,
-    multiview: Option<NonZeroU32>,
+    multiview_mask: Option<NonZeroU32>,
 }
 
 struct DeviceShared {
@@ -477,6 +495,8 @@ struct DeviceShared {
     /// As above, for texture views.
     texture_view_identity_factory: ResourceIdentityFactory<vk::ImageView>,
 
+    empty_descriptor_set_layout: vk::DescriptorSetLayout,
+
     // The `drop_guard` field must be the last field of this struct so it is dropped last.
     // Do not add new fields after it.
     drop_guard: Option<crate::DropGuard>,
@@ -487,6 +507,10 @@ impl Drop for DeviceShared {
         for &raw in self.render_passes.lock().values() {
             unsafe { self.raw.destroy_render_pass(raw, None) };
         }
+        unsafe {
+            self.raw
+                .destroy_descriptor_set_layout(self.empty_descriptor_set_layout, None)
+        };
         if self.drop_guard.is_none() {
             unsafe { self.raw.destroy_device(None) };
         }
@@ -494,8 +518,7 @@ impl Drop for DeviceShared {
 }
 
 pub struct Device {
-    shared: Arc<DeviceShared>,
-    mem_allocator: Mutex<gpu_alloc::GpuAllocator<vk::DeviceMemory>>,
+    mem_allocator: Mutex<gpu_allocator::vulkan::Allocator>,
     desc_allocator:
         Mutex<gpu_descriptor::DescriptorAllocator<vk::DescriptorPool, vk::DescriptorSet>>,
     valid_ash_memory_types: u32,
@@ -503,11 +526,13 @@ pub struct Device {
     #[cfg(feature = "renderdoc")]
     render_doc: crate::auxil::renderdoc::RenderDoc,
     counters: Arc<wgt::HalCounters>,
+    // Struct members are dropped from first to last, put the Device last to ensure that
+    // all resources that depends on it are destroyed before it like the mem_allocator
+    shared: Arc<DeviceShared>,
 }
 
 impl Drop for Device {
     fn drop(&mut self) {
-        unsafe { self.mem_allocator.lock().cleanup(&*self.shared) };
         unsafe { self.desc_allocator.lock().cleanup(&*self.shared) };
     }
 }
@@ -608,7 +633,7 @@ impl Drop for Queue {
 }
 #[derive(Debug)]
 enum BufferMemoryBacking {
-    Managed(gpu_alloc::MemoryBlock<vk::DeviceMemory>),
+    Managed(gpu_allocator::vulkan::Allocation),
     VulkanMemory {
         memory: vk::DeviceMemory,
         offset: u64,
@@ -616,10 +641,10 @@ enum BufferMemoryBacking {
     },
 }
 impl BufferMemoryBacking {
-    fn memory(&self) -> &vk::DeviceMemory {
+    fn memory(&self) -> vk::DeviceMemory {
         match self {
-            Self::Managed(m) => m.memory(),
-            Self::VulkanMemory { memory, .. } => memory,
+            Self::Managed(m) => unsafe { m.memory() },
+            Self::VulkanMemory { memory, .. } => *memory,
         }
     }
     fn offset(&self) -> u64 {
@@ -638,7 +663,7 @@ impl BufferMemoryBacking {
 #[derive(Debug)]
 pub struct Buffer {
     raw: vk::Buffer,
-    block: Option<Mutex<BufferMemoryBacking>>,
+    allocation: Option<Mutex<BufferMemoryBacking>>,
 }
 impl Buffer {
     /// # Safety
@@ -648,7 +673,7 @@ impl Buffer {
     pub unsafe fn from_raw(vk_buffer: vk::Buffer) -> Self {
         Self {
             raw: vk_buffer,
-            block: None,
+            allocation: None,
         }
     }
     /// # Safety
@@ -663,7 +688,7 @@ impl Buffer {
     ) -> Self {
         Self {
             raw: vk_buffer,
-            block: Some(Mutex::new(BufferMemoryBacking::VulkanMemory {
+            allocation: Some(Mutex::new(BufferMemoryBacking::VulkanMemory {
                 memory,
                 offset,
                 size,
@@ -678,17 +703,28 @@ impl crate::DynBuffer for Buffer {}
 pub struct AccelerationStructure {
     raw: vk::AccelerationStructureKHR,
     buffer: vk::Buffer,
-    block: Mutex<gpu_alloc::MemoryBlock<vk::DeviceMemory>>,
+    allocation: gpu_allocator::vulkan::Allocation,
     compacted_size_query: Option<vk::QueryPool>,
 }
 
 impl crate::DynAccelerationStructure for AccelerationStructure {}
 
 #[derive(Debug)]
+pub enum TextureMemory {
+    // shared memory in GPU allocator (owned by wgpu-hal)
+    Allocation(gpu_allocator::vulkan::Allocation),
+
+    // dedicated memory (owned by wgpu-hal)
+    Dedicated(vk::DeviceMemory),
+
+    // memory not owned by wgpu
+    External,
+}
+
+#[derive(Debug)]
 pub struct Texture {
     raw: vk::Image,
-    external_memory: Option<vk::DeviceMemory>,
-    block: Option<gpu_alloc::MemoryBlock<vk::DeviceMemory>>,
+    memory: TextureMemory,
     format: wgt::TextureFormat,
     copy_size: crate::CopyExtent,
     identity: ResourceIdentity<vk::Image>,
@@ -710,9 +746,10 @@ impl Texture {
 
     /// # Safety
     ///
-    /// - The external memory must not be manually freed
-    pub unsafe fn external_memory(&self) -> Option<vk::DeviceMemory> {
-        self.external_memory
+    /// - The caller must not free the `vk::DeviceMemory` or
+    ///   `gpu_alloc::MemoryBlock` in the returned `TextureMemory`.
+    pub unsafe fn memory(&self) -> &TextureMemory {
+        &self.memory
     }
 }
 
@@ -720,7 +757,7 @@ impl Texture {
 pub struct TextureView {
     raw_texture: vk::Image,
     raw: vk::ImageView,
-    layers: NonZeroU32,
+    _layers: NonZeroU32,
     format: wgt::TextureFormat,
     raw_format: vk::Format,
     base_mip_level: u32,
@@ -953,6 +990,8 @@ pub struct CommandEncoder {
     temp_texture_views: FastHashMap<TempTextureViewKey, IdentifiedTextureView>,
 
     counters: Arc<wgt::HalCounters>,
+
+    current_pipeline_is_multiview: bool,
 }
 
 impl Drop for CommandEncoder {
@@ -1011,7 +1050,6 @@ pub struct CommandBuffer {
 impl crate::DynCommandBuffer for CommandBuffer {}
 
 #[derive(Debug)]
-#[allow(clippy::large_enum_variant)]
 pub enum ShaderModule {
     Raw(vk::ShaderModule),
     Intermediate {
@@ -1025,6 +1063,7 @@ impl crate::DynShaderModule for ShaderModule {}
 #[derive(Debug)]
 pub struct RenderPipeline {
     raw: vk::Pipeline,
+    is_multiview: bool,
 }
 
 impl crate::DynRenderPipeline for RenderPipeline {}

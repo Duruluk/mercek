@@ -7,14 +7,18 @@
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
-  IPProtectionWidget: "resource:///modules/ipprotection/IPProtection.sys.mjs",
+  IPProtectionWidget:
+    "moz-src:///browser/components/ipprotection/IPProtection.sys.mjs",
   IPProtectionPanel:
-    "resource:///modules/ipprotection/IPProtectionPanel.sys.mjs",
+    "moz-src:///browser/components/ipprotection/IPProtectionPanel.sys.mjs",
+  IPPProxyManager:
+    "moz-src:///browser/components/ipprotection/IPPProxyManager.sys.mjs",
 });
 
 /**
  * Tests that clicking toolbar button opens the panel,
- * and the panel contains a `<ipprotection-content>` element.
+ * the panel contains a `<ipprotection-content>` element,
+ * and the browser.ipProtection.everOpenedPanel pref is set
  */
 add_task(async function click_toolbar_button() {
   let button = document.getElementById(lazy.IPProtectionWidget.WIDGET_ID);
@@ -23,10 +27,24 @@ add_task(async function click_toolbar_button() {
     lazy.IPProtectionWidget.PANEL_ID
   );
 
+  let everOpenedPanel = Services.prefs.getBoolPref(
+    "browser.ipProtection.everOpenedPanel",
+    false
+  );
+
+  Assert.ok(!everOpenedPanel, "everOpenedPanel should be false");
+
   let panelShownPromise = waitForPanelEvent(document, "popupshown");
   // Open the panel
   button.click();
   await panelShownPromise;
+
+  everOpenedPanel = Services.prefs.getBoolPref(
+    "browser.ipProtection.everOpenedPanel",
+    false
+  );
+
+  Assert.ok(everOpenedPanel, "everOpenedPanel should be true");
 
   let component = panelView.querySelector(
     lazy.IPProtectionPanel.CONTENT_TAGNAME
@@ -37,8 +55,8 @@ add_task(async function click_toolbar_button() {
   );
 
   let header = panelView.querySelector(
-    lazy.IPProtectionPanel.CONTENT_TAGNAME
-  ).headerEl;
+    `#${lazy.IPProtectionPanel.HEADER_AREA_ID}`
+  );
   Assert.ok(
     BrowserTestUtils.isVisible(header),
     "ipprotection-header component should be present"
@@ -48,6 +66,8 @@ add_task(async function click_toolbar_button() {
   let panelHiddenPromise = waitForPanelEvent(document, "popuphidden");
   EventUtils.synthesizeKey("KEY_Escape");
   await panelHiddenPromise;
+
+  Services.prefs.clearUserPref("browser.ipProtection.everOpenedPanel");
 });
 
 /**
@@ -81,8 +101,8 @@ add_task(async function test_panel_in_new_window() {
   );
 
   let header = panelView.querySelector(
-    lazy.IPProtectionPanel.CONTENT_TAGNAME
-  ).headerEl;
+    `#${lazy.IPProtectionPanel.HEADER_AREA_ID}`
+  );
   Assert.ok(
     BrowserTestUtils.isVisible(header),
     "ipprotection-header component should be present"
@@ -116,4 +136,60 @@ add_task(async function test_close_panel() {
   await panelHiddenPromise;
 
   Assert.ok(!BrowserTestUtils.isVisible(panelView), "Panel should be closed");
+});
+
+add_task(async function test_user_enable_count() {
+  Services.prefs.clearUserPref("browser.ipProtection.userEnableCount");
+
+  let initialCount = Services.prefs.getIntPref(
+    "browser.ipProtection.userEnableCount",
+    0
+  );
+  Assert.equal(initialCount, 0, "userEnableCount should start at 0");
+
+  let startStub = sinon
+    .stub(lazy.IPPProxyManager, "start")
+    .resolves({ started: true });
+
+  let button = document.getElementById(lazy.IPProtectionWidget.WIDGET_ID);
+
+  let panelShownPromise = waitForPanelEvent(document, "popupshown");
+  button.click();
+  await panelShownPromise;
+
+  for (let i = 1; i <= 5; i++) {
+    document.dispatchEvent(
+      new CustomEvent("IPProtection:UserEnable", { bubbles: true })
+    );
+
+    let currentCount = Services.prefs.getIntPref(
+      "browser.ipProtection.userEnableCount",
+      0
+    );
+
+    let expectedCount = Math.min(i, 3);
+    Assert.equal(
+      currentCount,
+      expectedCount,
+      `userEnableCount should be ${expectedCount} after ${i} enable(s)`
+    );
+  }
+
+  let finalCount = Services.prefs.getIntPref(
+    "browser.ipProtection.userEnableCount",
+    0
+  );
+  Assert.equal(
+    finalCount,
+    3,
+    "userEnableCount should not exceed 3 even after 5 enables"
+  );
+
+  let panelHiddenPromise = waitForPanelEvent(document, "popuphidden");
+  EventUtils.synthesizeKey("KEY_Escape");
+  await panelHiddenPromise;
+
+  startStub.restore();
+  Services.prefs.clearUserPref("browser.ipProtection.userEnableCount");
+  Services.prefs.clearUserPref("browser.ipProtection.userEnabled");
 });

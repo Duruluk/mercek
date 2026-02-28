@@ -15,7 +15,9 @@ import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.FragmentManager
 import androidx.navigation.NavController
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.mapNotNull
@@ -52,6 +54,7 @@ class WebExtensionPromptFeature(
     private val onLinkClicked: (String, Boolean) -> Unit,
     private val navController: NavController,
     private val addonManager: AddonManager = context.components.addonManager,
+    private val mainDispatcher: CoroutineDispatcher = Dispatchers.Main,
 ) : LifecycleAwareFeature {
 
     /**
@@ -65,7 +68,7 @@ class WebExtensionPromptFeature(
      * and opens / closes tabs as needed.
      */
     override fun start() {
-        scope = store.flowScoped { flow ->
+        scope = store.flowScoped(dispatcher = mainDispatcher) { flow ->
             flow.mapNotNull { state ->
                 state.webExtensionPromptRequest
             }.distinctUntilChanged().collect { promptRequest ->
@@ -184,7 +187,7 @@ class WebExtensionPromptFeature(
 
             is WebExtensionInstallException.SoftBlocked -> {
                 url = formatBlocklistURL(exception)
-                context.getString(addonsR.string.mozac_feature_addons_soft_blocked_1, addonName, appName)
+                context.getString(addonsR.string.mozac_feature_addons_soft_blocked_2, addonName, appName)
             }
 
             is WebExtensionInstallException.UserCancelled -> {

@@ -28,7 +28,6 @@
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <sys/mman.h>
 #include <sys/prctl.h>
 #include <sys/ptrace.h>
@@ -39,7 +38,6 @@
 #include "mozilla/Array.h"
 #include "mozilla/Atomics.h"
 #include "mozilla/Attributes.h"
-#include "mozilla/Range.h"
 #include "mozilla/SandboxInfo.h"
 #include "mozilla/StackWalk.h"
 #include "mozilla/UniquePtr.h"

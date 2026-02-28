@@ -1,4 +1,5 @@
 [DEFAULT]
+subsuite = "integration"
 
 ["test_moved_origin_directory_cleanup.py"]
 

@@ -77,7 +77,7 @@
 
       &:has(input:checked) {
         background-color: var(--color-accent-primary);
-        border-color: var(--color-accent-primary);
+        border-color: var(--border-color-selected);
         color: var(--button-text-color-primary);
       }
 

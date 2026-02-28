@@ -117,6 +117,9 @@ class GeckoViewSupport final
   MOZ_CAN_RUN_SCRIPT void PrintToPdf(
       const java::GeckoSession::Window::LocalRef& inst,
       jni::Object::Param aStream);
+
+  // See nsIHapticFeedback::HapticFeedbackType for available effects.
+  void PerformHapticFeedback(int32_t aEffect);
 };
 
 }  // namespace widget

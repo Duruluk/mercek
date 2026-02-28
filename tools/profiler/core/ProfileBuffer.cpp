@@ -6,10 +6,10 @@
 
 #include "ProfileBuffer.h"
 
-#include "BaseProfiler.h"
 #include "js/ColumnNumber.h"  // JS::LimitedColumnNumberOneOrigin
 #include "js/GCAPI.h"
 #include "jsfriendapi.h"
+#include "mozilla/BaseProfiler.h"
 #include "nsJSPrincipals.h"
 #include "nsScriptSecurityManager.h"
 
@@ -196,9 +196,10 @@ void ProfileBufferCollector::CollectJitReturnAddr(void* aAddr) {
   mBuf.AddEntry(ProfileBufferEntry::JitReturnAddr(aAddr));
 }
 
-void ProfileBufferCollector::CollectWasmFrame(
-    JS::ProfilingCategoryPair aCategory, const char* aLabel) {
-  mBuf.CollectCodeLocation("", aLabel, 0, 0, 0, Nothing(), Nothing(),
+void ProfileBufferCollector::CollectWasmOrSyncJITFrame(
+    JS::ProfilingCategoryPair aCategory, const char* aLabel,
+    uint32_t aSourceId) {
+  mBuf.CollectCodeLocation("", aLabel, 0, 0, aSourceId, Nothing(), Nothing(),
                            Some(aCategory));
 }
 

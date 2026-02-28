@@ -142,11 +142,11 @@ events:
           custom_desktop_view_off, custom_desktop_view_on, custom_find_in_page,
           custom_forward, custom_forward_long_press, custom_share, desktop_view_off,
           desktop_view_on, discover_more_extensions, dismiss_menu_banner, downloads,
-          edit_bookmark, extensions_learn_more, find_in_page, forward, forward_long_press,
-          history, install_addon, installed_addon_details, menu_banner, new_tab, open_in_app,
-          open_in_fenix, print_content, quit, reader_mode_appearance, reload, remove_from_top_sites,
-          save_to_collection, set_default_browser, settings, share, stop, sync_account,
-          translate and web_extension_browser_action_clicked.
+          edit_bookmark, find_in_page, forward, forward_long_press, history, install_addon,
+          installed_addon_details, menu_banner, new_tab, open_in_app, open_in_fenix, print_content,
+          quit, reader_mode_appearance, reload, remove_from_top_sites, save_to_collection,
+          set_default_browser, settings, share, stop, sync_account, translate and
+          web_extension_browser_action_clicked.
         type: string
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/1024
@@ -296,7 +296,7 @@ events:
           show_search_shortcuts, open_links_in_a_private_tab, pref_key_sync_logins,
           pref_key_sync_bookmarks, pref_key_sync_history, pref_key_show_voice_search,
           pref_key_show_search_suggestions_in_private, pref_key_show_trending_search_suggestions,
-          pref_key_show_recent_search_suggestions, pref_key_show_shortcuts_suggestions.
+          pref_key_show_recent_search_suggestions.
         type: string
       enabled:
         description: "Whether or not the preference is *now* enabled"
@@ -344,8 +344,7 @@ events:
     extra_keys:
         source:
           description: |
-            The view the user was on when they tapped on "what's new" page button (For example:
-            `HOME`, `ABOUT` or `MENU`)
+            The view the user was on when they tapped on "what's new" page button (For example: `ABOUT`)
           type: string
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/5021
@@ -984,6 +983,12 @@ onboarding:
       value:
         type: boolean
         description: The crash reporting preference value.
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1933175
     data_reviews:
@@ -996,6 +1001,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   privacy_preferences_modal_usage_data_enabled:
     type: event
     description: The usage data preference value.
@@ -1003,6 +1011,12 @@ onboarding:
       value:
         type: boolean
         description: Whether the usage data option is enabled.
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1933175
     data_reviews:
@@ -1015,9 +1029,19 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   privacy_preferences_modal_crash_reporting_learn_more:
     type: event
     description: The privacy preferences model usage data "learn more" link used".
+    extra_keys:
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1943588
     data_reviews:
@@ -1030,9 +1054,19 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   privacy_preferences_modal_usage_data_learn_more:
     type: event
     description: The privacy preferences model crash reporting "learn more" link used".
+    extra_keys:
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1943588
     data_reviews:
@@ -1045,10 +1079,20 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   fxa_auto_signin:
     type: event
     description:
       The onboarding automatic sign in card was tapped.
+    extra_keys:
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/10824
     data_reviews:
@@ -1065,10 +1109,20 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   welcome_card_impression:
     type: event
     description:
       The welcome onboarding card was displayed to the user.
+    extra_keys:
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/26551
     data_reviews:
@@ -1082,10 +1136,20 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   welcome_close_clicked:
     type: event
     description:
       The user clicked the `X` button from the welcome onboarding card.
+    extra_keys:
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/26551
     data_reviews:
@@ -1099,11 +1163,21 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   welcome_get_started_clicked:
     type: event
     description:
       The user clicked the `Get started` button from the welcome onboarding
       card.
+    extra_keys:
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/26551
     data_reviews:
@@ -1117,10 +1191,20 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   sync_card_impression:
     type: event
     description:
       The sync sign in onboarding card was displayed to the user.
+    extra_keys:
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/26551
     data_reviews:
@@ -1134,10 +1218,20 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   sync_close_clicked:
     type: event
     description:
       The user clicked the `X` button from the sync sign in onboarding card.
+    extra_keys:
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/26551
     data_reviews:
@@ -1151,11 +1245,21 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   sync_sign_in_clicked:
     type: event
     description:
       The user clicked the `Sign in` button from the sync sign in
       onboarding card.
+    extra_keys:
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/26551
     data_reviews:
@@ -1169,10 +1273,20 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   sync_skip_clicked:
     type: event
     description:
       The user clicked the `Skip` button from the sign in onboarding card.
+    extra_keys:
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/26551
     data_reviews:
@@ -1186,6 +1300,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   set_to_default_card:
     type: event
     description: |
@@ -1207,6 +1324,12 @@ onboarding:
         type: string
         description: |
           Identifier for the sequence.
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1821726
     data_reviews:
@@ -1220,6 +1343,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   sign_in_card:
     type: event
     description: |
@@ -1241,6 +1367,12 @@ onboarding:
         type: string
         description: |
           Identifier for the sequence.
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1821726
     data_reviews:
@@ -1254,6 +1386,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   turn_on_notifications_card:
     type: event
     description: |
@@ -1275,6 +1410,12 @@ onboarding:
         type: string
         description: |
           Identifier for the sequence.
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1821726
     data_reviews:
@@ -1288,6 +1429,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   terms_of_service_card:
     type: event
     description: |
@@ -1309,6 +1453,12 @@ onboarding:
         type: string
         description: |
           Identifier for the sequence.
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1933253
     data_reviews:
@@ -1321,10 +1471,20 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   terms_of_service_link_clicked:
     type: event
     description: |
       User clicked the terms of service link on the onboarding card.
+    extra_keys:
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1933253
     data_reviews:
@@ -1337,10 +1497,20 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   terms_of_service_privacy_notice_link_clicked:
     type: event
     description: |
       User clicked the privacy policy link on the terms of service onboarding card.
+    extra_keys:
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1933253
     data_reviews:
@@ -1353,10 +1523,20 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   terms_of_service_manage_link_clicked:
     type: event
     description: |
       User clicked the manage link on the terms of service onboarding card.
+    extra_keys:
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1933253
     data_reviews:
@@ -1369,10 +1549,20 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   terms_of_service_accepted:
     type: event
     description: |
       User clicked accept button on the terms of service onboarding card.
+    extra_keys:
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1933253
     data_reviews:
@@ -1385,6 +1575,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   toolbar_placement_card:
     type: event
     description: |
@@ -1406,6 +1599,12 @@ onboarding:
         type: string
         description: |
           Identifier for the sequence.
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1926956
     data_sensitivity:
@@ -1418,6 +1617,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   theme_selection_card:
     type: event
     description: |
@@ -1439,6 +1641,12 @@ onboarding:
         type: string
         description: |
           Identifier for the sequence.
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1926955
     data_reviews:
@@ -1451,6 +1659,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   set_to_default:
     type: event
     description: |
@@ -1472,6 +1683,12 @@ onboarding:
         type: string
         description: |
           Identifier for the sequence.
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1821726
     data_reviews:
@@ -1485,6 +1702,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   skip_default:
     type: event
     description: |
@@ -1506,6 +1726,12 @@ onboarding:
         type: string
         description: |
           Identifier for the sequence.
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1821726
     data_reviews:
@@ -1519,6 +1745,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   sign_in:
     type: event
     description: |
@@ -1540,6 +1769,12 @@ onboarding:
         type: string
         description: |
           Identifier for the sequence.
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1821726
     data_reviews:
@@ -1553,6 +1788,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   skip_sign_in:
     type: event
     description: |
@@ -1574,6 +1812,12 @@ onboarding:
         type: string
         description: |
           Identifier for the sequence.
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1821726
     data_reviews:
@@ -1587,6 +1831,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   turn_on_notifications:
     type: event
     description: |
@@ -1608,6 +1855,12 @@ onboarding:
         type: string
         description: |
           Identifier for the sequence.
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1821726
     data_reviews:
@@ -1621,6 +1874,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   skip_turn_on_notifications:
     type: event
     description: |
@@ -1642,6 +1898,12 @@ onboarding:
         type: string
         description: |
           Identifier for the sequence.
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1821726
     data_reviews:
@@ -1655,6 +1917,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   add_search_widget_card:
     type: event
     description: |
@@ -1676,6 +1941,12 @@ onboarding:
         type: string
         description: |
           Identifier for the sequence.
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1848960
     data_reviews:
@@ -1689,6 +1960,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   add_search_widget:
     type: event
     description: |
@@ -1710,6 +1984,12 @@ onboarding:
         type: string
         description: |
           Identifier for the sequence.
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1848960
     data_reviews:
@@ -1723,6 +2003,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   skip_add_search_widget:
     type: event
     description: |
@@ -1744,6 +2027,12 @@ onboarding:
         type: string
         description: |
           Identifier for the sequence.
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1848960
     data_reviews:
@@ -1757,6 +2046,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   select_toolbar_placement:
     type: event
     description: |
@@ -1782,6 +2074,12 @@ onboarding:
         type: string
         description: |
           Identifier for the sequence.
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1926956
     data_reviews:
@@ -1794,6 +2092,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   select_theme:
     type: event
     description: |
@@ -1815,6 +2116,12 @@ onboarding:
         type: string
         description: |
           Identifier for the sequence.
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1935222
     data_reviews:
@@ -1827,6 +2134,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   privacy_policy:
     type: event
     description: |
@@ -1848,6 +2158,12 @@ onboarding:
         type: string
         description: |
           Identifier for the sequence.
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1821726
     data_reviews:
@@ -1861,6 +2177,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   completed:
     type: event
     description: |
@@ -1874,6 +2193,12 @@ onboarding:
         type: string
         description: |
           Identifier for the sequence.
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1821726
     data_reviews:
@@ -1887,10 +2212,20 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   started:
     type: event
     description: |
       User started onboarding.
+    extra_keys:
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1872968
     data_reviews:
@@ -1903,6 +2238,65 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
+  shown:
+    type: event
+    description: |
+      Triggered as soon as onboarding appears to the user after the Terms of Use is accepted.
+    extra_keys:
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010810
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D281286
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
+  dismissed:
+    type: event
+    description: |
+      Triggered as soon as the user exits onboarding
+    extra_keys:
+      method:
+        type: string
+        description: |
+          The method in which the user exits onboarding. The value should be either "skipped" or "completed". (The skip option is not implemented yet)
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010810
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D281286
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   marketing_data_continue_clicked:
     type: event
     description:
@@ -1912,6 +2306,12 @@ onboarding:
         type: boolean
         description: |
           Whether the user chose to opt in to marketing data collection.  True if the user opts in.
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1930758
     data_reviews:
@@ -1922,6 +2322,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   marketing_data_card_viewed:
     type: event
     description:
@@ -1943,6 +2346,12 @@ onboarding:
         type: string
         description: |
           Identifier for the sequence.
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1930758
     data_reviews:
@@ -1953,6 +2362,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   marketing_data_opt_in_toggled:
     type: event
     description: The user toggled the marketing data checkbox.
@@ -1960,6 +2372,12 @@ onboarding:
       opt_in:
         type: boolean
         description: Whether the user chose to opt in to marketing data collection.
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1930758
     data_reviews:
@@ -1970,9 +2388,19 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   marketing_data_learn_more:
     type: event
     description: The marketing data "learn more" link used".
+    extra_keys:
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1943588
     data_reviews:
@@ -1985,6 +2413,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   setup_checklist_task_clicked:
     type: event
     description: |
@@ -1994,6 +2425,12 @@ onboarding:
         type: string
         description: |
           The id of the set-up task that was clicked.
+      onboarding_reason:
+        type: string
+        description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1951909
     data_reviews:
@@ -2006,6 +2443,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
 
 terms_of_use:
   impression:
@@ -2342,6 +2782,74 @@ private_browsing_locked:
       - android-probes@mozilla.com
     expires: never
 
+privacy_notice_banner:
+  displayed_date:
+    type: datetime
+    lifetime: application
+    description: The timestamp when the user was shown the privacy notice banner.
+    time_unit: millisecond
+    send_in_pings:
+      - metrics
+    notification_emails:
+      - android-probes@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2004413
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D276081
+    expires: never
+
+  displayed:
+    type: event
+    description: The user was shown the privacy notice banner.
+    notification_emails:
+      - android-probes@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2004413
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D276081
+    data_sensitivity:
+      - interaction
+    expires: never
+
+  close_clicked:
+    type: event
+    description: The user clicked the 'x' to close the banner.
+    notification_emails:
+      - android-probes@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2004413
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D276081
+    data_sensitivity:
+      - interaction
+    expires: never
+
+  privacy_notice_link_clicked:
+    type: event
+    description: The user clicked the Privacy Notice link on the banner.
+    notification_emails:
+      - android-probes@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2004413
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D276081
+    data_sensitivity:
+      - interaction
+    expires: never
+
+  learn_more_link_clicked:
+    type: event
+    description: The user clicked the Learn More link on the banner.
+    notification_emails:
+      - android-probes@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2004413
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D276081
+    data_sensitivity:
+      - interaction
+    expires: never
+
 custom_review_prompt:
   prompt_displayed:
     type: event
@@ -2667,7 +3175,7 @@ metrics:
     description: >
       This event records an attempt to show the Set as Default Browser native prompt.
     send_in_pings:
-      - metrics
+      - events
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1923744
     data_reviews:
@@ -4193,6 +4701,46 @@ preferences:
       tags:
         - Toolbar
         - Settings
+  toolbar_simple_shortcut:
+    type: string
+    description: |
+      The toolbar shortcut used in simple toolbar.
+      Possible values are: new_tab, share, bookmark, translate, homepage or back.
+    send_in_pings:
+      - metrics
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2002636
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D274608
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Toolbar
+        - Settings
+  toolbar_expanded_shortcut:
+    type: string
+    description: |
+      The toolbar shortcut used in expanded toolbar.
+      Possible values are: bookmark, translate, homepage or back.
+    send_in_pings:
+      - metrics
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2002636
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D274608
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Toolbar
+        - Settings
 
   accessibility_services:
     type: string_list
@@ -5418,6 +5966,48 @@ settings:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1841152
     data_reviews:
       - https://github.com/mozilla-mobile/firefox-android/pull/2802
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Settings
+settings_search:
+  opened:
+    type: event
+    description: |
+      A user has opened the settings search screen.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1992006
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D271516
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Settings
+  search_result_clicked:
+    type: event
+    description: |
+      A user has clicked on a search result in the settings search screen.
+    extra_keys:
+      item_preference_key:
+        description: |
+          The preference key of the setting clicked on.
+        type: string
+      is_recent_search:
+        description: |
+          If the result item was in the recent searches category.
+        type: boolean
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1992006
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D271516
     data_sensitivity:
       - interaction
     notification_emails:
@@ -6656,7 +7246,68 @@ tabs_tray:
       - interaction
     expires: never
 
+tab_search:
+  tab_search_icon_clicked:
+    type: event
+    description: |
+      Recorded when the user clicked on the tab search icon to enter tab search mode.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1970705
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1994280
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1970705
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  navigate_back_icon_clicked:
+    type: event
+    description: |
+      Recorded when the user clicked on the navigate back icon to exit tab search mode.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1970705
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1994277
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1970705
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  result_clicked:
+    type: event
+    description: |
+      Recorded when a user clicked on a tab suggestion result
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1994284
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005595
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1994284
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+
 tab_strip:
+  enabled:
+    type: boolean
+    lifetime: application
+    description: |
+      Whether or not Tab Strip is enabled by the user.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1999344
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1999344
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Tabs
   new_tab_tapped:
     type: event
     description: |
@@ -7256,6 +7907,35 @@ tracking_protection:
     metadata:
       tags:
         - TrackingProtection
+
+trust_panel:
+  security_certificate:
+    type: event
+    description: |
+      A user pressed the secure connection button in the panel to view the certificate.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2006685
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D278697
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  qwac:
+    type: event
+    description: |
+      A user pressed the qwac button in the panel to view the certificate.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2011941
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D280094
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+
 tab:
   media_play:
     type: event
@@ -7804,6 +8484,164 @@ logins:
       tags:
         - Logins
 
+email_mask:
+  prompt_shown:
+    type: event
+    description:
+      Triggered when the user highlights sign up email field for users who can use the Email Mask service.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1977933
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D276942
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Autofill
+        - EmailMask
+  prompt_clicked:
+    type: event
+    description: Triggered when the 'Use email mask' prompt has been pressed by the user.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2014956
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D282626
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Autofill
+        - EmailMask
+  autofill_failed:
+    type: event
+    description:
+      Triggered when email mask autofill fails for any reason.
+    extra_keys:
+      error:
+        description:
+          The error causing email mask autofill to fail.
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1977933
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D276942
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Autofill
+        - EmailMask
+  autofill_success:
+    type: event
+    description:
+      Triggered when the user successfully autofills an email field with a masked email from Email Mask service.
+    extra_keys:
+      is_new_email_mask:
+        description:
+          Returns true if a new email mask was generated for the user. Returns false if a previous email mask was reused.
+        type: boolean
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1977933
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D276942
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Autofill
+        - EmailMask
+  setting_changed:
+    type: event
+    description:
+      Triggered when the user toggles the Email Mask setting on or off.
+    extra_keys:
+      setting:
+        type: string
+        description:
+          A unique settings key.
+      enabled:
+        type: boolean
+        description:
+          The set value.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1977933
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D276942
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Autofill
+        - EmailMask
+        - Settings
+  learn_more_tapped:
+    type: event
+    description:
+      Triggered when the user taps the "learn more" button in Settings for email masks.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1977933
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D276942
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Autofill
+        - EmailMask
+        - Settings
+  manage_tapped:
+    type: event
+    description:
+      Triggered when the user taps the external link in Settings to manage their email masks.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1977933
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D276942
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Autofill
+        - EmailMask
+        - Settings
+  get_or_create_failed:
+    type: event
+    description: Triggered when the get-or-create email mask operation fails.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2017025
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D283710
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+    metadata:
+      tags:
+        - Autofill
+        - EmailMask
+
 voice_search:
   tapped:
     type: event
@@ -8297,20 +9135,6 @@ shortcuts_library:
       tags:
         - Shortcuts
 app_menu:
-  customize_homepage:
-    type: event
-    description: |
-      User has tapped on Customize Homepage in the app menu.
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1841156
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1932894
-    data_reviews:
-      - https://github.com/mozilla-mobile/firefox-android/pull/2726
-    data_sensitivity:
-      - interaction
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
   sign_into_sync:
     type: counter
     description: |
@@ -8591,102 +9415,6 @@ stories_library:
       tags:
         - PocketIntegration
 first_session:
-  campaign:
-    type: string
-    send_in_pings:
-      - first-session
-    description: |
-      The name of the campaign that is responsible for this installation.
-    bugs:
-      - https://github.com/mozilla-mobile/fenix/issues/7295
-    data_reviews:
-      - https://github.com/mozilla-mobile/fenix/pull/8074#issuecomment-586512202
-      - https://github.com/mozilla-mobile/fenix/pull/15713#issuecomment-703972068
-      - https://github.com/mozilla-mobile/fenix/pull/19924#issuecomment-861423789
-      - https://github.com/mozilla-mobile/fenix/pull/20517#pullrequestreview-718069041
-      - https://github.com/mozilla-mobile/fenix/pull/21038#issuecomment-906757301
-    data_sensitivity:
-      - technical
-      - interaction
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
-    metadata:
-      tags:
-        - Performance
-        - Attribution
-  network:
-    type: string
-    send_in_pings:
-      - first-session
-    description: |
-      The name of the Network that sourced this installation.
-    bugs:
-      - https://github.com/mozilla-mobile/fenix/issues/7295
-    data_reviews:
-      - https://github.com/mozilla-mobile/fenix/pull/8074#issuecomment-586512202
-      - https://github.com/mozilla-mobile/fenix/pull/15713#issuecomment-703972068
-      - https://github.com/mozilla-mobile/fenix/pull/19924#issuecomment-861423789
-      - https://github.com/mozilla-mobile/fenix/pull/20517#pullrequestreview-718069041
-      - https://github.com/mozilla-mobile/fenix/pull/21038#issuecomment-906757301
-    data_sensitivity:
-      - technical
-      - interaction
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
-    metadata:
-      tags:
-        - Performance
-        - Attribution
-  adgroup:
-    type: string
-    send_in_pings:
-      - first-session
-    description: |
-      The name of the AdGroup that was used to source this installation.
-    bugs:
-      - https://github.com/mozilla-mobile/fenix/pull/8074#issuecomment-586512202
-    data_reviews:
-      - https://github.com/mozilla-mobile/fenix/pull/8074#issuecomment-586480836
-      - https://github.com/mozilla-mobile/fenix/pull/15713#issuecomment-703972068
-      - https://github.com/mozilla-mobile/fenix/pull/19924#issuecomment-861423789
-      - https://github.com/mozilla-mobile/fenix/pull/20517#pullrequestreview-718069041
-      - https://github.com/mozilla-mobile/fenix/pull/21038#issuecomment-906757301
-    data_sensitivity:
-      - technical
-      - interaction
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
-    metadata:
-      tags:
-        - Telemetry
-        - Attribution
-  creative:
-    send_in_pings:
-      - first-session
-    type: string
-    description: |
-      The identifier of the creative material that the user interacted with.
-    bugs:
-      - https://github.com/mozilla-mobile/fenix/issues/7295
-    data_reviews:
-      - https://github.com/mozilla-mobile/fenix/pull/8074#issuecomment-586512202
-      - https://github.com/mozilla-mobile/fenix/pull/15713#issuecomment-703972068
-      - https://github.com/mozilla-mobile/fenix/pull/19924#issuecomment-861423789
-      - https://github.com/mozilla-mobile/fenix/pull/20517#pullrequestreview-718069041
-      - https://github.com/mozilla-mobile/fenix/pull/21038#issuecomment-906757301
-    data_sensitivity:
-      - technical
-      - interaction
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
-    metadata:
-      tags:
-        - Performance
-        - Attribution
   distribution_id:
     type: string
     lifetime: application
@@ -8732,29 +9460,6 @@ first_session:
       tags:
         - Performance
         - Attribution
-  adjust_attribution_time:
-    type: timing_distribution
-    time_unit: millisecond
-    send_in_pings:
-      - first-session
-      - metrics
-    description: >
-      The time that it takes to derive the attribution parameters by
-      the Adjust SDK.
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1823492
-    data_reviews:
-      - https://github.com/mozilla-mobile/firefox-android/pull/1341#pullrequestreview-1354835757
-      - https://github.com/mozilla-mobile/firefox-android/pull/4039
-    data_sensitivity:
-      - technical
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
-    metadata:
-      tags:
-        - Performance
-        - Attribution
   install_source:
     type: string
     lifetime: application
@@ -8777,11 +9482,11 @@ first_session:
     expires: never
     no_lint:
       - BASELINE_PING
+
 play_store_attribution:
   install_referrer_response:
     type: text
     send_in_pings:
-      - first-session
       - play-store-attribution
     description: |
       The full install referrer response.
@@ -11058,22 +11763,6 @@ android_autofill:
     expires: never
 
 home_menu:
-  help_tapped:
-    type: event
-    description: The user clicked the help button in home menu.
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1858771
-    data_reviews:
-      - https://github.com/mozilla-mobile/firefox-android/pull/4066
-    data_sensitivity:
-      - interaction
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
-    metadata:
-      tags:
-        - Settings
-        - MainMenu
   settings_item_clicked:
     type: event
     description: The user clicked the settings option in home menu.
@@ -11170,20 +11859,6 @@ home_screen:
       - https://github.com/mozilla-mobile/fenix/pull/22377
       - https://github.com/mozilla-mobile/fenix/pull/27068#issuecomment-1251509973
       - https://github.com/mozilla-mobile/firefox-android/pull/3319
-    data_sensitivity:
-      - interaction
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
-  customize_home_clicked:
-    type: event
-    description: A user clicked on Customize home button from the home screen.
-    bugs:
-      - https://github.com/mozilla-mobile/fenix/pull/21344
-    data_reviews:
-      - https://github.com/mozilla-mobile/fenix/pull/21344
-      - https://github.com/mozilla-mobile/fenix/pull/21344#issuecomment-923198787
-      - https://github.com/mozilla-mobile/firefox-android/pull/2597
     data_sensitivity:
       - interaction
     notification_emails:
@@ -12857,6 +13532,28 @@ customization_settings:
     notification_emails:
       - android-probes@mozilla.com
     expires: never
+  toolbar_shortcut_selection:
+    type: event
+    description: When a toolbar shortcut is selected.
+    extra_keys:
+      toolbar_type:
+        description: |
+          Where the interaction occurred. One of: simple, expanded.
+        type: string
+      item:
+        description: |
+          A string containing the name of the shortcut the user selected. These items include:
+          new_tab, share, bookmark, translate, homepage, back
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2002636
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D274607
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
 
 app_icon_selection:
   app_icon_selection_confirmed:
@@ -12873,6 +13570,25 @@ app_icon_selection:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1979161
     data_reviews:
       - https://phabricator.services.mozilla.com/D260059
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  error_snackbar_shown:
+    type: event
+    description: When a error snackbar was shown signaling a system error while applying the new icon.
+    extra_keys:
+      old_icon:
+        description: The title of the currently used app icon.
+        type: string
+      new_icon:
+        description: The title of the app icon that the system tried and failed to apply.
+        type: string
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1955888
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D273375
     data_sensitivity:
       - interaction
     notification_emails:
@@ -12935,6 +13651,8 @@ nimbus_system:
           type: array
           items:
             type: string
+        tou_points:
+          type: number
     description: |
       The Nimbus context object that is recorded to Glean
     bugs:
@@ -12945,6 +13663,7 @@ nimbus_system:
       - 'https://bugzilla.mozilla.org/show_bug.cgi?id=1984639'
       - 'https://bugzilla.mozilla.org/show_bug.cgi?id=1991528'
       - 'https://bugzilla.mozilla.org/show_bug.cgi?id=1993034'
+      - 'https://bugzilla.mozilla.org/show_bug.cgi?id=1992306'
     data_reviews:
       - 'https://bugzilla.mozilla.org/show_bug.cgi?id=1898552#c3'
       - 'https://phabricator.services.mozilla.com/D258942'
@@ -12953,6 +13672,7 @@ nimbus_system:
       - 'https://phabricator.services.mozilla.com/D262139'
       - 'https://phabricator.services.mozilla.com/D268391'
       - 'https://phabricator.services.mozilla.com/D268931'
+      - 'https://phabricator.services.mozilla.com/D270859'
     data_sensitivity:
       - interaction
     notification_emails:
@@ -12973,84 +13693,6 @@ partnerships:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1912325
     data_reviews:
       - https://phabricator.services.mozilla.com/D218866
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
-  dt_001_detected:
-    type: event
-    description: |
-      When a dt-001 preinstall is detected using the DefaultDistributionProviderChecker
-    data_sensitivity:
-      - technical
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1968291
-    data_reviews:
-      - https://phabricator.services.mozilla.com/D252908
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
-  dt_002_detected:
-    type: event
-    description: |
-      When a dt-002 preinstall is detected using the DefaultDistributionProviderChecker
-    data_sensitivity:
-      - technical
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1968291
-    data_reviews:
-      - https://phabricator.services.mozilla.com/D252908
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
-  dt_003_detected:
-    type: event
-    description: |
-      When a dt-003 preinstall is detected using the DefaultDistributionProviderChecker
-    data_sensitivity:
-      - technical
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1968291
-    data_reviews:
-      - https://phabricator.services.mozilla.com/D252908
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
-  dt_001_legacy_detected:
-    type: event
-    description: |
-      When a dt-001 preinstall is detected using the LegacyDistributionProviderChecker
-    data_sensitivity:
-      - technical
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1968291
-    data_reviews:
-      - https://phabricator.services.mozilla.com/D252908
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
-  dt_002_legacy_detected:
-    type: event
-    description: |
-      When a dt-002 preinstall is detected using the LegacyDistributionProviderChecker
-    data_sensitivity:
-      - technical
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1968291
-    data_reviews:
-      - https://phabricator.services.mozilla.com/D252908
-    notification_emails:
-      - android-probes@mozilla.com
-    expires: never
-  dt_003_legacy_detected:
-    type: event
-    description: |
-      When a dt-003 preinstall is detected using the LegacyDistributionProviderChecker
-    data_sensitivity:
-      - technical
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1968291
-    data_reviews:
-      - https://phabricator.services.mozilla.com/D252908
     notification_emails:
       - android-probes@mozilla.com
     expires: never
@@ -13949,6 +14591,21 @@ broken_site_report.browser_info.security:
       - broken-site-report
 
 webcompatreporting:
+  previewed:
+    type: event
+    description: |
+      The user clicked the report preview button.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1992050
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D267154
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - twisniewski@mozilla.com
+      - android-probes@mozilla.com
+      - webcompat-reporting-tool-telemetry@mozilla.com
+    expires: never
   reason_dropdown:
     type: string
     description: |
@@ -13982,10 +14639,10 @@ webcompatreporting:
         description: >
           Whether the user opted into including blocked tracker origins.
         type: boolean
-  send_more_info:
+  add_more_info:
     type: event
     description: |
-      Recorded when a user clicks on the Send More Info link in the reporting UI
+      Recorded when a user clicks on the Add More Info link in the reporting UI
       The user will be redirected to webcompat.com to submit a more comprehensive report.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1932462
@@ -14214,6 +14871,19 @@ downloads:
     notification_emails:
       - android-probes@mozilla.com
     expires: never
+  rename_file:
+    type: event
+    description: |
+      A user renamed a downloaded file.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2002257
+    data_reviews:
+      - https://phabricator.services.mozilla.com/D280509
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
   pause_download:
     type: event
     description: |
@@ -14310,6 +14980,32 @@ client_association:
       - fx-accounts
 
 toolbar:
+  cfr_shown:
+    type: event
+    description: |
+      Toolbar cfr was shown to the user.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2000490
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2000490
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
+  cfr_dismissed:
+    type: event
+    description: |
+      Toolbar cfr was dismissed by the user.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2000490
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2000490
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - android-probes@mozilla.com
+    expires: never
   button_tapped:
     type: event
     description: |
@@ -14328,7 +15024,7 @@ toolbar:
           add_new_tab, add_new_tab_long_press, add_new_private_tab, tab_counter, tab_counter_long_press,
           menu, share, clear, refresh, stop, add_bookmark, edit_bookmark, security_indicator, qr_code,
           home, reader_mode, microphone, open_in_fenix, close, site_custom, search_engine_selector,
-          search_engine_selected.
+          search_engine_selected, translate.
         type: string
       extra:
         description: |

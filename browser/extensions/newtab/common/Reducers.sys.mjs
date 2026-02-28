@@ -130,10 +130,6 @@ export const INITIAL_STATE = {
     // For can be a queue in the future, but for now is one item
     toastQueue: [],
   },
-  Personalization: {
-    lastUpdated: null,
-    initialized: false,
-  },
   InferredPersonalization: {
     initialized: false,
     lastUpdated: null,
@@ -156,11 +152,15 @@ export const INITIAL_STATE = {
     categories: [],
     uploadedWallpaper: "",
   },
+  SectionsLayout: {
+    configs: {},
+  },
   Weather: {
     initialized: false,
     lastUpdated: null,
     query: "",
     suggestions: [],
+    hourlyForecasts: [],
     locationData: {
       city: "",
       adminArea: "",
@@ -170,10 +170,6 @@ export const INITIAL_STATE = {
     searchActive: false,
     locationSearchString: "",
     suggestedLocations: [],
-  },
-  TrendingSearch: {
-    suggestions: [],
-    collapsed: false,
   },
   // Widgets
   ListsWidget: {
@@ -208,6 +204,9 @@ export const INITIAL_STATE = {
       startTime: null,
       isRunning: false,
     },
+  },
+  ExternalComponents: {
+    components: [],
   },
 };
 
@@ -601,7 +600,7 @@ function Messages(prevState = INITIAL_STATE.Messages, action) {
         portID: action.data.portID || "",
       };
     case at.MESSAGE_TOGGLE_VISIBILITY:
-      return { ...prevState, isVisible: action.data };
+      return { ...prevState, isVisible: action.data.isVisible };
     default:
       return prevState;
   }
@@ -621,25 +620,6 @@ function Pocket(prevState = INITIAL_STATE.Pocket, action) {
           useCta: action.data.use_cta,
         },
       };
-    default:
-      return prevState;
-  }
-}
-
-function Personalization(prevState = INITIAL_STATE.Personalization, action) {
-  switch (action.type) {
-    case at.DISCOVERY_STREAM_PERSONALIZATION_LAST_UPDATED:
-      return {
-        ...prevState,
-        lastUpdated: action.data.lastUpdated,
-      };
-    case at.DISCOVERY_STREAM_PERSONALIZATION_INIT:
-      return {
-        ...prevState,
-        initialized: true,
-      };
-    case at.DISCOVERY_STREAM_PERSONALIZATION_RESET:
-      return { ...INITIAL_STATE.Personalization };
     default:
       return prevState;
   }
@@ -1020,6 +1000,15 @@ function Wallpapers(prevState = INITIAL_STATE.Wallpapers, action) {
   }
 }
 
+function SectionsLayout(prevState = INITIAL_STATE.SectionsLayout, action) {
+  switch (action.type) {
+    case at.SECTIONS_LAYOUT_UPDATE:
+      return { ...prevState, configs: action.data.configs };
+    default:
+      return prevState;
+  }
+}
+
 function Notifications(prevState = INITIAL_STATE.Notifications, action) {
   switch (action.type) {
     case at.SHOW_TOAST_MESSAGE:
@@ -1054,7 +1043,8 @@ function Weather(prevState = INITIAL_STATE.Weather, action) {
       return {
         ...prevState,
         suggestions: action.data.suggestions,
-        lastUpdated: action.data.date,
+        hourlyForecasts: action.data.hourlyForecasts || [],
+        lastUpdated: action.data.lastUpdated,
         locationData: action.data.locationData || prevState.locationData,
         initialized: true,
       };
@@ -1091,17 +1081,6 @@ function Ads(prevState = INITIAL_STATE.Ads, action) {
       };
     case at.ADS_RESET:
       return { ...INITIAL_STATE.Ads };
-    default:
-      return prevState;
-  }
-}
-
-function TrendingSearch(prevState = INITIAL_STATE.TrendingSearch, action) {
-  switch (action.type) {
-    case at.TRENDING_SEARCH_UPDATE:
-      return { ...prevState, suggestions: action.data };
-    case at.TRENDING_SEARCH_TOGGLE_COLLAPSE:
-      return { ...prevState, collapsed: action.data.collapsed };
     default:
       return prevState;
   }
@@ -1194,6 +1173,18 @@ function ListsWidget(prevState = INITIAL_STATE.ListsWidget, action) {
   }
 }
 
+function ExternalComponents(
+  prevState = INITIAL_STATE.ExternalComponents,
+  action
+) {
+  switch (action.type) {
+    case at.REFRESH_EXTERNAL_COMPONENTS:
+      return { ...prevState, components: action.data };
+    default:
+      return prevState;
+  }
+}
+
 export const reducers = {
   TopSites,
   App,
@@ -1204,13 +1195,13 @@ export const reducers = {
   Messages,
   Notifications,
   Pocket,
-  Personalization,
   InferredPersonalization,
   DiscoveryStream,
   Search,
   TimerWidget,
   ListsWidget,
-  TrendingSearch,
   Wallpapers,
+  SectionsLayout,
   Weather,
+  ExternalComponents,
 };

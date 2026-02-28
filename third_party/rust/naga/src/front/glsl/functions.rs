@@ -355,7 +355,6 @@ impl Frontend {
         ctx.add_expression(Expression::Compose { ty, components }, meta)
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn vector_constructor(
         &mut self,
         ctx: &mut Context,
@@ -513,7 +512,6 @@ impl Frontend {
         ctx.add_expression(Expression::Compose { ty, components }, meta)
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn function_call(
         &mut self,
         ctx: &mut Context,
@@ -1377,6 +1375,9 @@ impl Frontend {
                 result: ty.map(|ty| FunctionResult { ty, binding: None }),
                 ..Default::default()
             },
+            mesh_info: None,
+            task_payload: None,
+            incoming_ray_payload: None,
         });
 
         Ok(())
@@ -1446,6 +1447,7 @@ impl Context<'_> {
                         interpolation,
                         sampling: None,
                         blend_src: None,
+                        per_primitive: false,
                     };
                     location += 1;
 
@@ -1482,6 +1484,7 @@ impl Context<'_> {
                                 interpolation,
                                 sampling: None,
                                 blend_src: None,
+                                per_primitive: false,
                             };
                             location += 1;
                             binding

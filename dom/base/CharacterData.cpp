@@ -404,34 +404,22 @@ nsresult CharacterData::BindToTree(BindContext& aContext, nsINode& aParent) {
   }
   MOZ_ASSERT(!!GetParent() == aParent.IsContent());
 
-  if (aParent.IsInUncomposedDoc() || aParent.IsInShadowTree()) {
-    // We no longer need to track the subtree pointer (and in fact we'll assert
-    // if we do this any later).
-    ClearSubtreeRootPointer();
-    SetIsConnected(aParent.IsInComposedDoc());
-
-    if (aParent.IsInUncomposedDoc()) {
-      SetIsInDocument();
-    } else {
-      SetFlags(NODE_IS_IN_SHADOW_TREE);
-      MOZ_ASSERT(aParent.IsContent() &&
-                 aParent.AsContent()->GetContainingShadow());
-      ExtendedContentSlots()->mContainingShadow =
-          aParent.AsContent()->GetContainingShadow();
-    }
-
-    if (IsInComposedDoc() && mBuffer.IsBidi()) {
+  SetSubtreeRootPointer(aParent.SubtreeRoot());
+  const bool connected = aParent.IsInComposedDoc();
+  SetIsConnected(connected);
+  if (connected) {
+    // Clear the lazy frame construction bits.
+    // XXX Why here?
+    UnsetFlags(NODE_NEEDS_FRAME | NODE_DESCENDANTS_NEED_FRAMES);
+    if (mBuffer.IsBidi()) {
       aContext.OwnerDoc().SetBidiEnabled();
     }
-
-    // Clear the lazy frame construction bits.
-    UnsetFlags(NODE_NEEDS_FRAME | NODE_DESCENDANTS_NEED_FRAMES);
-  } else {
-    // If we're not in the doc and not in a shadow tree,
-    // update our subtree pointer.
-    SetSubtreeRootPointer(aParent.SubtreeRoot());
   }
-
+  if (aParent.IsInUncomposedDoc()) {
+    SetIsInDocument();
+  } else if (aParent.IsInShadowTree()) {
+    SetFlags(NODE_IS_IN_SHADOW_TREE);
+  }
   MutationObservers::NotifyParentChainChanged(this);
 
   UpdateEditableState(false);
@@ -472,14 +460,9 @@ void CharacterData::UnbindFromTree(UnbindContext& aContext) {
 
   if (nullParent || !mParent->IsInShadowTree()) {
     UnsetFlags(NODE_IS_IN_SHADOW_TREE);
-
-    // Begin keeping track of our subtree root.
-    SetSubtreeRootPointer(nullParent ? this : mParent->SubtreeRoot());
-
-    if (nsExtendedContentSlots* slots = GetExistingExtendedContentSlots()) {
-      slots->mContainingShadow = nullptr;
-    }
   }
+
+  SetSubtreeRootPointer(nullParent ? this : mParent->SubtreeRoot());
 
   MutationObservers::NotifyParentChainChanged(this);
 
@@ -533,21 +516,64 @@ bool CharacterData::ThreadSafeTextIsOnlyWhitespace() const {
     return HasFlag(NS_TEXT_IS_ONLY_WHITESPACE);
   }
 
-  const char* cp = mBuffer.Get1b();
-  const char* end = cp + mBuffer.GetLength();
+  return CheckTextIsOnlyWhitespace(0, mBuffer.GetLength());
+}
 
-  while (cp < end) {
-    char ch = *cp;
+bool CharacterData::TextStartsWithOnlyWhitespace(uint32_t aOffset) const {
+  MOZ_ASSERT(aOffset <= mBuffer.GetLength());
 
-    // NOTE(emilio): If you ever change the definition of "whitespace" here, you
-    // need to change it too in RestyleManager::CharacterDataChanged.
-    if (!dom::IsSpaceCharacter(ch)) {
-      return false;
-    }
-
-    ++cp;
+  if (HasFlag(NS_CACHED_TEXT_IS_ONLY_WHITESPACE) &&
+      HasFlag(NS_TEXT_IS_ONLY_WHITESPACE)) {
+    return true;
   }
 
+  return CheckTextIsOnlyWhitespace(0, aOffset);
+}
+
+bool CharacterData::TextEndsWithOnlyWhitespace(uint32_t aOffset) const {
+  MOZ_ASSERT(aOffset <= mBuffer.GetLength());
+
+  if (HasFlag(NS_CACHED_TEXT_IS_ONLY_WHITESPACE) &&
+      HasFlag(NS_TEXT_IS_ONLY_WHITESPACE)) {
+    return true;
+  }
+
+  return CheckTextIsOnlyWhitespace(aOffset, mBuffer.GetLength());
+}
+
+bool CharacterData::CheckTextIsOnlyWhitespace(uint32_t aStartOffset,
+                                              uint32_t aEndOffset) const {
+  if (mBuffer.Is2b()) {
+    const char16_t* cp = mBuffer.Get2b() + aStartOffset;
+    const char16_t* end = mBuffer.Get2b() + aEndOffset;
+
+    while (cp < end) {
+      char16_t ch = *cp;
+
+      // NOTE(emilio): If you ever change the definition of "whitespace" here,
+      // you need to change it too in RestyleManager::CharacterDataChanged.
+      if (!dom::IsSpaceCharacter(ch)) {
+        return false;
+      }
+
+      ++cp;
+    }
+  } else {
+    const char* cp = mBuffer.Get1b() + aStartOffset;
+    const char* end = mBuffer.Get1b() + aEndOffset;
+
+    while (cp < end) {
+      char ch = *cp;
+
+      // NOTE(emilio): If you ever change the definition of "whitespace" here,
+      // you need to change it too in RestyleManager::CharacterDataChanged.
+      if (!dom::IsSpaceCharacter(ch)) {
+        return false;
+      }
+
+      ++cp;
+    }
+  }
   return true;
 }
 

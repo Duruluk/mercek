@@ -24,6 +24,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   AttributionCode:
     "moz-src:///browser/components/attribution/AttributionCode.sys.mjs",
   ProfileAge: "resource://gre/modules/ProfileAge.sys.mjs",
+  SearchService: "moz-src:///toolkit/components/search/SearchService.sys.mjs",
   WindowsRegistry: "resource://gre/modules/WindowsRegistry.sys.mjs",
   WindowsVersionInfo:
     "resource://gre/modules/components-utils/WindowsVersionInfo.sys.mjs",
@@ -118,11 +119,11 @@ export var TelemetryEnvironment = {
    * If an annotation with the same id already exists, it will be overwritten.
    * This triggers a new subsession, subject to throttling.
    *
-   * @param {String} id The id of the active experiment.
-   * @param {String} branch The experiment branch.
-   * @param {Object} [options] Optional object with options.
-   * @param {String} [options.type=false] The specific experiment type.
-   * @param {String} [options.enrollmentId=undefined] The id of the enrollment.
+   * @param {string} id The id of the active experiment.
+   * @param {string} branch The experiment branch.
+   * @param {object} [options] Optional object with options.
+   * @param {string} [options.type=false] The specific experiment type.
+   * @param {string} [options.enrollmentId=undefined] The id of the enrollment.
    */
   setExperimentActive(id, branch, options = {}) {
     if (gGlobalEnvironment) {
@@ -136,7 +137,7 @@ export var TelemetryEnvironment = {
    * Remove an experiment annotation from the environment.
    * If the annotation exists, a new subsession will triggered.
    *
-   * @param {String} id The id of the active experiment.
+   * @param {string} id The id of the active experiment.
    */
   setExperimentInactive(id) {
     if (gGlobalEnvironment) {
@@ -255,16 +256,8 @@ const DEFAULT_ENVIRONMENT_PREFS = new Map([
     "browser.urlbar.dnsResolveSingleWordsAfterSearch",
     { what: RECORD_DEFAULTPREF_VALUE },
   ],
-  [
-    "browser.urlbar.quicksuggest.dataCollection.enabled",
-    { what: RECORD_DEFAULTPREF_VALUE },
-  ],
   ["browser.urlbar.showSearchSuggestionsFirst", { what: RECORD_PREF_VALUE }],
   ["browser.urlbar.showSearchTerms.enabled", { what: RECORD_PREF_VALUE }],
-  [
-    "browser.urlbar.suggest.quicksuggest.nonsponsored",
-    { what: RECORD_DEFAULTPREF_VALUE },
-  ],
   [
     "browser.urlbar.suggest.quicksuggest.sponsored",
     { what: RECORD_DEFAULTPREF_VALUE },
@@ -289,7 +282,6 @@ const DEFAULT_ENVIRONMENT_PREFS = new Map([
     { what: RECORD_PREF_VALUE },
   ],
   ["extensions.formautofill.creditCards.enabled", { what: RECORD_PREF_VALUE }],
-  ["extensions.manifestV3.enabled", { what: RECORD_PREF_VALUE }],
   ["extensions.quarantinedDomains.enabled", { what: RECORD_PREF_VALUE }],
   ["extensions.strictCompatibility", { what: RECORD_PREF_VALUE }],
   ["extensions.update.enabled", { what: RECORD_PREF_VALUE }],
@@ -408,6 +400,7 @@ const SERVICES_INFO_CHANGE_TOPIC = "sync-ui-state:update";
 
 /**
  * Get the current browser locale.
+ *
  * @return a string with the locale or null on failure.
  */
 function getBrowserLocale() {
@@ -420,6 +413,7 @@ function getBrowserLocale() {
 
 /**
  * Get the current OS locale.
+ *
  * @return a string with the OS locale or null on failure.
  */
 function getSystemLocale() {
@@ -434,6 +428,7 @@ function getSystemLocale() {
 
 /**
  * Get the current OS locales.
+ *
  * @return an array of strings with the OS locales or null on failure.
  */
 function getSystemLocales() {
@@ -448,6 +443,7 @@ function getSystemLocales() {
 
 /**
  * Get the current OS regional preference locales.
+ *
  * @return an array of strings with the OS regional preference locales or null on failure.
  */
 function getRegionalPrefsLocales() {
@@ -520,10 +516,10 @@ function getGfxField(aPropertyName, aDefault) {
 /**
  * Returns a substring of the input string.
  *
- * @param {String} aString The input string.
+ * @param {string} aString The input string.
  * @param {Integer} aMaxLength The maximum length of the returned substring. If this is
  *        greater than the length of the input string, we return the whole input string.
- * @return {String} The substring or null if the input string is null.
+ * @return {string} The substring or null if the input string is null.
  */
 function limitStringToLength(aString, aMaxLength) {
   if (typeof aString !== "string") {
@@ -653,6 +649,7 @@ EnvironmentCache.prototype = {
   /**
    * The current environment data. The returned data is cloned to avoid
    * unexpected sharing or mutation.
+   *
    * @returns object
    */
   get currentEnvironment() {
@@ -661,6 +658,7 @@ EnvironmentCache.prototype = {
 
   /**
    * Wait for the current enviroment to be fully initialized.
+   *
    * @returns Promise<object>
    */
   onInitialized() {
@@ -738,6 +736,7 @@ EnvironmentCache.prototype = {
 
   /**
    * Register a listener for environment changes.
+   *
    * @param name The name of the listener. If a new listener is registered
    *             with the same name, the old listener will be replaced.
    * @param listener function(reason, oldEnvironment) - Will receive a reason for
@@ -755,6 +754,7 @@ EnvironmentCache.prototype = {
   /**
    * Unregister from listening to environment changes.
    * It's fine to call this on an unitialized TelemetryEnvironment.
+   *
    * @param name The name of the listener to remove.
    */
   unregisterChangeListener(name) {
@@ -862,6 +862,7 @@ EnvironmentCache.prototype = {
 
   /**
    * Only used in tests, set the preferences to watch.
+   *
    * @param aPreferences A map of preferences names and their recording policy.
    */
   _watchPreferences(aPreferences) {
@@ -893,6 +894,7 @@ EnvironmentCache.prototype = {
 
   /**
    * Get the value of a preference given the preference name and the policy.
+   *
    * @param pref Name of the preference.
    * @param what Policy of the preference.
    *
@@ -1010,8 +1012,7 @@ EnvironmentCache.prototype = {
         }
         if (
           aData == "engine-changed" &&
-          aSubject.QueryInterface(Ci.nsISearchEngine) &&
-          Services.search.defaultEngine != aSubject
+          lazy.SearchService.defaultEngine != aSubject.wrappedJSObject
         ) {
           return;
         }
@@ -1048,7 +1049,7 @@ EnvironmentCache.prototype = {
         this._sessionWasRestored = true;
         // Make sure to initialize the search service once we've done restoring
         // the windows, so that we don't risk loosing search data.
-        Services.search.init();
+        lazy.SearchService.init();
         // The default browser check could take some time, so just call it after
         // the session was restored.
         this._updateDefaultBrowser();
@@ -1088,9 +1089,9 @@ EnvironmentCache.prototype = {
     }
 
     this._log.trace(
-      "_updateSearchEngine - isInitialized: " + Services.search.isInitialized
+      "_updateSearchEngine - isInitialized: " + lazy.SearchService.isInitialized
     );
-    if (!Services.search.isInitialized) {
+    if (!lazy.SearchService.isInitialized) {
       return;
     }
 
@@ -1098,7 +1099,7 @@ EnvironmentCache.prototype = {
     this._currentEnvironment.settings = this._currentEnvironment.settings || {};
 
     // Update the search engine entry in the current environment.
-    const defaultEngineInfo = Services.search.getDefaultEngineInfo();
+    const defaultEngineInfo = lazy.SearchService.getDefaultEngineInfo();
     this._currentEnvironment.settings.defaultSearchEngine =
       defaultEngineInfo.defaultSearchEngine;
     this._currentEnvironment.settings.defaultSearchEngineData = {
@@ -1166,6 +1167,7 @@ EnvironmentCache.prototype = {
 
   /**
    * Get the build data in object form.
+   *
    * @return Object containing the build data.
    */
   _getBuild() {
@@ -1190,6 +1192,7 @@ EnvironmentCache.prototype = {
 
   /**
    * Determine if we're the default browser.
+   *
    * @returns null on error, true if we are the default browser, or false otherwise.
    */
   _isDefaultBrowser() {
@@ -1354,6 +1357,7 @@ EnvironmentCache.prototype = {
 
   /**
    * Update the cached profile data.
+   *
    * @returns Promise<> resolved when the I/O is complete.
    */
   async _updateProfile() {
@@ -1392,6 +1396,7 @@ EnvironmentCache.prototype = {
 
   /**
    * Load the attribution data object and updates the environment.
+   *
    * @returns Promise<> resolved when the I/O is complete.
    */
   async _loadAttributionAsync() {
@@ -1437,6 +1442,7 @@ EnvironmentCache.prototype = {
       ua: attributionData.ua,
       dltoken: attributionData.dltoken,
       msstoresignedin: attributionData.msstoresignedin,
+      msclkid: attributionData.msclkid,
       dlsource: attributionData.dlsource,
     };
     Services.fog.updateAttribution(
@@ -1486,6 +1492,7 @@ EnvironmentCache.prototype = {
 
   /**
    * Get i18n data about the system.
+   *
    * @return A promise of completion.
    */
   async _loadIntlData() {
@@ -1535,6 +1542,7 @@ EnvironmentCache.prototype = {
 
   /**
    * Get the partner data in object form.
+   *
    * @return Object containing the partner data.
    */
   _getPartner() {
@@ -1571,6 +1579,7 @@ EnvironmentCache.prototype = {
   _cpuData: null,
   /**
    * Get the CPU information.
+   *
    * @return Object containing the CPU information data.
    */
   _getCPUData() {
@@ -1617,6 +1626,7 @@ EnvironmentCache.prototype = {
   _processData: null,
   /**
    * Get the process information.
+   *
    * @return Object containing the process information data.
    */
   _getProcessData() {
@@ -1629,6 +1639,7 @@ EnvironmentCache.prototype = {
   _osData: null,
   /**
    * Get the OS information.
+   *
    * @return Object containing the OS data.
    */
   _getOSData() {
@@ -1695,6 +1706,7 @@ EnvironmentCache.prototype = {
   _hddData: null,
   /**
    * Get the HDD information.
+   *
    * @return Object containing the HDD data.
    */
   _getHDDData() {
@@ -1707,6 +1719,7 @@ EnvironmentCache.prototype = {
 
   /**
    * Get registered security product information.
+   *
    * @return Object containing the security product data
    */
   _getSecurityAppData() {
@@ -1735,6 +1748,7 @@ EnvironmentCache.prototype = {
 
   /**
    * Get the GFX information.
+   *
    * @return Object containing the GFX data.
    */
   _getGFXData() {
@@ -1821,6 +1835,7 @@ EnvironmentCache.prototype = {
 
   /**
    * Get the system data in object form.
+   *
    * @return Object containing the system data.
    */
   _getSystem() {

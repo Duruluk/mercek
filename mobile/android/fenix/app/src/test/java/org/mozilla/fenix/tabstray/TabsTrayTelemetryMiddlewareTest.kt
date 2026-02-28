@@ -5,7 +5,8 @@
 package org.mozilla.fenix.tabstray
 
 import io.mockk.mockk
-import mozilla.components.support.test.libstate.ext.waitUntilIdle
+import junit.framework.TestCase
+import mozilla.components.browser.state.state.createTab
 import mozilla.components.support.test.robolectric.testContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -15,9 +16,14 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mozilla.fenix.GleanMetrics.Metrics
+import org.mozilla.fenix.GleanMetrics.TabSearch
 import org.mozilla.fenix.GleanMetrics.TabsTray
 import org.mozilla.fenix.helpers.FenixGleanTestRule
 import org.mozilla.fenix.nimbus.FakeNimbusEventStore
+import org.mozilla.fenix.tabstray.redux.action.TabSearchAction
+import org.mozilla.fenix.tabstray.redux.action.TabsTrayAction
+import org.mozilla.fenix.tabstray.redux.state.TabsTrayState
+import org.mozilla.fenix.tabstray.redux.store.TabsTrayStore
 import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class) // for gleanTestRule
@@ -45,7 +51,6 @@ class TabsTrayTelemetryMiddlewareTest {
         assertNull(Metrics.inactiveTabsCount.testGetValue())
 
         store.dispatch(TabsTrayAction.UpdateInactiveTabs(emptyList()))
-        store.waitUntilIdle()
         assertNotNull(TabsTray.hasInactiveTabs.testGetValue())
         assertNotNull(Metrics.inactiveTabsCount.testGetValue())
         assertEquals(0L, Metrics.inactiveTabsCount.testGetValue())
@@ -56,7 +61,6 @@ class TabsTrayTelemetryMiddlewareTest {
         assertNull(TabsTray.enterMultiselectMode.testGetValue())
 
         store.dispatch(TabsTrayAction.EnterSelectMode)
-        store.waitUntilIdle()
 
         assertNotNull(TabsTray.enterMultiselectMode.testGetValue())
         val snapshot = TabsTray.enterMultiselectMode.testGetValue()!!
@@ -67,7 +71,6 @@ class TabsTrayTelemetryMiddlewareTest {
     @Test
     fun `WHEN multi select mode by long press is entered THEN relevant metrics are collected`() {
         store.dispatch(TabsTrayAction.AddSelectTab(mockk()))
-        store.waitUntilIdle()
 
         assertNotNull(TabsTray.enterMultiselectMode.testGetValue())
         val snapshot = TabsTray.enterMultiselectMode.testGetValue()!!
@@ -80,7 +83,6 @@ class TabsTrayTelemetryMiddlewareTest {
         assertNull(TabsTray.autoCloseSeen.testGetValue())
 
         store.dispatch(TabsTrayAction.TabAutoCloseDialogShown)
-        store.waitUntilIdle()
 
         assertNotNull(TabsTray.autoCloseSeen.testGetValue())
     }
@@ -90,7 +92,6 @@ class TabsTrayTelemetryMiddlewareTest {
         assertNull(TabsTray.shareAllTabs.testGetValue())
 
         store.dispatch(TabsTrayAction.ShareAllNormalTabs)
-        store.waitUntilIdle()
 
         assertNotNull(TabsTray.shareAllTabs.testGetValue())
     }
@@ -100,7 +101,6 @@ class TabsTrayTelemetryMiddlewareTest {
         assertNull(TabsTray.shareAllTabs.testGetValue())
 
         store.dispatch(TabsTrayAction.ShareAllPrivateTabs)
-        store.waitUntilIdle()
 
         assertNotNull(TabsTray.shareAllTabs.testGetValue())
     }
@@ -110,7 +110,6 @@ class TabsTrayTelemetryMiddlewareTest {
         assertNull(TabsTray.closeAllTabs.testGetValue())
 
         store.dispatch(TabsTrayAction.CloseAllNormalTabs)
-        store.waitUntilIdle()
 
         assertNotNull(TabsTray.closeAllTabs.testGetValue())
     }
@@ -120,7 +119,6 @@ class TabsTrayTelemetryMiddlewareTest {
         assertNull(TabsTray.closeAllTabs.testGetValue())
 
         store.dispatch(TabsTrayAction.CloseAllPrivateTabs)
-        store.waitUntilIdle()
 
         assertNotNull(TabsTray.closeAllTabs.testGetValue())
     }
@@ -130,7 +128,6 @@ class TabsTrayTelemetryMiddlewareTest {
         assertNull(TabsTray.bookmarkSelectedTabs.testGetValue())
 
         store.dispatch(TabsTrayAction.BookmarkSelectedTabs(1))
-        store.waitUntilIdle()
 
         assertNotNull(TabsTray.bookmarkSelectedTabs.testGetValue())
         val snapshot = TabsTray.bookmarkSelectedTabs.testGetValue()!!
@@ -146,7 +143,6 @@ class TabsTrayTelemetryMiddlewareTest {
         assertNull(TabsTray.bookmarkSelectedTabs.testGetValue())
 
         store.dispatch(TabsTrayAction.BookmarkSelectedTabs(2))
-        store.waitUntilIdle()
 
         assertNotNull(TabsTray.bookmarkSelectedTabs.testGetValue())
         val snapshot = TabsTray.bookmarkSelectedTabs.testGetValue()!!
@@ -162,8 +158,67 @@ class TabsTrayTelemetryMiddlewareTest {
         assertNull(TabsTray.menuOpened.testGetValue())
 
         store.dispatch(TabsTrayAction.ThreeDotMenuShown)
-        store.waitUntilIdle()
 
         assertNotNull(TabsTray.menuOpened.testGetValue())
+    }
+
+    /**
+     *  [TabSearch.tabSearchIconClicked] coverage
+     */
+
+    @Test
+    fun `WHEN tab search icon is clicked THEN record tab search icon clicked telemetry`() {
+        TestCase.assertNull(TabSearch.tabSearchIconClicked.testGetValue())
+
+        store.dispatch(TabsTrayAction.TabSearchClicked)
+
+        TestCase.assertNotNull(TabSearch.tabSearchIconClicked.testGetValue())
+
+        val snapshot = TabSearch.tabSearchIconClicked.testGetValue()!!
+        assertEquals(1, snapshot.size)
+
+        assertEquals("tab_search_icon_clicked", snapshot.single().name)
+    }
+
+    /**
+     *  [TabSearch.resultClicked] coverage
+     */
+
+    @Test
+    fun `WHEN a tab search result is clicked THEN record result clicked telemetry`() {
+        TestCase.assertNull(TabSearch.resultClicked.testGetValue())
+
+        val tabs = listOf(
+            createTab(url = "mozilla.com"),
+            createTab(url = "developer.mozilla.org"),
+        )
+        store.dispatch(TabSearchAction.SearchResultsUpdated(results = tabs))
+
+        store.dispatch(TabSearchAction.SearchResultClicked(tabs[1]))
+
+        TestCase.assertNotNull(TabSearch.resultClicked.testGetValue())
+
+        val snapshot = TabSearch.resultClicked.testGetValue()!!
+        assertEquals(1, snapshot.size)
+
+        assertEquals("result_clicked", snapshot.single().name)
+    }
+
+    /**
+     *  [TabSearch.navigateBackIconClicked] coverage
+     */
+
+    @Test
+    fun `WHEN the navigation back icon is clicked THEN record navigate back icon clicked telemetry`() {
+        TestCase.assertNull(TabSearch.navigateBackIconClicked.testGetValue())
+
+        store.dispatch(TabsTrayAction.NavigateBackInvoked)
+
+        TestCase.assertNotNull(TabSearch.navigateBackIconClicked.testGetValue())
+
+        val snapshot = TabSearch.navigateBackIconClicked.testGetValue()!!
+        assertEquals(1, snapshot.size)
+
+        assertEquals("navigate_back_icon_clicked", snapshot.single().name)
     }
 }

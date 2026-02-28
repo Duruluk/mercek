@@ -29,6 +29,7 @@ bitflags::bitflags! {
         const WORK_GROUP_BARRIER = 0x1;
         const DERIVATIVE = if DISABLE_UNIFORMITY_REQ_FOR_FRAGMENT_STAGE { 0 } else { 0x2 };
         const IMPLICIT_LEVEL = if DISABLE_UNIFORMITY_REQ_FOR_FRAGMENT_STAGE { 0 } else { 0x4 };
+        const COOP_OPS = 0x8;
     }
 }
 
@@ -238,7 +239,6 @@ struct Sampling {
 #[cfg_attr(feature = "deserialize", derive(serde::Deserialize))]
 pub struct FunctionInfo {
     /// Validation flags.
-    #[allow(dead_code)]
     flags: ValidationFlags,
     /// Set of shader stages where calling this function is valid.
     pub available_stages: ShaderStages,
@@ -269,7 +269,7 @@ pub struct FunctionInfo {
     /// `FunctionInfo` implements `core::ops::Index<Handle<GlobalVariable>>`,
     /// so you can simply index this struct with a global handle to retrieve
     /// its usage information.
-    global_uses: Box<[GlobalUse]>,
+    pub global_uses: Box<[GlobalUse]>,
 
     /// Information about each expression in this function's body.
     ///
@@ -370,6 +370,22 @@ impl FunctionInfo {
             self.global_uses[global.index()] |= global_use;
         }
         info.uniformity.non_uniform_result
+    }
+
+    /// Note an entry point's use of `global` not recorded by [`ModuleInfo::process_function`].
+    ///
+    /// Most global variable usage should be recorded via [`add_ref_impl`] in the process
+    /// of expression behavior analysis by [`ModuleInfo::process_function`]. But that code
+    /// has no access to entrypoint-specific information, so interface analysis uses this
+    /// function to record global uses there (like task shader payloads).
+    ///
+    /// [`add_ref_impl`]: Self::add_ref_impl
+    pub(super) fn insert_global_use(
+        &mut self,
+        global_use: GlobalUse,
+        global: Handle<crate::GlobalVariable>,
+    ) {
+        self.global_uses[global.index()] |= global_use;
     }
 
     /// Record a use of `expr` for its value.
@@ -535,30 +551,34 @@ impl FunctionInfo {
                         base: array_element_ty_handle,
                         ..
                     } => {
-                        // these are nasty aliases, but these idents are too long and break rustfmt
-                        let sto = super::Capabilities::STORAGE_TEXTURE_ARRAY_NON_UNIFORM_INDEXING;
-                        let uni = super::Capabilities::UNIFORM_BUFFER_ARRAY_NON_UNIFORM_INDEXING;
-                        let st_sb = super::Capabilities::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING;
-                        let sampler = super::Capabilities::SAMPLER_NON_UNIFORM_INDEXING;
-
                         // We're a binding array, so lets use the type of _what_ we are array of to determine if we can non-uniformly index it.
                         let array_element_ty =
                             &resolve_context.types[array_element_ty_handle].inner;
 
                         needed_caps |= match *array_element_ty {
-                            // If we're an image, use the appropriate limit.
+                            // If we're an image, use the appropriate capability.
                             crate::TypeInner::Image { class, .. } => match class {
-                                crate::ImageClass::Storage { .. } => sto,
-                                _ => st_sb,
+                                crate::ImageClass::Storage { .. } => {
+                                    super::Capabilities::STORAGE_TEXTURE_BINDING_ARRAY_NON_UNIFORM_INDEXING
+                                }
+                                _ => {
+                                    super::Capabilities::TEXTURE_AND_SAMPLER_BINDING_ARRAY_NON_UNIFORM_INDEXING
+                                }
                             },
-                            crate::TypeInner::Sampler { .. } => sampler,
-                            // If we're anything but an image, assume we're a buffer and use the address space.
+                            crate::TypeInner::Sampler { .. } => {
+                                super::Capabilities::TEXTURE_AND_SAMPLER_BINDING_ARRAY_NON_UNIFORM_INDEXING
+                            }
+                            // If we're anything but an image or sampler, assume we're a buffer and use the address space.
                             _ => {
                                 if let E::GlobalVariable(global_handle) = expression_arena[base] {
                                     let global = &resolve_context.global_vars[global_handle];
                                     match global.space {
-                                        crate::AddressSpace::Uniform => uni,
-                                        crate::AddressSpace::Storage { .. } => st_sb,
+                                        crate::AddressSpace::Uniform => {
+                                            super::Capabilities::BUFFER_BINDING_ARRAY_NON_UNIFORM_INDEXING
+                                        }
+                                        crate::AddressSpace::Storage { .. } => {
+                                            super::Capabilities::STORAGE_BUFFER_BINDING_ARRAY_NON_UNIFORM_INDEXING
+                                        }
                                         _ => unreachable!(),
                                     }
                                 } else {
@@ -633,11 +653,12 @@ impl FunctionInfo {
                 let var = &resolve_context.global_vars[gh];
                 let uniform = match var.space {
                     // local data is non-uniform
-                    As::Function | As::Private => false,
+                    As::Function | As::Private | As::RayPayload | As::IncomingRayPayload => false,
                     // workgroup memory is exclusively accessed by the group
-                    As::WorkGroup => true,
+                    // task payload memory is very similar to workgroup memory
+                    As::WorkGroup | As::TaskPayload => true,
                     // uniform data
-                    As::Uniform | As::PushConstant => true,
+                    As::Uniform | As::Immediate => true,
                     // storage data is only uniform when read-only
                     As::Storage { access } => !access.contains(crate::StorageAccess::STORE),
                     As::Handle => false,
@@ -821,6 +842,14 @@ impl FunctionInfo {
             } => Uniformity {
                 non_uniform_result: self.add_ref(query),
                 requirements: UniformityRequirements::empty(),
+            },
+            E::CooperativeLoad { ref data, .. } => Uniformity {
+                non_uniform_result: self.add_ref(data.pointer).or(self.add_ref(data.stride)),
+                requirements: UniformityRequirements::COOP_OPS,
+            },
+            E::CooperativeMultiplyAdd { a, b, c } => Uniformity {
+                non_uniform_result: self.add_ref(a).or(self.add_ref(b).or(self.add_ref(c))),
+                requirements: UniformityRequirements::COOP_OPS,
             },
         };
 
@@ -1148,6 +1177,30 @@ impl FunctionInfo {
                             let _ = self.add_ref(index);
                         }
                         crate::GatherMode::QuadSwap(_) => {}
+                    }
+                    FunctionUniformity::new()
+                }
+                S::CooperativeStore { target, ref data } => FunctionUniformity {
+                    result: Uniformity {
+                        non_uniform_result: self
+                            .add_ref(target)
+                            .or(self.add_ref_impl(data.pointer, GlobalUse::WRITE))
+                            .or(self.add_ref(data.stride)),
+                        requirements: UniformityRequirements::COOP_OPS,
+                    },
+                    exit: ExitFlags::empty(),
+                },
+                S::RayPipelineFunction(ref fun) => {
+                    match *fun {
+                        crate::RayPipelineFunction::TraceRay {
+                            acceleration_structure,
+                            descriptor,
+                            payload,
+                        } => {
+                            let _ = self.add_ref(acceleration_structure);
+                            let _ = self.add_ref(descriptor);
+                            let _ = self.add_ref(payload);
+                        }
                     }
                     FunctionUniformity::new()
                 }

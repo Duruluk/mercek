@@ -76,6 +76,7 @@ const LOAD_CAUSE_STRINGS = {
   [Ci.nsIContentPolicy.TYPE_FONT]: "font",
   [Ci.nsIContentPolicy.TYPE_MEDIA]: "media",
   [Ci.nsIContentPolicy.TYPE_WEBSOCKET]: "websocket",
+  [Ci.nsIContentPolicy.TYPE_WEB_TRANSPORT]: "webtransport",
   [Ci.nsIContentPolicy.TYPE_CSP_REPORT]: "csp",
   [Ci.nsIContentPolicy.TYPE_XSLT]: "xslt",
   [Ci.nsIContentPolicy.TYPE_BEACON]: "beacon",
@@ -84,6 +85,14 @@ const LOAD_CAUSE_STRINGS = {
   [Ci.nsIContentPolicy.TYPE_WEB_MANIFEST]: "webManifest",
   [Ci.nsIContentPolicy.TYPE_WEB_IDENTITY]: "webidentity",
 };
+
+const REDIRECT_CODES = [
+  301, // HTTP Moved Permanently
+  302, // HTTP Found
+  303, // HTTP See Other
+  307, // HTTP Temporary Redirect
+  308, // HTTP Moved Permanently
+];
 
 function causeTypeToString(causeType, loadFlags, internalContentPolicyType) {
   let prefix = "";
@@ -106,8 +115,8 @@ function stringToCauseType(value) {
 
 function isChannelFromSystemPrincipal(channel) {
   let principal;
-
-  if (channel.isDocument) {
+  const channelURI = channel.originalURI || channel.URI;
+  if (channelURI?.spec.startsWith("view-source:") || channel.isDocument) {
     // The loadingPrincipal is the principal where the request will be used.
     principal = channel.loadInfo.loadingPrincipal;
   } else {
@@ -159,6 +168,11 @@ function getChannelBrowsingContextID(channel) {
   if (channel.loadInfo.browsingContextID) {
     return channel.loadInfo.browsingContextID;
   }
+
+  if (channel.loadInfo.workerAssociatedBrowsingContextID) {
+    return channel.loadInfo.workerAssociatedBrowsingContextID;
+  }
+
   // At least WebSocket channel aren't having a browsingContextID set on their loadInfo
   // We fallback on top frame element, which works, but will be wrong for WebSocket
   // in same-process iframes...
@@ -213,7 +227,7 @@ function isPreloadRequest(channel) {
  * Get the channel cause details.
  *
  * @param {nsIChannel} channel
- * @returns {Object}
+ * @returns {object}
  *          - loadingDocumentUri {string} uri of the document which created the
  *            channel
  *          - type {string} cause type as string
@@ -298,7 +312,7 @@ const HTTP_PROTOCOL_STRINGS = ["http", "https"];
  * default and otherwise falls back on `httpVersion`. Ideally we should merge
  * the two properties.
  *
- * @param {Object} httpActivity
+ * @param {object} httpActivity
  *     The httpActivity object for which we need to get the protocol.
  *
  * @returns {string}
@@ -426,11 +440,11 @@ function getWebSocketChannel(channel) {
  * For a given channel, fetch the request's headers and cookies.
  *
  * @param {nsIChannel} channel
- * @return {Object}
+ * @return {object}
  *     An object with two properties:
- *     @property {Array<Object>} cookies
+ *     @property {Array<object>} cookies
  *         Array of { name, value } objects.
- *     @property {Array<Object>} headers
+ *     @property {Array<object>} headers
  *         Array of { name, value } objects.
  */
 function fetchRequestHeadersAndCookies(channel) {
@@ -465,7 +479,7 @@ function fetchRequestHeadersAndCookies(channel) {
  * Parse the early hint raw headers string to an
  * array of name/value object header pairs
  *
- * @param {String} rawHeaders
+ * @param {string} rawHeaders
  * @returns {Array}
  */
 function parseEarlyHintsResponseHeaders(rawHeaders) {
@@ -484,11 +498,11 @@ function parseEarlyHintsResponseHeaders(rawHeaders) {
  * For a given channel, fetch the response's headers and cookies.
  *
  * @param {nsIChannel} channel
- * @return {Object}
+ * @return {object}
  *     An object with two properties:
- *     @property {Array<Object>} cookies
+ *     @property {Array<object>} cookies
  *         Array of { name, value } objects.
- *     @property {Array<Object>} headers
+ *     @property {Array<object>} headers
  *         Array of { name, value } objects.
  */
 function fetchResponseHeadersAndCookies(channel) {
@@ -609,7 +623,8 @@ function matchRequest(channel, filters) {
 }
 
 function getBlockedReason(channel, fromCache = false) {
-  let blockingExtension, blockedReason;
+  let blockedReason;
+  const extension = {};
   const { status } = channel;
 
   try {
@@ -617,15 +632,27 @@ function getBlockedReason(channel, fromCache = false) {
     const properties = request.QueryInterface(Ci.nsIPropertyBag);
 
     blockedReason = request.loadInfo.requestBlockingReason;
-    blockingExtension = properties.getProperty("cancelledByExtension");
+    extension.blocking = properties.getProperty("cancelledByExtension");
 
     // WebExtensionPolicy is not available for workers
     if (typeof WebExtensionPolicy !== "undefined") {
-      blockingExtension = WebExtensionPolicy.getByID(blockingExtension).name;
+      extension.blocking = WebExtensionPolicy.getByID(extension.blocking).name;
     }
   } catch (err) {
     // "cancelledByExtension" doesn't have to be available.
   }
+
+  if (
+    blockedReason === Ci.nsILoadInfo.BLOCKING_REASON_CLASSIFY_HARMFULADDON_URI
+  ) {
+    try {
+      const properties = channel.QueryInterface(Ci.nsIPropertyBag);
+      extension.blocked = properties.getProperty("blockedExtension");
+    } catch (err) {
+      // "blockedExtension" doesn't have to be available.
+    }
+  }
+
   // These are platform errors which are not exposed to the users,
   // usually the requests (with these errors) might be displayed with various
   // other status codes.
@@ -661,7 +688,7 @@ function getBlockedReason(channel, fromCache = false) {
     blockedReason = ChromeUtils.getXPCOMErrorName(status);
   }
 
-  return { blockingExtension, blockedReason };
+  return { extension, blockedReason };
 }
 
 function getCharset(channel) {
@@ -742,7 +769,7 @@ function handleDataChannel(channel, networkEventActor) {
  * is available. The flag is used by the consumer of the resource (frontend)
  * to determine when to lazily fetch the data.
  *
- * @param {Object} resource - This could be a network resource object or a network resource
+ * @param {object} resource - This could be a network resource object or a network resource
  *                            updates object.
  * @param {Array} networkEvents
  */
@@ -848,7 +875,15 @@ async function decodeCompressedStream(stream, length, encodings) {
         _length,
         data
       ) {
-        resolve(String.fromCharCode.apply(this, data));
+        // `data`` might be a very large array, chunk calls to fromCharCode to
+        // avoid "RangeError: too many arguments provided for a function call".
+        const CHUNK_SIZE = 65536;
+        let result = "";
+        for (let i = 0; i < data.length; i += CHUNK_SIZE) {
+          const chunk = data.slice(i, i + CHUNK_SIZE);
+          result += String.fromCharCode.apply(null, chunk);
+        }
+        resolve(result);
       },
     });
   });
@@ -875,6 +910,10 @@ async function decodeCompressedStream(stream, length, encodings) {
   converter.onStopRequest(null, null, null);
 
   return onDecodingComplete;
+}
+
+function isRedirect(responseStatus) {
+  return REDIRECT_CODES.includes(responseStatus);
 }
 
 /**
@@ -919,6 +958,7 @@ export const NetworkUtils = {
   isFromCache,
   isNavigationRequest,
   isPreloadRequest,
+  isRedirect,
   isThirdPartyTrackingResource,
   matchRequest,
   NETWORK_EVENT_TYPES,

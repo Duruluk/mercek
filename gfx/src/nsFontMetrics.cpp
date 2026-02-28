@@ -89,7 +89,7 @@ class StubPropertyProvider final : public gfxTextRun::PropertyProvider {
         "This shouldn't be called because we never call BreakAndMeasureText");
     return mozilla::StyleHyphens::None;
   }
-  nscoord GetHyphenWidth() const override {
+  gfxFloat GetHyphenWidth() const override {
     NS_ERROR("This shouldn't be called because we never enable hyphens");
     return 0;
   }
@@ -164,6 +164,49 @@ void nsFontMetrics::Destroy() { mPresContext = nullptr; }
 // XXXTODO get rid of this macro
 #define ROUND_TO_TWIPS(x) (nscoord) floor(((x) * mP2A) + 0.5)
 #define CEIL_TO_TWIPS(x) (nscoord) ceil((x) * mP2A)
+
+static nscoord GetBaseline(const nsFontMetrics* aFontMetrics,
+                           gfxFont::Baseline aBaseline) {
+  RefPtr<gfxFont> font =
+      aFontMetrics->GetThebesFontGroup()->GetFirstValidFont();
+  return font->GetBaseline(aBaseline, aFontMetrics->Orientation());
+}
+
+nscoord nsFontMetrics::AlphabeticBaseline() const {
+  return ROUND_TO_TWIPS(GetBaseline(this, gfxFont::kAlphabetic));
+}
+
+nscoord nsFontMetrics::CentralBaseline() const {
+  return ROUND_TO_TWIPS(GetBaseline(this, gfxFont::kCentral));
+}
+
+nscoord nsFontMetrics::XMiddleBaseline() const {
+  return (AlphabeticBaseline() + XHeight()) / 2;
+}
+
+nscoord nsFontMetrics::IdeographicUnderBaseline() const {
+  return ROUND_TO_TWIPS(GetBaseline(this, gfxFont::kIdeographicUnder));
+}
+
+nscoord nsFontMetrics::IdeographicOverBaseline() const {
+  return ROUND_TO_TWIPS(GetBaseline(this, gfxFont::kIdeographicOver));
+}
+
+nscoord nsFontMetrics::IdeographicInkUnderBaseline() const {
+  return ROUND_TO_TWIPS(GetBaseline(this, gfxFont::kIdeographicInkUnder));
+}
+
+nscoord nsFontMetrics::IdeographicInkOverBaseline() const {
+  return ROUND_TO_TWIPS(GetBaseline(this, gfxFont::kIdeographicInkOver));
+}
+
+nscoord nsFontMetrics::HangingBaseline() const {
+  return ROUND_TO_TWIPS(GetBaseline(this, gfxFont::kHanging));
+}
+
+nscoord nsFontMetrics::MathBaseline() const {
+  return ROUND_TO_TWIPS(GetBaseline(this, gfxFont::kMath));
+}
 
 static const gfxFont::Metrics& GetMetrics(
     const nsFontMetrics* aFontMetrics,
@@ -312,7 +355,8 @@ nscoord nsFontMetrics::GetWidth(const char* aString, uint32_t aLength,
   StubPropertyProvider provider;
   AutoTextRun textRun(this, aDrawTarget, aString, aLength);
   if (textRun.get()) {
-    return textRun->GetAdvanceWidth(gfxTextRun::Range(0, aLength), &provider);
+    return NSToCoordRound(
+        textRun->GetAdvanceWidth(gfxTextRun::Range(0, aLength), &provider));
   }
   return 0;
 }
@@ -328,7 +372,8 @@ nscoord nsFontMetrics::GetWidth(const char16_t* aString, uint32_t aLength,
   StubPropertyProvider provider;
   AutoTextRun textRun(this, aDrawTarget, aString, aLength);
   if (textRun.get()) {
-    return textRun->GetAdvanceWidth(gfxTextRun::Range(0, aLength), &provider);
+    return NSToCoordRound(
+        textRun->GetAdvanceWidth(gfxTextRun::Range(0, aLength), &provider));
   }
   return 0;
 }
@@ -399,11 +444,11 @@ static nsBoundingMetrics GetTextBoundingMetrics(
     gfxTextRun::Metrics theMetrics = textRun->MeasureText(
         gfxTextRun::Range(0, aLength), aType, aDrawTarget, &provider);
 
-    m.leftBearing = theMetrics.mBoundingBox.X();
-    m.rightBearing = theMetrics.mBoundingBox.XMost();
-    m.ascent = -theMetrics.mBoundingBox.Y();
-    m.descent = theMetrics.mBoundingBox.YMost();
-    m.width = theMetrics.mAdvanceWidth;
+    m.leftBearing = NSToCoordFloor(theMetrics.mBoundingBox.X());
+    m.rightBearing = NSToCoordCeil(theMetrics.mBoundingBox.XMost());
+    m.ascent = NSToCoordCeil(-theMetrics.mBoundingBox.Y());
+    m.descent = NSToCoordCeil(theMetrics.mBoundingBox.YMost());
+    m.width = NSToCoordRound(theMetrics.mAdvanceWidth);
   }
   return m;
 }

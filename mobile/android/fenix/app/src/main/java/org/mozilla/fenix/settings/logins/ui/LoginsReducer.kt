@@ -40,6 +40,7 @@ internal fun loginsReducer(state: LoginsState, action: LoginsAction) = when (act
             newPassword = action.item.password,
             isPasswordVisible = true,
         ),
+        updateLoginState = UpdateLoginState.None,
     )
     is DetailLoginMenuAction.DeleteLoginMenuItemClicked -> state.copy(
         loginDeletionDialogState = LoginDeletionDialogState.Presenting(action.item.guid),
@@ -52,25 +53,7 @@ internal fun loginsReducer(state: LoginsState, action: LoginsAction) = when (act
     is LoginsListBackClicked -> state.respondToLoginsListBackClick()
     is AddLoginBackClicked -> state.respondToAddLoginBackClick()
     is EditLoginBackClicked -> state.respondToEditLoginBackClick()
-    is BiometricAuthenticationAction.Succeeded -> state.copy(
-        biometricAuthenticationState = BiometricAuthenticationState.Authorized,
-    )
-    is BiometricAuthenticationAction.Started -> state.copy(
-        biometricAuthenticationState = BiometricAuthenticationState.InProgress,
-    )
-    is BiometricAuthenticationAction.Failed -> state.copy(
-        biometricAuthenticationState = BiometricAuthenticationState.Failed,
-    )
-    is LifecycleAction.OnPause -> state.takeIf { it.biometricAuthenticationState.isAuthorized }
-        ?.copy(biometricAuthenticationState = BiometricAuthenticationState.ReadyToLock) ?: state
-    is LifecycleAction.OnResume -> state.takeIf { it.biometricAuthenticationState.isReadyToLock }
-        ?.copy(biometricAuthenticationState = BiometricAuthenticationState.InProgress) ?: state
-
-    is UnlockScreenAction.UnlockTapped -> state.copy(
-        biometricAuthenticationState = BiometricAuthenticationState.InProgress,
-    )
-    ViewDisposed,
-    is LoginsListAppeared, LearnMoreAboutSync, UnlockScreenAction.LeaveTapped,
+    is LoginsListAppeared, LearnMoreAboutSync,
         -> state
 }
 
@@ -128,6 +111,16 @@ private fun LoginsState.handleEditLoginAction(action: EditLoginAction): LoginsSt
     when (action) {
         is EditLoginAction.UsernameChanged -> copy(
             loginsEditLoginState = this.loginsEditLoginState?.copy(newUsername = action.usernameChanged),
+            updateLoginState = if (loginItems.hasDuplicate(
+                    host = this.loginsEditLoginState?.login?.url,
+                    username = action.usernameChanged,
+                    guid = this.loginsEditLoginState?.login?.guid,
+                )
+            ) {
+                UpdateLoginState.Duplicate
+            } else {
+                UpdateLoginState.None
+            },
         )
         is EditLoginAction.PasswordChanged -> copy(
             loginsEditLoginState = this.loginsEditLoginState?.copy(newPassword = action.passwordChanged),
@@ -206,10 +199,15 @@ private fun LoginsState.respondToAddLoginBackClick(): LoginsState = when {
 private fun LoginsState.respondToEditLoginBackClick(): LoginsState = when {
     loginsEditLoginState != null -> copy(
         loginsEditLoginState = null,
+        updateLoginState = UpdateLoginState.None,
     )
 
     else -> this
 }
 
-private fun List<LoginItem>.hasDuplicate(host: String?, username: String?): Boolean =
-    this.isNotEmpty() && this.any { it.url == host && it.username == username }
+private fun List<LoginItem>.hasDuplicate(
+    host: String?,
+    username: String?,
+    guid: String? = null,
+): Boolean =
+    this.isNotEmpty() && this.any { it.url == host && it.username == username && guid != it.guid }

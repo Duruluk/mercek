@@ -303,8 +303,12 @@ struct UserTimingMarker : public BaseMarkerType<UserTimingMarker> {
 
   using MS = MarkerSchema;
   static constexpr MS::PayloadField PayloadFields[] = {
-      {"name", MS::InputType::String, "User Marker Name", MS::Format::String,
-       MS::PayloadFlags::Searchable},
+      {
+          "name",
+          MS::InputType::String,
+          "User Marker Name",
+          MS::Format::String,
+      },
       {"entryType", MS::InputType::Boolean, "Entry Type"},
       {"startMark", MS::InputType::String, "Start Mark"},
       {"endMark", MS::InputType::String, "End Mark"}};
@@ -708,8 +712,8 @@ void Performance::MaybeEmitExternalProfilerMarker(
   uint64_t rawStart = startTimeStamp.RawClockMonotonicNanosecondsSinceBoot();
   uint64_t rawEnd = endTimeStamp.RawClockMonotonicNanosecondsSinceBoot();
 #elif XP_WIN
-  uint64_t rawStart = startTimeStamp.RawQueryPerformanceCounterValue().value();
-  uint64_t rawEnd = endTimeStamp.RawQueryPerformanceCounterValue().value();
+  uint64_t rawStart = startTimeStamp.RawQueryPerformanceCounterValue();
+  uint64_t rawEnd = endTimeStamp.RawQueryPerformanceCounterValue();
 #elif XP_MACOSX
   uint64_t rawStart = startTimeStamp.RawMachAbsoluteTimeNanoseconds();
   uint64_t rawEnd = endTimeStamp.RawMachAbsoluteTimeNanoseconds();

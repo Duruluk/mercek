@@ -7,20 +7,6 @@
  * Retrieves and displays icons in native menu items on Mac OS X.
  */
 
-/* exception_defines.h defines 'try' to 'if (true)' which breaks objective-c
-   exceptions and produces errors like: error: unexpected '@' in program'.
-   If we define __EXCEPTIONS exception_defines.h will avoid doing this.
-
-   See bug 666609 for more information.
-
-   We use <limits> to get the libstdc++ version. */
-#include <limits>
-#if __GLIBCXX__ <= 20070719
-#  ifndef __EXCEPTIONS
-#    define __EXCEPTIONS
-#  endif
-#endif
-
 #include "MOZIconHelper.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/DocumentInlines.h"
@@ -108,7 +94,7 @@ bool nsMenuItemIconX::StartIconLoad(nsIContent* aContent) {
 //
 
 nsresult nsMenuItemIconX::OnComplete(imgIContainer* aImage) {
-  NS_OBJC_BEGIN_TRY_ABORT_BLOCK;
+  NS_OBJC_BEGIN_TRY_BLOCK_RETURN;
 
   if (mIconImage) {
     [mIconImage release];
@@ -130,14 +116,15 @@ nsresult nsMenuItemIconX::OnComplete(imgIContainer* aImage) {
   mComputedStyle = nullptr;
   mPresContext = nullptr;
 
+  RefPtr<IconLoader> loader = std::move(mIconLoader);
+
   if (mListener) {
     mListener->IconUpdated();
   }
 
-  mIconLoader->Destroy();
-  mIconLoader = nullptr;
+  loader->Destroy();
 
   return NS_OK;
 
-  NS_OBJC_END_TRY_ABORT_BLOCK;
+  NS_OBJC_END_TRY_BLOCK_RETURN(NS_ERROR_FAILURE);
 }

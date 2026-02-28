@@ -6,8 +6,8 @@
 
 /* base class for DOM objects for element.style and cssStyleRule.style */
 
-#ifndef nsDOMCSSDeclaration_h___
-#define nsDOMCSSDeclaration_h___
+#ifndef nsDOMCSSDeclaration_h_
+#define nsDOMCSSDeclaration_h_
 
 #include "mozilla/Attributes.h"
 #include "mozilla/Maybe.h"
@@ -67,7 +67,7 @@ class nsDOMCSSDeclaration : public nsICSSDeclaration {
    * Method analogous to CSSStyleDeclaration::GetPropertyValue,
    * which obeys all the same restrictions.
    */
-  virtual void GetPropertyValue(const nsCSSPropertyID aPropID,
+  virtual void GetPropertyValue(const NonCustomCSSPropertyId aPropId,
                                 nsACString& aValue);
 
   /**
@@ -75,7 +75,7 @@ class nsDOMCSSDeclaration : public nsICSSDeclaration {
    * method does NOT allow setting a priority (the priority will
    * always be set to default priority).
    */
-  virtual void SetPropertyValue(const nsCSSPropertyID aPropID,
+  virtual void SetPropertyValue(const NonCustomCSSPropertyId aPropId,
                                 const nsACString& aValue,
                                 nsIPrincipal* aSubjectPrincipal,
                                 mozilla::ErrorResult& aRv);
@@ -87,6 +87,7 @@ class nsDOMCSSDeclaration : public nsICSSDeclaration {
                   mozilla::ErrorResult& aRv) override;
   void GetPropertyValue(const nsACString& propertyName,
                         nsACString& _retval) override;
+  bool HasLonghandProperty(const nsACString& propertyName) override;
   void RemoveProperty(const nsACString& propertyName, nsACString& _retval,
                       mozilla::ErrorResult& aRv) override;
   void GetPropertyPriority(const nsACString& propertyName,
@@ -161,7 +162,7 @@ class nsDOMCSSDeclaration : public nsICSSDeclaration {
   static ParsingEnvironment GetParsingEnvironmentForRule(
       const mozilla::css::Rule* aRule, mozilla::StyleCssRuleType);
 
-  nsresult ParsePropertyValue(const nsCSSPropertyID aPropID,
+  nsresult ParsePropertyValue(const NonCustomCSSPropertyId aPropId,
                               const nsACString& aPropValue, bool aIsImportant,
                               nsIPrincipal* aSubjectPrincipal);
 
@@ -170,7 +171,7 @@ class nsDOMCSSDeclaration : public nsICSSDeclaration {
                                     bool aIsImportant,
                                     nsIPrincipal* aSubjectPrincipal);
 
-  void RemovePropertyInternal(nsCSSPropertyID aPropID,
+  void RemovePropertyInternal(NonCustomCSSPropertyId aPropId,
                               mozilla::ErrorResult& aRv);
   void RemovePropertyInternal(const nsACString& aPropert,
                               mozilla::ErrorResult& aRv);
@@ -189,4 +190,4 @@ class nsDOMCSSDeclaration : public nsICSSDeclaration {
                                     ServoFunc aServoFunc);
 };
 
-#endif  // nsDOMCSSDeclaration_h___
+#endif  // nsDOMCSSDeclaration_h_

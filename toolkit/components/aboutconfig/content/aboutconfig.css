@@ -4,7 +4,7 @@
 
 :root {
   --prefs-table-border-width: 1px;
-  --prefs-table-border: var(--prefs-table-border-width) solid var(--in-content-box-border-color);
+  --prefs-table-border: var(--prefs-table-border-width) solid var(--border-color);
 }
 
 .hidden {
@@ -115,12 +115,12 @@
 }
 
 #prefs > tr:hover {
-  background-color: var(--in-content-item-hover);
-  color: var(--in-content-item-hover-text);
+  background-color: var(--background-color-list-item-hover);
+  color: var(--text-color-list-item-hover);
 }
 
 #prefs > tr.has-user-value {
-  font-weight: bold;
+  font-weight: var(--font-weight-bold);
 }
 
 #prefs > tr.locked {

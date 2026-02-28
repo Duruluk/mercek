@@ -12,18 +12,17 @@ use crate::{
 pub struct Alignment(NonZeroU32);
 
 impl Alignment {
-    pub const ONE: Self = Self(unsafe { NonZeroU32::new_unchecked(1) });
-    pub const TWO: Self = Self(unsafe { NonZeroU32::new_unchecked(2) });
-    pub const FOUR: Self = Self(unsafe { NonZeroU32::new_unchecked(4) });
-    pub const EIGHT: Self = Self(unsafe { NonZeroU32::new_unchecked(8) });
-    pub const SIXTEEN: Self = Self(unsafe { NonZeroU32::new_unchecked(16) });
+    pub const ONE: Self = Self(NonZeroU32::new(1).unwrap());
+    pub const TWO: Self = Self(NonZeroU32::new(2).unwrap());
+    pub const FOUR: Self = Self(NonZeroU32::new(4).unwrap());
+    pub const EIGHT: Self = Self(NonZeroU32::new(8).unwrap());
+    pub const SIXTEEN: Self = Self(NonZeroU32::new(16).unwrap());
 
     pub const MIN_UNIFORM: Self = Self::SIXTEEN;
 
     pub const fn new(n: u32) -> Option<Self> {
         if n.is_power_of_two() {
-            // SAFETY: value can't be 0 since we just checked if it's a power of 2
-            Some(Self(unsafe { NonZeroU32::new_unchecked(n) }))
+            Some(Self(NonZeroU32::new(n).unwrap()))
         } else {
             None
         }
@@ -31,7 +30,7 @@ impl Alignment {
 
     /// # Panics
     /// If `width` is not a power of 2
-    pub fn from_width(width: u8) -> Self {
+    pub const fn from_width(width: u8) -> Self {
         Self::new(width as u32).unwrap()
     }
 
@@ -71,8 +70,7 @@ impl ops::Mul for Alignment {
     type Output = Alignment;
 
     fn mul(self, rhs: Alignment) -> Self::Output {
-        // SAFETY: both lhs and rhs are powers of 2, the result will be a power of 2
-        Self(unsafe { NonZeroU32::new_unchecked(self.0.get() * rhs.0.get()) })
+        Self(NonZeroU32::new(self.0.get() * rhs.0.get()).unwrap())
     }
 }
 
@@ -83,6 +81,12 @@ impl From<crate::VectorSize> for Alignment {
             crate::VectorSize::Tri => Alignment::FOUR,
             crate::VectorSize::Quad => Alignment::FOUR,
         }
+    }
+}
+
+impl From<crate::CooperativeSize> for Alignment {
+    fn from(size: crate::CooperativeSize) -> Self {
+        Self(NonZeroU32::new(size as u32).unwrap())
     }
 }
 
@@ -161,10 +165,11 @@ impl Layouter {
         self.layouts.clear();
     }
 
+    #[expect(rustdoc::private_intra_doc_links)]
     /// Extend this `Layouter` with layouts for any new entries in `gctx.types`.
     ///
     /// Ensure that every type in `gctx.types` has a corresponding [TypeLayout]
-    /// in [`self.layouts`].
+    /// in [`Self::layouts`].
     ///
     /// Some front ends need to be able to compute layouts for existing types
     /// while module construction is still in progress and new types are still
@@ -204,6 +209,19 @@ impl Layouter {
                     columns: _,
                     rows,
                     scalar,
+                } => {
+                    let alignment = Alignment::new(scalar.width as u32)
+                        .ok_or(LayoutErrorInner::NonPowerOfTwoWidth.with(ty_handle))?;
+                    TypeLayout {
+                        size,
+                        alignment: Alignment::from(rows) * alignment,
+                    }
+                }
+                Ti::CooperativeMatrix {
+                    columns: _,
+                    rows,
+                    scalar,
+                    role: _,
                 } => {
                     let alignment = Alignment::new(scalar.width as u32)
                         .ok_or(LayoutErrorInner::NonPowerOfTwoWidth.with(ty_handle))?;

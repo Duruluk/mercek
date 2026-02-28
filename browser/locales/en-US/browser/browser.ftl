@@ -91,9 +91,6 @@ urlbar-result-menu-tip-get-help =
 urlbar-result-menu-dismiss-suggestion =
     .label = Dismiss this suggestion
     .accesskey = D
-urlbar-result-menu-learn-more-about-firefox-suggest =
-    .label = Learn more about { -firefox-suggest-brand-name }
-    .accesskey = L
 urlbar-result-menu-manage-firefox-suggest =
     .label = Manage { -firefox-suggest-brand-name }
     .accesskey = M
@@ -180,6 +177,10 @@ urlbar-star-edit-bookmark =
 #   $shortcut (String) - A keyboard shortcut for the add bookmark command.
 urlbar-star-add-bookmark =
     .tooltiptext = Bookmark this page ({ $shortcut })
+
+urlbar-split-view-button =
+    .tooltiptext = Split view
+    .aria-label = Split view
 
 ## Page Action Context Menu
 
@@ -324,6 +325,10 @@ quickactions-cmd-restart = restart
 quickactions-screenshot3 = Take a screenshot
 quickactions-cmd-screenshot2 = screenshot, take a screenshot
 
+# Opens about:translations
+quickactions-translate = Translate
+quickactions-cmd-translate = translate
+
 # Opens about:preferences
 quickactions-settings2 = Manage settings
 # "manage" should match the corresponding command, which is “Manage settings” in English.
@@ -425,6 +430,8 @@ identity-clear-site-data =
 identity-connection-not-secure-security-view = You are not securely connected to this site.
 identity-connection-verified = You are securely connected to this site.
 identity-ev-owner-label = Certificate issued to:
+# "qualified" here refers to the qualified website authentication certificate presented by the site.
+identity-etsi = Qualified as specified in Regulation (EU) 2024/1183.
 identity-description-custom-root2 = Mozilla does not recognize this certificate issuer. It may have been added from your operating system or by an administrator.
 identity-remove-cert-exception =
     .label = Remove Exception
@@ -451,6 +458,9 @@ browser-window-restore-down-button =
     .tooltiptext = Restore Down
 browser-window-close-button =
     .tooltiptext = Close
+# Clicking this button closes the window and returns to the tab where it was opened from
+browser-window-return-to-opener =
+    .tooltiptext = Return
 
 ## Tab actions
 
@@ -576,6 +586,8 @@ urlbar-revert-button =
 ## Action text shown in urlbar results, usually appended after the search
 ## string or the url, like "result value - action text".
 
+# Used for asking AI assistant chat.
+urlbar-result-action-ai-chat = Ask
 # Used when the private browsing engine differs from the default engine.
 # The "with" format was chosen because the search engine name can end with
 # "Search", and we would like to avoid strings like "Search MSN Search".
@@ -591,6 +603,7 @@ urlbar-result-action-search-in-private = Search in a Private Window
 urlbar-result-action-search-w-engine = Search with { $engine }
 urlbar-result-action-sponsored = Sponsored
 urlbar-result-action-switch-tab = Switch to Tab
+urlbar-result-action-move-tab-to-split-view = Move Tab to Split View
 urlbar-result-action-visit = Visit
 # "Switch to tab with container" is used when the target tab is located in a
 # different container.
@@ -625,6 +638,18 @@ urlbar-result-action-tabtosearch-other-engine = Search { $engine } directly from
 urlbar-result-action-copy-to-clipboard = Copy
 # The string returned for an undefined calculator result such as when dividing by 0
 urlbar-result-action-undefined-calculator-result = undefined
+
+# The sub title of an add-on suggestion in the urlbar.
+urlbar-result-addons-subtitle = { -brand-product-name } extension
+
+# The sub title of a mdn suggestion in the urlbar.
+urlbar-result-mdn-subtitle = { -mdn-brand-name }
+
+# The sub title of a Yelp suggestion in the urlbar.
+urlbar-result-yelp-subtitle = { -yelp-brand-name }
+
+# This string explaining that the suggestion is a recommendation.
+urlbar-result-suggestion-recommended = Recommended
 
 # The title of a weather suggestion in the urlbar. The temperature and unit
 # substring should be inside a <strong> tag. If the temperature and unit are not
@@ -695,6 +720,10 @@ urlbar-result-menu-dont-show-market =
 # A message that replaces a result when the user dismisses Market suggestions.
 urlbar-result-dismissal-acknowledgment-market = Thanks for your feedback. You won’t see market suggestions anymore.
 
+# This a11y label is read by screen readers when an item in the row is selected.
+urlbar-result-aria-group-market =
+  .aria-label = Stock market suggestions
+
 # A message that replaces a result when the user dismisses all suggestions of a
 # particular type.
 urlbar-result-dismissal-acknowledgment-all = Thanks for your feedback. You won’t see these suggestions anymore.
@@ -757,6 +786,12 @@ urlbar-searchmode-button2 =
 urlbar-searchmode-button-no-engine =
     .label = No shortcut selected, pick a shortcut
     .tooltiptext = No shortcut selected, pick a shortcut
+
+# Refers to the ability to search using keywords in the address bar
+urlbar-searchmode-no-keyword =
+    .label = Keyword search is disabled
+    .tooltiptext = Keyword search is disabled
+
 urlbar-searchmode-dropmarker =
     .tooltiptext = Pick a Search Engine
 urlbar-searchmode-bookmarks =
@@ -774,7 +809,12 @@ urlbar-searchmode-default =
 
 # Label shown on the top of Searchmode Switcher popup. After this label, the
 # available search engines will be listed.
-urlbar-searchmode-popup-description = This time search with:
+urlbar-searchmode-popup-description-menucaption =
+    .label = This time search with:
+# Label shown on the top of Searchmode Switcher popup when the search engine won't automatically
+# reset after submitting.
+urlbar-searchmode-popup-sticky-description-menucaption =
+    .label = Search with:
 urlbar-searchmode-popup-search-settings-menuitem =
     .label = Search Settings
 
@@ -842,17 +882,10 @@ urlbar-group-recent-searches =
 urlbar-group-trending =
   .label = Trending on { $engine }
 
-# Label shown above sponsored suggestions in the urlbar results.
-urlbar-group-sponsored =
-  .label = Sponsored
-
 # The result menu labels shown next to trending results.
 urlbar-result-menu-trending-dont-show =
     .label = Don’t show trending searches
     .accesskey = D
-urlbar-result-menu-trending-why =
-    .label = Why am I seeing this?
-    .accesskey = W
 
 # A message that replaces a result when the user dismisses all suggestions of a
 # particular type.
@@ -1020,6 +1053,10 @@ toolbar-button-synced-tabs =
 toolbar-button-new-private-window =
   .label = New private window
   .tooltiptext = Open a new private browsing window ({ $shortcut })
+
+toolbar-button-share-tab =
+  .label = Share
+  .tooltiptext = Share this page
 
 ## EME notification panel
 
@@ -1400,9 +1437,9 @@ trustpanel-blocker-header =
 ## Variables
 ##  $count (String): the number of trackers blocked.
 
-trustpanel-blocker-section-header = { $count ->
-  [one] <span>{ $count }</span> Tracker blocked on this site
-  *[other] <span>{ $count }</span> Trackers blocked on this site
+trustpanel-blocker-section-header2 = { $count ->
+  [one] <span data-l10n-name="count">{ $count }</span> Tracker blocked on this site
+  *[other] <span data-l10n-name="count">{ $count }</span> Trackers blocked on this site
 }
 trustpanel-blocker-description = { -brand-product-name } thinks companies should follow you less. So we block as many as we can.
 trustpanel-blocked-header = { -brand-product-name } blocked these things for you:

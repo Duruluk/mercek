@@ -9,10 +9,6 @@
  * to generate (one or more) ocsp responses.
  */
 
-#include <stdio.h>
-#include <string>
-#include <vector>
-
 #include "cert.h"
 #include "nspr.h"
 #include "nss.h"

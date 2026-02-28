@@ -128,7 +128,10 @@ class LoginsReducerTest {
         val filterUrl = loginsReducer(state, SearchLogins("url", itemsList))
         assertEquals("url", filterUrl.searchText)
         assertEquals(5, filterUrl.loginItems.size)
-        assertEquals(listOf(itemsList[0], itemsList[2], itemsList[4], itemsList[6], itemsList[7]), filterUrl.loginItems)
+        assertEquals(
+            listOf(itemsList[0], itemsList[2], itemsList[4], itemsList[6], itemsList[7]),
+            filterUrl.loginItems,
+        )
     }
 
     @Test
@@ -454,62 +457,89 @@ class LoginsReducerTest {
     }
 
     @Test
-    fun `GIVEN a logins screen WHEN the biometric authentication becomes authorized THEN reflect that into the state`() {
+    fun `GIVEN we are on the edit login screen WHEN we want to save a login without changing the username THEN this is not a duplicate`() {
+        val loginItem = LoginItem(
+            guid = "guid1234",
+            url = "https://www.yahoo.com",
+            username = "user1234",
+            password = "pass1234",
+        )
+
         val state = LoginsState.default.copy(
-            biometricAuthenticationState = BiometricAuthenticationState.Authorized,
+            loginItems = listOf(
+                loginItem,
+            ),
+            loginsEditLoginState = LoginsEditLoginState(
+                login = loginItem,
+                newUsername = "user1234",
+                newPassword = "password1234",
+                isPasswordVisible = false,
+            ),
+            updateLoginState = UpdateLoginState.None,
         )
-        val result = loginsReducer(
-            state,
-            action = BiometricAuthenticationAction.Succeeded,
+
+        val resultEditStateForDuplicateLogin =
+            loginsReducer(state, EditLoginAction.UsernameChanged(usernameChanged = "user1234"))
+
+        val expectedEditStateForDuplicateLogin = state.copy(
+            loginsEditLoginState = LoginsEditLoginState(
+                login = loginItem,
+                newUsername = "user1234",
+                newPassword = "password1234",
+                isPasswordVisible = false,
+            ),
+            updateLoginState = UpdateLoginState.None,
         )
+
         assertEquals(
-            BiometricAuthenticationState.Authorized,
-            result.biometricAuthenticationState,
+            resultEditStateForDuplicateLogin.updateLoginState,
+            expectedEditStateForDuplicateLogin.updateLoginState,
         )
     }
 
     @Test
-    fun `GIVEN a logins screen WHEN the lifecycle action becomes paused THEN reflect that into the state`() {
-        val state = LoginsState.default.copy(
-            biometricAuthenticationState = BiometricAuthenticationState.Authorized,
+    fun `GIVEN we are on the edit login screen WHEN we want to save a duplicate login THEN this is reflected in the state`() {
+        val loginItem1 = LoginItem(
+            guid = "guid1",
+            url = "https://www.yahoo.com",
+            username = "user1",
+            password = "pass1",
         )
-        val result = loginsReducer(
-            state,
-            action = LifecycleAction.OnPause,
-        )
-        assertEquals(
-            BiometricAuthenticationState.ReadyToLock,
-            result.biometricAuthenticationState,
-        )
-    }
 
-    @Test
-    fun `GIVEN a logins screen WHEN the lifecycle action becomes resumed THEN reflect that into the state`() {
-        val state = LoginsState.default.copy(
-            biometricAuthenticationState = BiometricAuthenticationState.ReadyToLock,
+        val loginItem2 = LoginItem(
+            guid = "guid2",
+            url = "https://www.yahoo.com",
+            username = "user2",
+            password = "pass2",
         )
-        val result = loginsReducer(
-            state,
-            action = LifecycleAction.OnResume,
-        )
-        assertEquals(
-            BiometricAuthenticationState.InProgress,
-            result.biometricAuthenticationState,
-        )
-    }
 
-    @Test
-    fun `GIVEN the lock screen presenting WHEN the unlock button is tapped THEN reflect that into the state`() {
         val state = LoginsState.default.copy(
-            biometricAuthenticationState = BiometricAuthenticationState.ReadyToLock,
+            loginItems = listOf(loginItem1, loginItem2),
+            loginsEditLoginState = LoginsEditLoginState(
+                login = loginItem1,
+                newUsername = "user2",
+                newPassword = "password1",
+                isPasswordVisible = false,
+            ),
+            updateLoginState = UpdateLoginState.None,
         )
-        val result = loginsReducer(
-            state,
-            action = UnlockScreenAction.UnlockTapped,
+
+        val resultEditStateForDuplicateLogin =
+            loginsReducer(state, EditLoginAction.UsernameChanged(usernameChanged = "user2"))
+
+        val expectedEditStateForDuplicateLogin = state.copy(
+            loginsEditLoginState = LoginsEditLoginState(
+                login = loginItem1,
+                newUsername = "user2",
+                newPassword = "password1",
+                isPasswordVisible = false,
+            ),
+            updateLoginState = UpdateLoginState.Duplicate,
         )
+
         assertEquals(
-            BiometricAuthenticationState.InProgress,
-            result.biometricAuthenticationState,
+            resultEditStateForDuplicateLogin.updateLoginState,
+            expectedEditStateForDuplicateLogin.updateLoginState,
         )
     }
 }

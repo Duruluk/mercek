@@ -8,6 +8,7 @@
 #define mozilla_dom_SRIMetadata_h
 
 #include "SRICheck.h"
+#include "mozilla/MemoryReporting.h"
 #include "nsString.h"
 #include "nsTArray.h"
 
@@ -76,6 +77,8 @@ class SRIMetadata final {
   // other integrity metadata implies that the current integrity metadata is
   // also satisfied.
   bool CanTrustBeDelegatedTo(const SRIMetadata& aOther) const;
+
+  size_t SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const;
 
  private:
   CopyableTArray<nsCString> mHashes;

@@ -62,6 +62,133 @@ const isMSIX =
 
 const BASE_MESSAGES = () => [
   {
+    id: "AI_WINDOW_TOU_EXISTING_USERS_MODAL",
+    template: "spotlight",
+    frequency: {
+      lifetime: 100,
+    },
+    trigger: {
+      id: "openURL",
+      patterns: ["https://accounts.firefox.com/?*service=smartwindow*"],
+    },
+    targeting: `localeLanguageCode == 'en' && region in ['CA', 'US'] && !('termsofuse.bypassNotification'|preferenceValue) && ('termsofuse.acceptedVersion'|preferenceValue < 4) && ('browser.smartwindow.enabled'|preferenceValue)`,
+    content: {
+      template: "multistage",
+      id: "AI_WINDOW_TOU_EXISTING_USERS_MODAL",
+      modal: "window",
+      requireAction: true,
+      disableEscClose: true,
+      screens: [
+        {
+          id: "AI_WINDOW_TOU_EXISTING_USERS_MODAL",
+          content: {
+            screen_style: {
+              width: "585px",
+            },
+            logo: {
+              height: "40px",
+              width: "40",
+            },
+            title: {
+              fontSize: "24px",
+              string_id: "smartwindow-existing-user-fx-tou-title",
+            },
+            above_button_content: [
+              {
+                type: "text",
+                text: {
+                  string_id: "smartwindow-existing-user-fx-tou-body",
+                  fontSize: "13px",
+                  marginBlock: "10px 20px",
+                  marginInline: "20px",
+                },
+                link_keys: ["terms_of_use", "privacy_notice"],
+                font_styles: "legal",
+              },
+            ],
+            terms_of_use: {
+              action: {
+                type: "OPEN_URL",
+                data: {
+                  where: "chromeless",
+                  args: "https://www.mozilla.org/about/legal/terms/firefox/",
+                },
+              },
+            },
+            privacy_notice: {
+              action: {
+                type: "OPEN_URL",
+                data: {
+                  where: "chromeless",
+                  args: "https://www.mozilla.org/privacy/firefox/",
+                },
+              },
+            },
+            additional_button: {
+              label: {
+                string_id: "smartwindow-existing-user-fx-tou-accept",
+                paddingBlock: "4px",
+              },
+              style: "primary",
+              flow: "row",
+              action: {
+                type: "MULTI_ACTION",
+                navigate: true,
+                data: {
+                  actions: [
+                    {
+                      type: "SET_PREF",
+                      data: {
+                        pref: {
+                          name: "termsofuse.acceptedVersion",
+                          value: 4,
+                        },
+                      },
+                    },
+                    {
+                      type: "SET_PREF",
+                      data: {
+                        pref: {
+                          name: "termsofuse.acceptedDate",
+                          value: {
+                            timestamp: "true",
+                          },
+                        },
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+            primary_button: {
+              label: {
+                string_id: "smartwindow-existing-user-fx-tou-go-back",
+                paddingBlock: "4px",
+              },
+              style: "secondary",
+              flow: "row",
+              action: {
+                type: "MULTI_ACTION",
+                dismiss: true,
+                data: {
+                  actions: [
+                    {
+                      type: "OPEN_ABOUT_PAGE",
+                      data: {
+                        args: "newtab",
+                        where: "current",
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      ],
+    },
+  },
+  {
     id: "BROWSER_BACKUP_OPTIN_SPOTLIGHT",
     groups: ["win10-eos-sync", "eco"],
     // TODO: The backup preferences in this expression should be updated once BackupService exposes getters; see Bug 1993272
@@ -542,7 +669,7 @@ const BASE_MESSAGES = () => [
             isEncryptedBackup: false,
             screen_style: {
               width: "650px",
-              height: "560px",
+              height: "600px",
             },
             tiles: {
               type: "fx_backup_file_path",
@@ -588,7 +715,7 @@ const BASE_MESSAGES = () => [
             },
             screen_style: {
               width: "650px",
-              height: "560px",
+              height: "600px",
             },
             tiles: {
               type: "fx_backup_file_path",
@@ -634,7 +761,7 @@ const BASE_MESSAGES = () => [
               fontSize: "13px",
             },
             screen_style: {
-              width: "764px",
+              width: "700px",
               height: "650px",
             },
             logo: {
@@ -753,6 +880,7 @@ const BASE_MESSAGES = () => [
                   args: "preferences#sync-backup",
                   where: "tab",
                 },
+                dismiss: true,
               },
             },
             additional_button: {
@@ -850,6 +978,7 @@ const BASE_MESSAGES = () => [
                   args: "preferences#sync-backup",
                   where: "tab",
                 },
+                dismiss: true,
               },
             },
             additional_button: {
@@ -1998,20 +2127,6 @@ const BASE_MESSAGES = () => [
             title: {
               string_id: "restored-from-backup-success-title",
             },
-            cta_paragraph: {
-              text: {
-                string_id: "restored-from-backup-success-no-checklist-subtitle",
-                string_name: "settings",
-                paddingInline: "0 100px",
-              },
-              action: {
-                type: "OPEN_ABOUT_PAGE",
-                data: {
-                  args: "preferences",
-                  where: "tab",
-                },
-              },
-            },
             primary_button: {
               label: {
                 string_id:
@@ -2977,6 +3092,76 @@ const BASE_MESSAGES = () => [
       id: "selectableProfilesUpdated",
     },
   },
+  {
+    id: "updated-privacy-notice-notification-infobar",
+    groups: ["cfr"],
+    template: "infobar",
+    content: {
+      impression_action: {
+        type: "MULTI_ACTION",
+        orderedExecution: true,
+        data: {
+          actions: [
+            {
+              type: "SET_PREF",
+              data: {
+                pref: {
+                  name: "termsofuse.firstAcceptedDate",
+                  value: {
+                    copyFromPref: "termsofuse.acceptedDate",
+                  },
+                },
+              },
+            },
+            {
+              type: "SET_PREF",
+              data: {
+                pref: {
+                  name: "termsofuse.acceptedDate",
+                  value: {
+                    timestamp: true,
+                  },
+                },
+              },
+            },
+          ],
+        },
+      },
+      text: {
+        string_id: "existing-user-privacy-notice-update-message",
+        args: { where: "tabshifted" },
+      },
+      linkUrls: {
+        "privacy-notice-link": "https://www.mozilla.org/privacy/firefox/next/",
+      },
+      type: "tab",
+      buttons: [
+        {
+          label: {
+            string_id: "existing-user-tou-learn-more",
+          },
+          action: {
+            type: "OPEN_URL",
+            data: {
+              where: "tabshifted",
+              args: "https://www.mozilla.org/privacy/firefox/update/",
+            },
+            dismiss: false,
+          },
+          accessKey: "L",
+        },
+      ],
+    },
+    trigger: {
+      id: "defaultBrowserCheck",
+    },
+    frequency: {
+      lifetime: 1,
+    },
+    priority: 2,
+    targeting:
+      "('termsofuse.acceptedDate'|preferenceValue != '0') && (('termsofuse.acceptedDate'|preferenceValue * 1) < 1765972800000)",
+  },
 ];
 
 const PREONBOARDING_MESSAGES = () => [
@@ -3012,35 +3197,35 @@ const PREONBOARDING_MESSAGES = () => [
           },
           tiles: [
             {
-              type: "embedded_browser",
+              type: "link",
               id: "terms_of_use",
               header: {
                 title: {
                   string_id: "preonboarding-terms-of-use-header-button-title",
                 },
               },
-              data: {
-                style: {
-                  width: "100%",
-                  height: "200px",
+              action: {
+                type: "OPEN_URL",
+                data: {
+                  args: "https://mozilla.org/about/legal/terms/firefox/?v=product",
+                  where: "chromeless",
                 },
-                url: "https://mozilla.org/about/legal/terms/firefox/?v=product",
               },
             },
             {
-              type: "embedded_browser",
+              type: "link",
               id: "privacy_notice",
               header: {
                 title: {
                   string_id: "preonboarding-privacy-notice-header-button-title",
                 },
               },
-              data: {
-                style: {
-                  width: "100%",
-                  height: "200px",
+              action: {
+                type: "OPEN_URL",
+                data: {
+                  args: "https://mozilla.org/privacy/firefox/?v=product",
+                  where: "chromeless",
                 },
-                url: "https://mozilla.org/privacy/firefox/?v=product",
               },
             },
             {
@@ -3128,7 +3313,9 @@ const PREONBOARDING_MESSAGES = () => [
           primary_button: {
             label: {
               string_id: "preonboarding-primary-cta-v2",
-              marginBlock: "24px 0",
+              marginBlock: "30px 0",
+              paddingBlock: "4px",
+              paddingInline: "16px",
             },
             should_focus_button: true,
             action: {

@@ -9,6 +9,7 @@
 
 #include "mozilla/AlreadyAddRefed.h"
 #include "mozilla/CORSMode.h"
+#include "mozilla/MemoryReporting.h"
 #include "mozilla/dom/ReferrerPolicyBinding.h"
 #include "mozilla/dom/RequestBinding.h"  // RequestPriority
 #include "nsCOMPtr.h"
@@ -19,7 +20,7 @@ namespace JS::loader {
 // https://fetch.spec.whatwg.org/#concept-request-parser-metadata
 // All scripts are either "parser-inserted" or "not-parser-inserted", so
 // the empty string is not necessary.
-enum class ParserMetadata {
+enum class ParserMetadata : uint8_t {
   NotParserInserted,
   ParserInserted,
 };
@@ -49,8 +50,7 @@ class ScriptFetchOptions {
   ~ScriptFetchOptions();
 
  public:
-  NS_INLINE_DECL_CYCLE_COLLECTING_NATIVE_REFCOUNTING(ScriptFetchOptions)
-  NS_DECL_CYCLE_COLLECTION_NATIVE_CLASS(ScriptFetchOptions)
+  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(ScriptFetchOptions)
 
   ScriptFetchOptions(mozilla::CORSMode aCORSMode, const nsAString& aNonce,
                      mozilla::dom::RequestPriority aFetchPriority,
@@ -61,37 +61,6 @@ class ScriptFetchOptions {
   static already_AddRefed<ScriptFetchOptions> CreateDefault();
 
   void SetTriggeringPrincipal(nsIPrincipal* aTriggeringPrincipal);
-
-  /*
-   *  The credentials mode used for the initial fetch (for module scripts)
-   *  and for fetching any imported modules (for both module scripts and
-   *  classic scripts)
-   */
-  const mozilla::CORSMode mCORSMode;
-
-  /*
-   * The cryptographic nonce metadata used for the initial fetch and for
-   * fetching any imported modules.
-   */
-  const nsString mNonce;
-
-  /*
-   * <https://html.spec.whatwg.org/multipage/webappapis.html#script-fetch-options>.
-   */
-  const mozilla::dom::RequestPriority mFetchPriority;
-
-  /*
-   * The parser metadata used for the initial fetch and for fetching any
-   * imported modules
-   */
-  const ParserMetadata mParserMetadata;
-
-  /*
-   *  Used to determine CSP and if we are on the About page.
-   *  Only used in DOM content scripts.
-   *  TODO: Move to ScriptLoadContext
-   */
-  nsCOMPtr<nsIPrincipal> mTriggeringPrincipal;
 
   // Returns true if given fetch option is compatible with this fetch option
   // in term of sharing the server response.
@@ -114,6 +83,47 @@ class ScriptFetchOptions {
     return mCORSMode == other->mCORSMode && mNonce == other->mNonce &&
            mFetchPriority == other->mFetchPriority;
   }
+
+  size_t SizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const {
+    return aMallocSizeOf(this) + SizeOfExcludingThis(aMallocSizeOf);
+  }
+  size_t SizeOfExcludingThis(mozilla::MallocSizeOf aMallocSizeOf) const {
+    return mNonce.SizeOfExcludingThisIfUnshared(aMallocSizeOf);
+  }
+
+ public:
+  /* Fields */
+
+  /*
+   *  The credentials mode used for the initial fetch (for module scripts)
+   *  and for fetching any imported modules (for both module scripts and
+   *  classic scripts)
+   */
+  const mozilla::CORSMode mCORSMode;
+
+  /*
+   * <https://html.spec.whatwg.org/multipage/webappapis.html#script-fetch-options>.
+   */
+  const mozilla::dom::RequestPriority mFetchPriority;
+
+  /*
+   * The parser metadata used for the initial fetch and for fetching any
+   * imported modules
+   */
+  const ParserMetadata mParserMetadata;
+
+  /*
+   *  Used to determine CSP and if we are on the About page.
+   *  Only used in DOM content scripts.
+   *  TODO: Move to ScriptLoadContext
+   */
+  nsCOMPtr<nsIPrincipal> mTriggeringPrincipal;
+
+  /*
+   * The cryptographic nonce metadata used for the initial fetch and for
+   * fetching any imported modules.
+   */
+  const nsString mNonce;
 };
 
 }  // namespace JS::loader

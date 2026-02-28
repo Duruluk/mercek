@@ -12,8 +12,8 @@
 #pragma warning(pop)
 
 #include "Authenticode.h"
-#include "BaseProfiler.h"
 #include "nsWindowsDllInterceptor.h"
+#include "mozilla/BaseProfiler.h"
 #include "mozilla/CmdLineAndEnvUtils.h"
 #include "mozilla/StackWalk_windows.h"
 #include "mozilla/TimeStamp.h"
@@ -23,7 +23,6 @@
 #include "mozilla/WinHeaderOnlyUtils.h"
 #include "nsWindowsHelpers.h"
 #include "WindowsDllBlocklist.h"
-#include "mozilla/AutoProfilerLabel.h"
 #include "mozilla/glue/Debug.h"
 #include "mozilla/glue/WindowsDllServices.h"
 #include "mozilla/glue/WinUtils.h"
@@ -55,7 +54,7 @@ static uint32_t sInitFlags;
 static bool sBlocklistInitAttempted;
 static bool sBlocklistInitFailed;
 static bool sUser32BeforeBlocklist;
-MOZ_RUNINIT static WritableBuffer sBlocklistWriter;
+constinit static WritableBuffer sBlocklistWriter;
 
 typedef MOZ_NORETURN_PTR void(__fastcall* BaseThreadInitThunk_func)(
     BOOL aIsInitialThread, void* aStartAddress, void* aThreadParam);
@@ -572,7 +571,7 @@ MOZ_RUNINIT static WindowsDllInterceptor Kernel32Intercept;
 static void GetNativeNtBlockSetWriter();
 
 static glue::LoaderObserver gMozglueLoaderObserver;
-MOZ_RUNINIT static nt::WinLauncherServices gWinLauncher;
+constinit static nt::WinLauncherServices gWinLauncher;
 
 MFBT_API void DllBlocklist_Initialize(uint32_t aInitFlags) {
   if (sBlocklistInitAttempted) {

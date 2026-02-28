@@ -13,6 +13,7 @@ export class PopupAndRedirectBlocker {
    * in that browsing context. This allows tracking blocked popups per
    * frame/window without leaking memory, since keys are GC'd when
    * WindowGlobals go away.
+   *
    * @type {WeakMap<WindowGlobalParent, number>}
    */
   #mBlockedPopupCounts;
@@ -20,14 +21,24 @@ export class PopupAndRedirectBlocker {
    * WeakMap mapping the browser's top-level WindowGlobal to the
    * BrowsingContext that attempted a blocked redirect. This allows
    * identifying the source frame/window of a blocked redirect.
+   *
    * @type {WeakMap<WindowGlobalParent, BrowsingContext>}
    */
   #mBlockedRedirects;
+  /**
+   * WeakSet of all the browser's top-level WindowGlobal objects that had
+   * their notification dismissed by the user.
+   * If it has been dismissed once, we don't want to show it again.
+   *
+   * @type {WeakSet<WindowGlobalParent>}
+   */
+  #mHasBeenDismissed;
 
   constructor(aBrowser) {
     this.#mBrowser = aBrowser;
     this.#mBlockedPopupCounts = new WeakMap();
     this.#mBlockedRedirects = new WeakMap();
+    this.#mHasBeenDismissed = new WeakSet();
   }
 
   getBlockedPopupCount() {
@@ -58,10 +69,38 @@ export class PopupAndRedirectBlocker {
     const browserBC = this.#mBrowser.browsingContext;
     const browserWG = browserBC.currentWindowGlobal;
     if (!browserWG) {
-      return null;
+      return false;
     }
 
     return this.#mBlockedRedirects.has(browserWG);
+  }
+
+  hasBeenDismissed() {
+    const browserBC = this.#mBrowser.browsingContext;
+    const browserWG = browserBC.currentWindowGlobal;
+    if (!browserWG) {
+      return false;
+    }
+
+    return this.#mHasBeenDismissed.has(browserWG);
+  }
+
+  /**
+   * Event callback for the notification that is shown when a popup or
+   * redirect is blocked. This is used in the observer.
+   *
+   * @param {*} reason
+   */
+  eventCallback(reason) {
+    if (reason == "dismissed") {
+      const browserBC = this.#mBrowser.browsingContext;
+      const browserWG = browserBC.currentWindowGlobal;
+      if (!browserWG) {
+        return;
+      }
+
+      this.#mHasBeenDismissed.add(browserWG);
+    }
   }
 
   async getBlockedPopups() {
@@ -221,6 +260,8 @@ export class PopupAndRedirectBlocker {
 
       this.#mBlockedRedirects.delete(browserWG);
       this.sendObserverUpdateBlockedRedirectEvent();
+
+      this.#mHasBeenDismissed.delete(browserWG);
     }
   }
 }

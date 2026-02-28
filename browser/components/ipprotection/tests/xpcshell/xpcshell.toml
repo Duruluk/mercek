@@ -1,5 +1,7 @@
 [DEFAULT]
-run-if = ["os != 'android'"]
+run-if = [
+  "os != 'android'",
+]
 head = "head.js"
 firefox-appdir = "browser"
 prefs = [
@@ -9,11 +11,15 @@ prefs = [
 
 ["test_GuardianClient.js"]
 
+["test_IPPAutoRestore.js"]
+
+["test_IPPChannelFilter.js"]
+
 ["test_IPPExceptionsManager.js"]
 
-["test_IPPStartupCache.js"]
+["test_IPPOnboardingMessageHelper.js"]
 
-["test_IPProtection.js"]
+["test_IPPStartupCache.js"]
 
 ["test_IPProtectionPanel.js"]
 
@@ -23,6 +29,6 @@ prefs = [
 
 ["test_IPProtectionStates.js"]
 
-["test_IPProtectionUsage.js"]
+["test_IPProtectionToolbarButton.js"]
 
 ["test_IPProxyManager.js"]

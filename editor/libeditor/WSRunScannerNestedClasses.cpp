@@ -24,8 +24,8 @@ using namespace dom;
 
 using AncestorType = HTMLEditUtils::AncestorType;
 using AncestorTypes = HTMLEditUtils::AncestorTypes;
-using LeafNodeType = HTMLEditUtils::LeafNodeType;
-using LeafNodeTypes = HTMLEditUtils::LeafNodeTypes;
+using LeafNodeOption = HTMLEditUtils::LeafNodeOption;
+using LeafNodeOptions = HTMLEditUtils::LeafNodeOptions;
 
 template WSRunScanner::TextFragmentData::TextFragmentData(Options,
                                                           const EditorDOMPoint&,
@@ -39,45 +39,44 @@ template WSRunScanner::TextFragmentData::TextFragmentData(
 
 NS_INSTANTIATE_METHOD_RETURNING_ANY_EDITOR_DOM_POINT(
     WSRunScanner::TextFragmentData::GetInclusiveNextCharPoint,
-    const EditorDOMPoint&, ReferHTMLDefaultStyle, IgnoreNonEditableNodes,
+    const EditorDOMPoint&, Options, IgnoreNonEditableNodes, const nsIContent*);
+NS_INSTANTIATE_METHOD_RETURNING_ANY_EDITOR_DOM_POINT(
+    WSRunScanner::TextFragmentData::GetInclusiveNextCharPoint,
+    const EditorRawDOMPoint&, Options, IgnoreNonEditableNodes,
     const nsIContent*);
 NS_INSTANTIATE_METHOD_RETURNING_ANY_EDITOR_DOM_POINT(
     WSRunScanner::TextFragmentData::GetInclusiveNextCharPoint,
-    const EditorRawDOMPoint&, ReferHTMLDefaultStyle, IgnoreNonEditableNodes,
+    const EditorDOMPointInText&, Options, IgnoreNonEditableNodes,
     const nsIContent*);
 NS_INSTANTIATE_METHOD_RETURNING_ANY_EDITOR_DOM_POINT(
     WSRunScanner::TextFragmentData::GetInclusiveNextCharPoint,
-    const EditorDOMPointInText&, ReferHTMLDefaultStyle, IgnoreNonEditableNodes,
+    const EditorRawDOMPointInText&, Options, IgnoreNonEditableNodes,
     const nsIContent*);
-NS_INSTANTIATE_METHOD_RETURNING_ANY_EDITOR_DOM_POINT(
-    WSRunScanner::TextFragmentData::GetInclusiveNextCharPoint,
-    const EditorRawDOMPointInText&, ReferHTMLDefaultStyle,
-    IgnoreNonEditableNodes, const nsIContent*);
 
 NS_INSTANTIATE_METHOD_RETURNING_ANY_EDITOR_DOM_POINT(
     WSRunScanner::TextFragmentData::GetPreviousCharPoint, const EditorDOMPoint&,
-    ReferHTMLDefaultStyle, IgnoreNonEditableNodes, const nsIContent*);
+    Options, IgnoreNonEditableNodes, const nsIContent*);
 NS_INSTANTIATE_METHOD_RETURNING_ANY_EDITOR_DOM_POINT(
     WSRunScanner::TextFragmentData::GetPreviousCharPoint,
-    const EditorRawDOMPoint&, ReferHTMLDefaultStyle, IgnoreNonEditableNodes,
+    const EditorRawDOMPoint&, Options, IgnoreNonEditableNodes,
     const nsIContent*);
 NS_INSTANTIATE_METHOD_RETURNING_ANY_EDITOR_DOM_POINT(
     WSRunScanner::TextFragmentData::GetPreviousCharPoint,
-    const EditorDOMPointInText&, ReferHTMLDefaultStyle, IgnoreNonEditableNodes,
+    const EditorDOMPointInText&, Options, IgnoreNonEditableNodes,
     const nsIContent*);
 NS_INSTANTIATE_METHOD_RETURNING_ANY_EDITOR_DOM_POINT(
     WSRunScanner::TextFragmentData::GetPreviousCharPoint,
-    const EditorRawDOMPointInText&, ReferHTMLDefaultStyle,
-    IgnoreNonEditableNodes, const nsIContent*);
+    const EditorRawDOMPointInText&, Options, IgnoreNonEditableNodes,
+    const nsIContent*);
 
 NS_INSTANTIATE_METHOD_RETURNING_ANY_EDITOR_DOM_POINT(
     WSRunScanner::TextFragmentData::GetEndOfCollapsibleASCIIWhiteSpaces,
-    const EditorDOMPointInText&, nsIEditor::EDirection, ReferHTMLDefaultStyle,
+    const EditorDOMPointInText&, nsIEditor::EDirection, Options,
     IgnoreNonEditableNodes, const nsIContent*);
 
 NS_INSTANTIATE_METHOD_RETURNING_ANY_EDITOR_DOM_POINT(
     WSRunScanner::TextFragmentData::GetFirstASCIIWhiteSpacePointCollapsedTo,
-    const EditorDOMPointInText&, nsIEditor::EDirection, ReferHTMLDefaultStyle,
+    const EditorDOMPointInText&, nsIEditor::EDirection, Options,
     IgnoreNonEditableNodes, const nsIContent*);
 
 // FIXME: I think the scanner should not cross the <button> element boundaries.
@@ -246,13 +245,10 @@ WSRunScanner::TextFragmentData::BoundaryData WSRunScanner::TextFragmentData::
           ? BlockInlineCheck::UseHTMLDefaultStyle
           : BlockInlineCheck::Auto;
   // Then, we need to check previous leaf node.
-  const auto leafNodeTypes =
-      aOptions.contains(Option::OnlyEditableNodes)
-          ? LeafNodeTypes{LeafNodeType::LeafNodeOrNonEditableNode}
-          : LeafNodeTypes{LeafNodeType::OnlyLeafNode};
+  const LeafNodeOptions leafNodeOptions = ToLeafNodeOptions(aOptions);
   nsIContent* previousLeafContentOrBlock =
       HTMLEditUtils::GetPreviousLeafContentOrPreviousBlockElement(
-          aPoint, leafNodeTypes, blockInlineCheck, &aAncestorLimiter);
+          aPoint, leafNodeOptions, blockInlineCheck, &aAncestorLimiter);
   if (!previousLeafContentOrBlock) {
     // No previous content means that we reached the aAncestorLimiter boundary.
     return BoundaryData(
@@ -270,16 +266,35 @@ WSRunScanner::TextFragmentData::BoundaryData WSRunScanner::TextFragmentData::
                         WSType::OtherBlockBoundary);
   }
 
-  if (!previousLeafContentOrBlock->IsText() ||
-      (aOptions.contains(Option::OnlyEditableNodes) &&
-       HTMLEditUtils::IsSimplyEditableNode(*previousLeafContentOrBlock) !=
-           HTMLEditUtils::IsSimplyEditableNode(aAncestorLimiter))) {
-    // it's a break or a special node, like <img>, that is not a block and
-    // not a break but still serves as a terminator to ws runs.
+  if (previousLeafContentOrBlock->IsHTMLElement(nsGkAtoms::br)) {
+    // <br>
+    return BoundaryData(aPoint, *previousLeafContentOrBlock, WSType::BRElement);
+  }
+
+  if (aOptions.contains(Option::OnlyEditableNodes) &&
+      HTMLEditUtils::IsSimplyEditableNode(*previousLeafContentOrBlock) !=
+          HTMLEditUtils::IsSimplyEditableNode(aAncestorLimiter)) {
+    // Non-editable nodes (assuming the start content is editable).
     return BoundaryData(aPoint, *previousLeafContentOrBlock,
-                        previousLeafContentOrBlock->IsHTMLElement(nsGkAtoms::br)
-                            ? WSType::BRElement
-                            : WSType::SpecialContent);
+                        WSType::SpecialContent);
+  }
+
+  if (previousLeafContentOrBlock->IsElement() &&
+      HTMLEditUtils::IsInlineContent(
+          *previousLeafContentOrBlock,
+          UseComputedDisplayOutsideStyleIfAuto(blockInlineCheck)) &&
+      HTMLEditUtils::IsContainerNode(*previousLeafContentOrBlock) &&
+      !HTMLEditUtils::IsReplacedElement(
+          *previousLeafContentOrBlock->AsElement())) {
+    // Empty inline containers such as <span></span>
+    return BoundaryData(aPoint, *previousLeafContentOrBlock,
+                        WSType::EmptyInlineContainerElement);
+  }
+
+  if (!previousLeafContentOrBlock->IsText()) {
+    // Other elements like <img> or #comment.
+    return BoundaryData(aPoint, *previousLeafContentOrBlock,
+                        WSType::SpecialContent);
   }
 
   if (!previousLeafContentOrBlock->AsText()->TextLength()) {
@@ -403,13 +418,10 @@ WSRunScanner::TextFragmentData::BoundaryData::ScanCollapsibleWhiteSpaceEndFrom(
           : BlockInlineCheck::Auto;
 
   // Then, we need to check next leaf node.
-  const auto leafNodeTypes =
-      aOptions.contains(Option::OnlyEditableNodes)
-          ? LeafNodeTypes{LeafNodeType::LeafNodeOrNonEditableNode}
-          : LeafNodeTypes{LeafNodeType::OnlyLeafNode};
+  const LeafNodeOptions leafNodeOptions = ToLeafNodeOptions(aOptions);
   nsIContent* nextLeafContentOrBlock =
       HTMLEditUtils::GetNextLeafContentOrNextBlockElement(
-          aPoint, leafNodeTypes, blockInlineCheck, &aAncestorLimiter);
+          aPoint, leafNodeOptions, blockInlineCheck, &aAncestorLimiter);
   if (!nextLeafContentOrBlock) {
     // No next content means that we reached aAncestorLimiter boundary.
     return BoundaryData(
@@ -429,17 +441,34 @@ WSRunScanner::TextFragmentData::BoundaryData::ScanCollapsibleWhiteSpaceEndFrom(
                         WSType::OtherBlockBoundary);
   }
 
-  if (!nextLeafContentOrBlock->IsText() ||
-      (aOptions.contains(Option::OnlyEditableNodes) &&
-       HTMLEditUtils::IsSimplyEditableNode(*nextLeafContentOrBlock) !=
-           HTMLEditUtils::IsSimplyEditableNode(aAncestorLimiter))) {
-    // we encountered a break or a special node, like <img>,
-    // that is not a block and not a break but still
-    // serves as a terminator to ws runs.
+  if (nextLeafContentOrBlock->IsHTMLElement(nsGkAtoms::br)) {
+    // <br>
+    return BoundaryData(aPoint, *nextLeafContentOrBlock, WSType::BRElement);
+  }
+
+  if (aOptions.contains(Option::OnlyEditableNodes) &&
+      HTMLEditUtils::IsSimplyEditableNode(*nextLeafContentOrBlock) !=
+          HTMLEditUtils::IsSimplyEditableNode(aAncestorLimiter)) {
+    // Non-editable nodes (assuming the start content is editable).
     return BoundaryData(aPoint, *nextLeafContentOrBlock,
-                        nextLeafContentOrBlock->IsHTMLElement(nsGkAtoms::br)
-                            ? WSType::BRElement
-                            : WSType::SpecialContent);
+                        WSType::SpecialContent);
+  }
+
+  if (nextLeafContentOrBlock->IsElement() &&
+      HTMLEditUtils::IsInlineContent(
+          *nextLeafContentOrBlock,
+          UseComputedDisplayOutsideStyleIfAuto(blockInlineCheck)) &&
+      HTMLEditUtils::IsContainerNode(*nextLeafContentOrBlock) &&
+      !HTMLEditUtils::IsReplacedElement(*nextLeafContentOrBlock->AsElement())) {
+    // Empty inline containers such as <span></span>
+    return BoundaryData(aPoint, *nextLeafContentOrBlock,
+                        WSType::EmptyInlineContainerElement);
+  }
+
+  if (!nextLeafContentOrBlock->IsText()) {
+    // Other elements like <img>, etc.
+    return BoundaryData(aPoint, *nextLeafContentOrBlock,
+                        WSType::SpecialContent);
   }
 
   if (!nextLeafContentOrBlock->AsText()->DataBuffer().GetLength()) {
@@ -590,9 +619,19 @@ WSRunScanner::TextFragmentData::VisibleWhiteSpacesDataRef() const {
     // If all things are obviously visible, we can return range for all of the
     // things quickly.
     const bool mayHaveInvisibleLeadingSpace =
-        !StartsFromNonCollapsibleCharacters() && !StartsFromSpecialContent();
+        !StartsFromNonCollapsibleCharacters() && !StartsFromSpecialContent() &&
+        !(StartsFromEmptyInlineContainerElement() &&
+          // XXX I think we don't need to check display:none here for now
+          // because in the other cases, we don't do that.
+          HTMLEditUtils::IsVisibleElementEvenIfLeafNode(
+              *GetStartReasonContent()));
     const bool mayHaveInvisibleTrailingWhiteSpace =
         !EndsByNonCollapsibleCharacters() && !EndsBySpecialContent() &&
+        !(EndsByEmptyInlineContainerElement() &&
+          // XXX I think we don't need to check display:none here for now
+          // because in the other cases, we don't do that.
+          HTMLEditUtils::IsVisibleElementEvenIfLeafNode(
+              *GetEndReasonContent())) &&
         !EndsByBRElement() && !EndsByInvisiblePreformattedLineBreak();
 
     if (!mayHaveInvisibleLeadingSpace && !mayHaveInvisibleTrailingWhiteSpace) {
@@ -849,7 +888,7 @@ WSRunScanner::TextFragmentData::GetReplaceRangeDataAtStartOfDeletionRange(
 template <typename EditorDOMPointType, typename PT, typename CT>
 EditorDOMPointType WSRunScanner::TextFragmentData::GetInclusiveNextCharPoint(
     const EditorDOMPointBase<PT, CT>& aPoint,
-    ReferHTMLDefaultStyle aReferHTMLDefaultStyle,
+    Options aOptions,  // NOLINT(performance-unnecessary-value-param)
     IgnoreNonEditableNodes aIgnoreNonEditableNodes,
     const nsIContent* aFollowingLimiterContent /* = nullptr */) {
   MOZ_ASSERT(aPoint.IsSetAndValid());
@@ -859,20 +898,35 @@ EditorDOMPointType WSRunScanner::TextFragmentData::GetInclusiveNextCharPoint(
   }
 
   const BlockInlineCheck blockInlineCheck =
-      static_cast<bool>(aReferHTMLDefaultStyle)
+      aOptions.contains(Option::ReferHTMLDefaultStyle)
           ? BlockInlineCheck::UseHTMLDefaultStyle
           : BlockInlineCheck::Auto;
+  const LeafNodeOptions leafNodeOptions =
+      ToLeafNodeOptions(aOptions) + LeafNodeOption::TreatChildBlockAsLeafNode;
   const EditorRawDOMPoint point = [&]() MOZ_NEVER_INLINE_DEBUG {
+    if (!aPoint.CanContainerHaveChildren()) {
+      return aPoint.template To<EditorRawDOMPoint>();
+    }
     nsIContent* const child =
-        aPoint.CanContainerHaveChildren() ? aPoint.GetChild() : nullptr;
+        aPoint.GetPreviousSiblingOfChild()
+            ? HTMLEditUtils::GetNextSibling(
+                  *aPoint.GetPreviousSiblingOfChild(), leafNodeOptions,
+                  UseComputedDisplayOutsideStyleIfAuto(blockInlineCheck))
+            : HTMLEditUtils::GetFirstChild(
+                  *aPoint.GetContainer(), leafNodeOptions,
+                  UseComputedDisplayOutsideStyleIfAuto(blockInlineCheck));
     if (!child ||
         HTMLEditUtils::IsBlockElement(
             *child, UseComputedDisplayOutsideStyleIfAuto(blockInlineCheck)) ||
-        HTMLEditUtils::IsVisibleElementEvenIfLeafNode(*child)) {
+        ((!aOptions.contains(Option::IgnoreEmptyInlineContainers) ||
+          !HTMLEditUtils::IsContainerNode(*child)) &&
+         HTMLEditUtils::IsVisibleElementEvenIfLeafNode(*child))) {
       return aPoint.template To<EditorRawDOMPoint>();
     }
     if (!child->HasChildNodes()) {
-      return EditorRawDOMPoint(child, 0);
+      return child->IsText() || HTMLEditUtils::IsContainerNode(*child)
+                 ? EditorRawDOMPoint(child, 0)
+                 : EditorRawDOMPoint::After(*child);
     }
     // FIXME: This may skip aFollowingLimiterContent, so, this utility should
     // take a stopper param.
@@ -880,12 +934,16 @@ EditorDOMPointType WSRunScanner::TextFragmentData::GetInclusiveNextCharPoint(
     // block because end reason content should not be the other side of the
     // following block boundary.
     nsIContent* const leafContent = HTMLEditUtils::GetFirstLeafContent(
-        *child, {LeafNodeType::LeafNodeOrChildBlock}, blockInlineCheck);
-    if (NS_WARN_IF(!leafContent) ||
-        HTMLEditUtils::IsBlockElement(
+        *child, leafNodeOptions, blockInlineCheck);
+    if (!leafContent) {
+      return EditorRawDOMPoint(child, 0);
+    }
+    if (HTMLEditUtils::IsBlockElement(
             *leafContent,
             UseComputedDisplayOutsideStyleIfAuto(blockInlineCheck)) ||
-        HTMLEditUtils::IsVisibleElementEvenIfLeafNode(*leafContent)) {
+        ((!aOptions.contains(Option::IgnoreEmptyInlineContainers) ||
+          !HTMLEditUtils::IsContainerNode(*leafContent)) &&
+         HTMLEditUtils::IsVisibleElementEvenIfLeafNode(*leafContent))) {
       return EditorRawDOMPoint();
     }
     return EditorRawDOMPoint(leafContent, 0);
@@ -922,19 +980,14 @@ EditorDOMPointType WSRunScanner::TextFragmentData::GetInclusiveNextCharPoint(
     return EditorDOMPointType();
   }
 
-  const auto leafNodeTypes =
-      aIgnoreNonEditableNodes == IgnoreNonEditableNodes::Yes
-          ? LeafNodeTypes(LeafNodeType::LeafNodeOrNonEditableNode,
-                          LeafNodeType::LeafNodeOrChildBlock)
-          : LeafNodeTypes(LeafNodeType::LeafNodeOrChildBlock);
   for (nsIContent* nextContent =
            HTMLEditUtils::GetNextLeafContentOrNextBlockElement(
-               *point.ContainerAs<nsIContent>(), leafNodeTypes,
+               *point.ContainerAs<nsIContent>(), leafNodeOptions,
                blockInlineCheck,
                editableBlockElementOrInlineEditingHostOrNonEditableRootElement);
        nextContent;
        nextContent = HTMLEditUtils::GetNextLeafContentOrNextBlockElement(
-           *nextContent, leafNodeTypes, blockInlineCheck,
+           *nextContent, leafNodeOptions, blockInlineCheck,
            editableBlockElementOrInlineEditingHostOrNonEditableRootElement)) {
     if (!nextContent->IsText() ||
         (aIgnoreNonEditableNodes == IgnoreNonEditableNodes::Yes &&
@@ -943,7 +996,9 @@ EditorDOMPointType WSRunScanner::TextFragmentData::GetInclusiveNextCharPoint(
           HTMLEditUtils::IsBlockElement(
               *nextContent,
               UseComputedDisplayOutsideStyleIfAuto(blockInlineCheck)) ||
-          HTMLEditUtils::IsVisibleElementEvenIfLeafNode(*nextContent)) {
+          ((!aOptions.contains(Option::IgnoreEmptyInlineContainers) ||
+            !HTMLEditUtils::IsContainerNode(*nextContent)) &&
+           HTMLEditUtils::IsVisibleElementEvenIfLeafNode(*nextContent))) {
         break;  // Reached end of current runs.
       }
       continue;
@@ -957,7 +1012,7 @@ EditorDOMPointType WSRunScanner::TextFragmentData::GetInclusiveNextCharPoint(
 template <typename EditorDOMPointType, typename PT, typename CT>
 EditorDOMPointType WSRunScanner::TextFragmentData::GetPreviousCharPoint(
     const EditorDOMPointBase<PT, CT>& aPoint,
-    ReferHTMLDefaultStyle aReferHTMLDefaultStyle,
+    Options aOptions,  // NOLINT(performance-unnecessary-value-param)
     IgnoreNonEditableNodes aIgnoreNonEditableNodes,
     const nsIContent* aPrecedingLimiterContent /* = nullptr */) {
   MOZ_ASSERT(aPoint.IsSetAndValid());
@@ -967,22 +1022,37 @@ EditorDOMPointType WSRunScanner::TextFragmentData::GetPreviousCharPoint(
   }
 
   const BlockInlineCheck blockInlineCheck =
-      static_cast<bool>(aReferHTMLDefaultStyle)
+      aOptions.contains(Option::ReferHTMLDefaultStyle)
           ? BlockInlineCheck::UseHTMLDefaultStyle
           : BlockInlineCheck::Auto;
+  const LeafNodeOptions leafNodeOptions =
+      ToLeafNodeOptions(aOptions) + LeafNodeOption::TreatChildBlockAsLeafNode;
   const EditorRawDOMPoint point = [&]() MOZ_NEVER_INLINE_DEBUG {
-    nsIContent* const previousChild = aPoint.CanContainerHaveChildren()
-                                          ? aPoint.GetPreviousSiblingOfChild()
-                                          : nullptr;
+    if (!aPoint.CanContainerHaveChildren()) {
+      return aPoint.template To<EditorRawDOMPoint>();
+    }
+    nsIContent* const previousChild =
+        aPoint.GetChild()
+            ? HTMLEditUtils::GetPreviousSibling(
+                  *aPoint.GetChild(), leafNodeOptions,
+                  UseComputedDisplayOutsideStyleIfAuto(blockInlineCheck))
+            : HTMLEditUtils::GetLastChild(
+                  *aPoint.GetContainer(), leafNodeOptions,
+                  UseComputedDisplayOutsideStyleIfAuto(blockInlineCheck));
     if (!previousChild ||
         HTMLEditUtils::IsBlockElement(
             *previousChild,
             UseComputedDisplayOutsideStyleIfAuto(blockInlineCheck)) ||
-        HTMLEditUtils::IsVisibleElementEvenIfLeafNode(*previousChild)) {
+        ((!aOptions.contains(Option::IgnoreEmptyInlineContainers) ||
+          !HTMLEditUtils::IsContainerNode(*previousChild)) &&
+         HTMLEditUtils::IsVisibleElementEvenIfLeafNode(*previousChild))) {
       return aPoint.template To<EditorRawDOMPoint>();
     }
     if (!previousChild->HasChildren()) {
-      return EditorRawDOMPoint::AtEndOf(*previousChild);
+      return previousChild->IsText() ||
+                     HTMLEditUtils::IsContainerNode(*previousChild)
+                 ? EditorRawDOMPoint::AtEndOf(*previousChild)
+                 : EditorRawDOMPoint::After(*previousChild);
     }
     // FIXME: This may skip aPrecedingLimiterContent, so, this utility should
     // take a stopper param.
@@ -990,12 +1060,16 @@ EditorDOMPointType WSRunScanner::TextFragmentData::GetPreviousCharPoint(
     // block because end reason content should not be the other side of the
     // following block boundary.
     nsIContent* const leafContent = HTMLEditUtils::GetLastLeafContent(
-        *previousChild, {LeafNodeType::LeafNodeOrChildBlock}, blockInlineCheck);
-    if (NS_WARN_IF(!leafContent) ||
-        HTMLEditUtils::IsBlockElement(
+        *previousChild, leafNodeOptions, blockInlineCheck);
+    if (!leafContent) {
+      return EditorRawDOMPoint::AtEndOf(*previousChild);
+    }
+    if (HTMLEditUtils::IsBlockElement(
             *leafContent,
             UseComputedDisplayOutsideStyleIfAuto(blockInlineCheck)) ||
-        HTMLEditUtils::IsVisibleElementEvenIfLeafNode(*leafContent)) {
+        ((!aOptions.contains(Option::IgnoreEmptyInlineContainers) ||
+          !HTMLEditUtils::IsContainerNode(*leafContent)) &&
+         HTMLEditUtils::IsVisibleElementEvenIfLeafNode(*leafContent))) {
       return EditorRawDOMPoint();
     }
     return EditorRawDOMPoint::AtEndOf(*leafContent);
@@ -1033,20 +1107,16 @@ EditorDOMPointType WSRunScanner::TextFragmentData::GetPreviousCharPoint(
     return EditorDOMPointType();
   }
 
-  const auto leafNodeTypes =
-      aIgnoreNonEditableNodes == IgnoreNonEditableNodes::Yes
-          ? LeafNodeTypes(LeafNodeType::LeafNodeOrNonEditableNode,
-                          LeafNodeType::LeafNodeOrChildBlock)
-          : LeafNodeTypes(LeafNodeType::LeafNodeOrChildBlock);
   for (
       nsIContent* previousContent =
           HTMLEditUtils::GetPreviousLeafContentOrPreviousBlockElement(
-              *point.ContainerAs<nsIContent>(), leafNodeTypes, blockInlineCheck,
+              *point.ContainerAs<nsIContent>(), leafNodeOptions,
+              blockInlineCheck,
               editableBlockElementOrInlineEditingHostOrNonEditableRootElement);
       previousContent;
       previousContent =
           HTMLEditUtils::GetPreviousLeafContentOrPreviousBlockElement(
-              *previousContent, leafNodeTypes, blockInlineCheck,
+              *previousContent, leafNodeOptions, blockInlineCheck,
               editableBlockElementOrInlineEditingHostOrNonEditableRootElement)) {
     if (!previousContent->IsText() ||
         (aIgnoreNonEditableNodes == IgnoreNonEditableNodes::Yes &&
@@ -1055,7 +1125,9 @@ EditorDOMPointType WSRunScanner::TextFragmentData::GetPreviousCharPoint(
           HTMLEditUtils::IsBlockElement(
               *previousContent,
               UseComputedDisplayOutsideStyleIfAuto(blockInlineCheck)) ||
-          HTMLEditUtils::IsVisibleElementEvenIfLeafNode(*previousContent)) {
+          ((!aOptions.contains(Option::IgnoreEmptyInlineContainers) ||
+            !HTMLEditUtils::IsContainerNode(*previousContent)) &&
+           HTMLEditUtils::IsVisibleElementEvenIfLeafNode(*previousContent))) {
         break;  // Reached start of current runs.
       }
       continue;
@@ -1074,7 +1146,7 @@ EditorDOMPointType
 WSRunScanner::TextFragmentData::GetEndOfCollapsibleASCIIWhiteSpaces(
     const EditorDOMPointInText& aPointAtASCIIWhiteSpace,
     nsIEditor::EDirection aDirectionToDelete,
-    ReferHTMLDefaultStyle aReferHTMLDefaultStyle,
+    Options aOptions,  // NOLINT(performance-unnecessary-value-param)
     IgnoreNonEditableNodes aIgnoreNonEditableNodes,
     const nsIContent* aFollowingLimiterContent /* = nullptr */) {
   MOZ_ASSERT(aDirectionToDelete == nsIEditor::eNone ||
@@ -1149,8 +1221,8 @@ WSRunScanner::TextFragmentData::GetEndOfCollapsibleASCIIWhiteSpaces(
   for (EditorDOMPointInText atEndOfPreviousTextNode = afterLastWhiteSpace;;) {
     const auto atStartOfNextTextNode =
         TextFragmentData::GetInclusiveNextCharPoint<EditorDOMPointInText>(
-            atEndOfPreviousTextNode, aReferHTMLDefaultStyle,
-            aIgnoreNonEditableNodes, aFollowingLimiterContent);
+            atEndOfPreviousTextNode, aOptions, aIgnoreNonEditableNodes,
+            aFollowingLimiterContent);
     if (!atStartOfNextTextNode.IsSet()) {
       // There is no more text nodes.  Return end of the previous text node.
       return afterLastWhiteSpace.To<EditorDOMPointType>();
@@ -1192,7 +1264,7 @@ EditorDOMPointType
 WSRunScanner::TextFragmentData::GetFirstASCIIWhiteSpacePointCollapsedTo(
     const EditorDOMPointInText& aPointAtASCIIWhiteSpace,
     nsIEditor::EDirection aDirectionToDelete,
-    ReferHTMLDefaultStyle aReferHTMLDefaultStyle,
+    Options aOptions,  // NOLINT(performance-unnecessary-value-param)
     IgnoreNonEditableNodes aIgnoreNonEditableNodes,
     const nsIContent* aPrecedingLimiterContent) {
   MOZ_ASSERT(aDirectionToDelete == nsIEditor::eNone ||
@@ -1269,8 +1341,8 @@ WSRunScanner::TextFragmentData::GetFirstASCIIWhiteSpacePointCollapsedTo(
   for (EditorDOMPointInText atStartOfPreviousTextNode = atLastWhiteSpace;;) {
     const auto atLastCharOfPreviousTextNode =
         TextFragmentData::GetPreviousCharPoint<EditorDOMPointInText>(
-            atStartOfPreviousTextNode, aReferHTMLDefaultStyle,
-            aIgnoreNonEditableNodes, aPrecedingLimiterContent);
+            atStartOfPreviousTextNode, aOptions, aIgnoreNonEditableNodes,
+            aPrecedingLimiterContent);
     if (!atLastCharOfPreviousTextNode.IsSet()) {
       // There is no more text nodes.  Return end of last text node.
       return atLastWhiteSpace.To<EditorDOMPointType>();
@@ -1354,7 +1426,10 @@ EditorDOMPointInText WSRunScanner::TextFragmentData::
   const VisibleWhiteSpacesData& visibleWhiteSpaces =
       VisibleWhiteSpacesDataRef();
   if (!visibleWhiteSpaces.StartsFromNonCollapsibleCharacters() &&
-      !visibleWhiteSpaces.StartsFromSpecialContent()) {
+      !visibleWhiteSpaces.StartsFromSpecialContent() &&
+      !(visibleWhiteSpaces.StartsFromEmptyInlineContainerElement() &&
+        HTMLEditUtils::IsVisibleElementEvenIfLeafNode(
+            *GetStartReasonContent()))) {
     return EditorDOMPointInText();
   }
   return atPreviousChar;
@@ -1412,6 +1487,9 @@ EditorDOMPointInText WSRunScanner::TextFragmentData::
       VisibleWhiteSpacesDataRef();
   if (!visibleWhiteSpaces.EndsByNonCollapsibleCharacters() &&
       !visibleWhiteSpaces.EndsBySpecialContent() &&
+      !(visibleWhiteSpaces.EndsByEmptyInlineContainerElement() &&
+        HTMLEditUtils::IsVisibleElementEvenIfLeafNode(
+            *GetEndReasonContent())) &&
       !visibleWhiteSpaces.EndsByBRElement()) {
     return EditorDOMPointInText();
   }

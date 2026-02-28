@@ -57,15 +57,13 @@ const WebCompatExtension = new (class WebCompatExtension {
   async resetInterventionsAndShimsToDefaults() {
     return this.#run(async function () {
       await content.wrappedJSObject._downgradeForTesting();
-      await content.wrappedJSObject.interventions._resetToDefaultInterventions();
-      await content.wrappedJSObject.shims._resetToDefaultShims();
-    });
+    }).catch(_ => {});
   }
 
   async availableInterventions() {
     return this.#run(async function () {
       const available =
-        content.wrappedJSObject.interventions._availableInterventions;
+        content.wrappedJSObject.interventions.getAvailableInterventions();
       // structured cloning won't work, so get the interesting bits for tests.
       return JSON.parse(JSON.stringify(available));
     });
@@ -89,47 +87,45 @@ const WebCompatExtension = new (class WebCompatExtension {
     });
   }
 
-  async interventionsReady() {
+  async promiseUpdateReceived(_version) {
+    return this.#run(async function (version) {
+      await new Promise(updated => {
+        const updateCheck = content.setInterval(() => {
+          if (content.wrappedJSObject.latestReceivedUpdate == version) {
+            content.clearInterval(updateCheck);
+            updated();
+          }
+        }, 100);
+      });
+    }, _version);
+  }
+
+  async interventionsSettled() {
     return this.#run(async function () {
-      await content.wrappedJSObject.interventions.ready();
+      await content.wrappedJSObject.interventions.allSettled();
     });
   }
 
   async overrideFirefoxVersion(_ver) {
     this.#run(async function (ver) {
-      content.wrappedJSObject.interventions.versionForTesting = ver;
+      content.wrappedJSObject.interventions.appVersionOverride = ver
+        ? parseFloat(ver)
+        : undefined;
     }, _ver);
-  }
-
-  async noOngoingInterventionChanges() {
-    return this.#run(async function () {
-      await new Promise(lock1 => {
-        return new Promise(lock2 => {
-          content.wrappedJSObject.navigator.locks.request(
-            "pref_check_lock",
-            lock2
-          );
-        }).then(() =>
-          content.wrappedJSObject.navigator.locks.request(
-            "intervention_lock",
-            lock1
-          )
-        );
-      });
-    });
   }
 
   async getInterventionById(_id) {
     return this.#run(function (id) {
-      return content.wrappedJSObject.interventions._availableInterventions.find(
-        i => i.id === id
-      );
+      return content.wrappedJSObject.interventions.getInterventionsByIds(
+        Cu.cloneInto([id], content)
+      )[0];
     }, _id);
   }
 
   getCheckableGlobalPrefs() {
-    return this.extension.experimentAPIManager.global.aboutConfigPrefs
-      .ALLOWED_GLOBAL_PREFS;
+    return this.#run(async function () {
+      return content.wrappedJSObject.browser.aboutConfigPrefs.getCheckableGlobalPrefs();
+    });
   }
 
   async updateShims(_shims) {
@@ -159,12 +155,8 @@ const WebCompatExtension = new (class WebCompatExtension {
 
   async disableInterventions(_ids) {
     return this.#run(async function (ids) {
-      const which =
-        content.wrappedJSObject.interventions._availableInterventions.filter(
-          i => ids.includes(i.id)
-        );
       return await content.wrappedJSObject.interventions.disableInterventions(
-        Cu.cloneInto(which, content)
+        Cu.cloneInto(ids, content)
       );
     }, _ids);
   }
@@ -177,6 +169,11 @@ const WebCompatExtension = new (class WebCompatExtension {
     }, _config);
   }
 })();
+
+registerCleanupFunction(async () => {
+  await WebCompatExtension.overrideFirefoxVersion(undefined);
+  await WebCompatExtension.resetInterventionsAndShimsToDefaults();
+});
 
 async function testShimRuns(
   testPage,
@@ -292,8 +289,14 @@ async function testShimDoesNotRun(
   await BrowserTestUtils.removeTab(tab);
 }
 
+function panelId() {
+  return Services.prefs.getBoolPref("browser.urlbar.trustPanel.featureGate")
+    ? "trustpanel-popup"
+    : "protections-popup";
+}
+
 async function closeProtectionsPanel(win = window) {
-  let protectionsPopup = win.document.getElementById("protections-popup");
+  let protectionsPopup = win.document.getElementById(panelId());
   if (!protectionsPopup) {
     return;
   }
@@ -311,10 +314,14 @@ async function openProtectionsPanel(win = window) {
     win,
     "popupshown",
     true,
-    e => e.target.id == "protections-popup"
+    e => e.target.id == panelId()
   );
 
-  win.gProtectionsHandler.showProtectionsPopup();
+  if (Services.prefs.getBoolPref("browser.urlbar.trustPanel.featureGate")) {
+    win.gTrustPanelHandler.showPopup();
+  } else {
+    win.gProtectionsHandler.showProtectionsPopup();
+  }
 
   await popupShownPromise;
 }
@@ -342,7 +349,7 @@ async function clickOnPagePlaceholder(tab) {
     window,
     "popupshown",
     true,
-    e => e.target.id == "protections-popup"
+    e => e.target.id == panelId()
   );
 
   await SpecialPowers.spawn(tab.linkedBrowser, [], async () => {
@@ -486,10 +493,14 @@ async function generateTestShims() {
         "embedClicked",
         "smartblockEmbedReplaced",
         "smartblockGetFluentString",
+        "shouldShowEmbedContentInPlaceholders",
       ],
       isSmartblockEmbedShim: true,
       onlyIfBlockedByETP: true,
       unblocksOnOptIn: ["*://itisatracker.org/*"],
     },
   ]);
+  registerCleanupFunction(async () => {
+    await WebCompatExtension.resetInterventionsAndShimsToDefaults();
+  });
 }

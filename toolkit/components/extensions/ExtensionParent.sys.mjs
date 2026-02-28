@@ -862,8 +862,8 @@ class DevToolsExtensionPageContextParent extends ExtensionPageContextParent {
     if (!this._onNavigatedListeners) {
       this._onNavigatedListeners = new Set();
 
-      await this.devToolsToolbox.resourceCommand.watchResources(
-        [this.devToolsToolbox.resourceCommand.TYPES.DOCUMENT_EVENT],
+      await this.devToolsToolbox.commands.resourceCommand.watchResources(
+        [this.devToolsToolbox.commands.resourceCommand.TYPES.DOCUMENT_EVENT],
         {
           onAvailable: this._onResourceAvailable,
           ignoreExistingResources: true,
@@ -916,8 +916,8 @@ class DevToolsExtensionPageContextParent extends ExtensionPageContextParent {
     }
 
     if (this._onNavigatedListeners) {
-      this.devToolsToolbox.resourceCommand.unwatchResources(
-        [this.devToolsToolbox.resourceCommand.TYPES.DOCUMENT_EVENT],
+      this.devToolsToolbox.commands.resourceCommand.unwatchResources(
+        [this.devToolsToolbox.commands.resourceCommand.TYPES.DOCUMENT_EVENT],
         { onAvailable: this._onResourceAvailable }
       );
     }
@@ -1489,6 +1489,9 @@ class HiddenXULWindow {
     if (browser.getAttribute("remote") === "true") {
       awaitFrameLoader = promiseEvent(browser, "XULFrameLoaderCreated");
     }
+
+    // Prevent initial about:blank load before navigating to extension URI
+    browser.setAttribute("nodefaultsrc", "true");
 
     chromeDoc.documentElement.appendChild(browser);
 
@@ -2148,15 +2151,16 @@ let IconDetails = {
 
       if (themeIcons) {
         themeIcons.forEach(({ size, light, dark }) => {
-          let lightURL = baseURI.resolve(light);
-          let darkURL = baseURI.resolve(dark);
+          // light and dark are reversed. theme_icons specifies
+          // the color of the icon instead of the toolbar color
+          const lightURL = baseURI.resolve(dark);
+          const darkURL = baseURI.resolve(light);
 
           this._checkURL(lightURL, extension);
           this._checkURL(darkURL, extension);
 
-          let defaultURL = result[size] || result[19]; // always fallback to default first
           result[size] = {
-            default: defaultURL || darkURL, // Fallback to the dark url if no default is specified.
+            default: lightURL, // TODO bug 2008737: Remove default property.
             light: lightURL,
             dark: darkURL,
           };

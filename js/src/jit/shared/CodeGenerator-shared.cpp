@@ -599,9 +599,14 @@ void CodeGeneratorShared::encodeAllocation(LSnapshot* snapshot,
       if (payload->isGeneralReg()) {
         alloc = RValueAllocation::Int64(ToRegister(payload));
       } else if (payload->isStackSlot()) {
-        MOZ_ASSERT(payload->toStackSlot()->width() ==
-                   LStackSlot::width(LDefinition::GENERAL));
-        alloc = RValueAllocation::Int64(ToStackIndex(payload));
+        LStackSlot::Width width = payload->toStackSlot()->width();
+        MOZ_ASSERT(width == LStackSlot::width(LDefinition::GENERAL) ||
+                   width == LStackSlot::width(LDefinition::INT32));
+        if (width == LStackSlot::width(LDefinition::GENERAL)) {
+          alloc = RValueAllocation::Int64(ToStackIndex(payload));
+        } else {
+          alloc = RValueAllocation::Int64Int32(ToStackIndex(payload));
+        }
       } else {
         MOZ_CRASH("Unexpected payload type.");
       }
@@ -755,7 +760,7 @@ bool CodeGeneratorShared::createNativeToBytecodeScriptList(
     // Add script from current tree.
     bool found = false;
     for (uint32_t i = 0; i < scripts.length(); i++) {
-      if (scripts[i].sourceAndExtent.matches(tree->script())) {
+      if (scripts[i].scriptData.sourceAndExtent.matches(tree->script())) {
         found = true;
         break;
       }
@@ -1030,7 +1035,7 @@ void CodeGeneratorShared::visitOutOfLineTruncateSlow(
   masm.jump(ool->rejoin());
 }
 
-bool CodeGeneratorShared::omitOverRecursedCheck() const {
+bool CodeGeneratorShared::omitOverRecursedStackCheck() const {
   // If the current function makes no calls (which means it isn't recursive)
   // and it uses only a small amount of stack space, it doesn't need a
   // stack overflow check. Note that the actual number here is somewhat
@@ -1038,6 +1043,10 @@ bool CodeGeneratorShared::omitOverRecursedCheck() const {
   // additional stack space in some cases too.
   return frameSize() < MAX_UNCHECKED_LEAF_FRAME_SIZE &&
          !gen->needsOverrecursedCheck();
+}
+
+bool CodeGeneratorShared::omitOverRecursedInterruptCheck() const {
+  return !gen->needsOverrecursedCheck();
 }
 
 void CodeGeneratorShared::emitPreBarrier(Address address) {

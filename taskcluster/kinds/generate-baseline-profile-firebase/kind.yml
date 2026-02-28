@@ -16,15 +16,18 @@ kind-dependencies:
     - instrumented-build-apk
 
 task-defaults:
+    run-on-repo-type: [hg]
     attributes:
         build_platform: android
         build-type: debug
     fetches:
         toolchain:
             - android-sdk-linux
+            - linux64-embedded-uniffi-bindgen
+            - linux64-nimbus-fml
     optimization:
         skip-unless-backstop: null
-    worker-type: b-linux-medium-gcp
+    worker-type: b-linux-medium
     worker:
         docker-image: {in-tree: android-ui-tests}
         max-run-time: 7200

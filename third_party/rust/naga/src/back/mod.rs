@@ -61,6 +61,26 @@ impl core::fmt::Display for Baked {
     }
 }
 
+bitflags::bitflags! {
+    /// How far through a ray query are we
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    #[cfg_attr(
+        not(any(hlsl_out, spv_out)),
+        allow(
+            dead_code,
+            reason = "shared helpers can be dead if none of the enabled backends need it"
+        )
+    )]
+    pub(super) struct RayQueryPoint: u32 {
+        /// Ray query has been successfully initialized.
+        const INITIALIZED = 1 << 0;
+        /// Proceed has been called on ray query.
+        const PROCEED = 1 << 1;
+        /// Proceed has returned false (have finished traversal).
+        const FINISHED_TRAVERSAL = 1 << 2;
+    }
+}
+
 /// Specifies the values of pipeline-overridable constants in the shader module.
 ///
 /// If an `@id` attribute was specified on the declaration,
@@ -128,6 +148,7 @@ fn get_entry_points(
 /// [`EntryPoint`]: crate::EntryPoint
 /// [`Module`]: crate::Module
 /// [`Module::entry_points`]: crate::Module::entry_points
+#[derive(Clone, Copy, Debug)]
 pub enum FunctionType {
     /// A regular function.
     Function(crate::Handle<crate::Function>),
@@ -139,11 +160,11 @@ pub enum FunctionType {
 }
 
 impl FunctionType {
-    /// Returns true if the function is an entry point for a compute shader.
-    pub fn is_compute_entry_point(&self, module: &crate::Module) -> bool {
+    /// Returns true if the function is an entry point for a compute-like shader.
+    pub fn is_compute_like_entry_point(&self, module: &crate::Module) -> bool {
         match *self {
             FunctionType::EntryPoint(index) => {
-                module.entry_points[index as usize].stage == crate::ShaderStage::Compute
+                module.entry_points[index as usize].stage.compute_like()
             }
             FunctionType::Function(_) => false,
         }
@@ -215,6 +236,10 @@ impl FunctionCtx<'_> {
                     external_texture_key,
                 )
             }
+            // This is a const function, which _sometimes_ gets called,
+            // so this lint is _sometimes_ triggered, depending on feature set.
+            #[expect(clippy::allow_attributes)]
+            #[allow(clippy::panic)]
             FunctionType::EntryPoint(_) => {
                 panic!("External textures cannot be used as arguments to entry points")
             }
@@ -312,12 +337,10 @@ pub const fn binary_operation_str(op: crate::BinaryOperator) -> &'static str {
 }
 
 impl crate::TypeInner {
-    /// Returns true if this is a handle to a type rather than the type directly.
+    /// Returns true if a variable of this type is a handle.
     pub const fn is_handle(&self) -> bool {
         match *self {
-            crate::TypeInner::Image { .. }
-            | crate::TypeInner::Sampler { .. }
-            | crate::TypeInner::AccelerationStructure { .. } => true,
+            Self::Image { .. } | Self::Sampler { .. } | Self::AccelerationStructure { .. } => true,
             _ => false,
         }
     }
@@ -368,4 +391,12 @@ bitflags::bitflags! {
 pub enum RayIntersectionType {
     Triangle = 1,
     BoundingBox = 4,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serialize", derive(serde::Serialize))]
+#[cfg_attr(feature = "deserialize", derive(serde::Deserialize))]
+pub struct TaskDispatchLimits {
+    pub max_mesh_workgroups_per_dim: u32,
+    pub max_mesh_workgroups_total: u32,
 }

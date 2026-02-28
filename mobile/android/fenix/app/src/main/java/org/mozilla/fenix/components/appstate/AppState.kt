@@ -31,7 +31,13 @@ import org.mozilla.fenix.reviewprompt.ReviewPromptState.Unknown
 import org.mozilla.fenix.wallpapers.WallpaperState
 
 /**
- * Value type that represents the state of the tabs tray.
+ * Global application specific state that needs to live as long as the app (or longer than a Fragment).
+ *
+ * Before using the [AppState] to hold a feature’s state, consider the following constraints:
+ * - Persistence to disk is not required.
+ * - The state is needed for the lifetime of the app or on frequently used screens.
+ * - Losing this state is acceptable if the operating system reclaims memory and the app restarts.
+ * - Recreating the state does not involve expensive operations (for example, network or disk I/O).
  *
  * @property isForeground Whether or not the app is in the foreground.
  * @property inactiveTabsExpanded A flag to know if the Inactive Tabs section of the Tabs Tray
@@ -73,6 +79,7 @@ import org.mozilla.fenix.wallpapers.WallpaperState
  * authentication.
  * @property reviewPrompt Whether we should show a review prompt and whether we ran the eligibility check at all
  * @property voiceSearchState The [VoiceSearchState] representing the current state of voice search functionality.
+ * @property isDefaultBrowser Whether Firefox is the default browser or not.
  */
 data class AppState(
     val isForeground: Boolean = true,
@@ -109,4 +116,5 @@ data class AppState(
     val isPrivateScreenLocked: Boolean = false,
     val reviewPrompt: ReviewPromptState = Unknown,
     val voiceSearchState: VoiceSearchState = VoiceSearchState(),
+    val isDefaultBrowser: Boolean = false,
 ) : State

@@ -141,6 +141,10 @@ main-context-menu-open-link-new-tab =
     .label = Open Link in New Tab
     .accesskey = T
 
+main-context-menu-open-link-split-view =
+    .label = Open Link in Split View
+    .accesskey = M
+
 main-context-menu-open-link-container-tab =
     .label = Open Link in New Container Tab
     .accesskey = w
@@ -342,8 +346,8 @@ main-context-menu-audio-email =
     .label = Email Audio…
     .accesskey = a
 
-main-context-menu-send-to-device =
-    .label = Send Page to Device
+main-context-menu-send-to-device-2 =
+    .label = Send to Device
     .accesskey = n
 
 # Displayed when there are saved passwords and the user clicks inside a username or password field

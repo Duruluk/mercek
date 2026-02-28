@@ -156,6 +156,11 @@ nsTArray<RefPtr<nsRange>> FragmentDirective::FindTextFragmentsInDocument() {
                       uri);
     return {};
   }
+  RefPtr doc = mDocument;
+  doc->FlushPendingNotifications(FlushType::Layout);
+  if (!mFinder) {
+    return {};
+  }
   auto textDirectives = mFinder->FindTextDirectivesInDocument();
   if (!mFinder->HasUninvokedDirectives()) {
     mFinder = nullptr;
@@ -436,8 +441,7 @@ already_AddRefed<Promise> FragmentDirective::CreateTextDirectiveForRanges(
   if (!resultPromise) {
     return nullptr;
   }
-  if (!StaticPrefs::dom_text_fragments_create_text_fragment_enabled() ||
-      !StaticPrefs::dom_text_fragments_enabled()) {
+  if (!StaticPrefs::dom_text_fragments_enabled()) {
     TEXT_FRAGMENT_LOG("Creating text fragments is disabled.");
     resultPromise->MaybeResolve(JS::NullHandleValue);
     return resultPromise.forget();

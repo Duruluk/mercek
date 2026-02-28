@@ -423,6 +423,7 @@ class _QuickSuggestTestUtils {
     keywords = ["amp"],
     full_keywords = keywords.map(kw => [kw, 1]),
     url = "https://example.com/amp",
+    click_url = "https://example.com/amp-click",
     title = "Amp Suggestion",
     score = 0.3,
   } = {}) {
@@ -433,7 +434,7 @@ class _QuickSuggestTestUtils {
       title,
       score,
       id: 1,
-      click_url: "https://example.com/amp-click",
+      click_url,
       impression_url: "https://example.com/amp-impression",
       advertiser: "Amp",
       iab_category: "22 - Shopping",
@@ -469,7 +470,7 @@ class _QuickSuggestTestUtils {
     isSuggestedIndexRelativeToGroup = true,
     isBestMatch = false,
     requestId = undefined,
-    descriptionL10n = { id: "urlbar-result-action-sponsored" },
+    dismissalKey = undefined,
     categories = [],
   } = {}) {
     let result = {
@@ -480,29 +481,23 @@ class _QuickSuggestTestUtils {
       source: lazy.UrlbarUtils.RESULT_SOURCE.SEARCH,
       heuristic: false,
       payload: {
-        title,
+        title: fullKeyword,
+        subtitle: title,
+        bottomTextL10n: { id: "urlbar-result-action-sponsored" },
         url,
         originalUrl,
         requestId,
         source,
         provider,
-        displayUrl: url.replace(/^https:\/\//, ""),
         isSponsored: true,
-        qsSuggestion: fullKeyword ?? keyword,
         sponsoredImpressionUrl: impressionUrl,
         sponsoredClickUrl: clickUrl,
         sponsoredBlockId: blockId,
         sponsoredAdvertiser: advertiser,
         sponsoredIabCategory: iabCategory,
-        isBlockable: true,
-        isManageable: true,
         telemetryType: "adm_sponsored",
       },
     };
-
-    if (descriptionL10n) {
-      result.payload.descriptionL10n = descriptionL10n;
-    }
 
     if (result.payload.source == "rust") {
       result.payload.iconBlob = iconBlob;
@@ -525,6 +520,9 @@ class _QuickSuggestTestUtils {
       });
     } else {
       result.payload.icon = icon;
+      if (typeof dismissalKey == "string") {
+        result.payload.dismissalKey = dismissalKey;
+      }
     }
 
     return result;
@@ -584,18 +582,16 @@ class _QuickSuggestTestUtils {
       source: lazy.UrlbarUtils.RESULT_SOURCE.SEARCH,
       heuristic: false,
       payload: {
-        title,
+        title: fullKeyword,
+        subtitle: title,
+        bottomTextL10n: { id: "urlbar-result-suggestion-recommended" },
         url,
         icon,
         iconBlob,
         source,
         provider,
         telemetryType,
-        displayUrl: url.replace(/^https:\/\//, ""),
         isSponsored: false,
-        qsSuggestion: fullKeyword ?? keyword,
-        isBlockable: true,
-        isManageable: true,
       },
     };
 
@@ -935,13 +931,15 @@ class _QuickSuggestTestUtils {
         title,
         description,
         url,
+        subtitleL10n: {
+          id: "urlbar-result-addons-subtitle",
+        },
         originalUrl,
         icon,
-        displayUrl: url.replace(/^https:\/\//, ""),
         isSponsored: false,
-        shouldShowUrl: true,
-        bottomTextL10n: { id: "firefox-suggest-addons-recommended" },
-        helpUrl: lazy.QuickSuggest.HELP_URL,
+        bottomTextL10n: {
+          id: "urlbar-result-suggestion-recommended",
+        },
         telemetryType: "amo",
       },
     };
@@ -988,14 +986,15 @@ class _QuickSuggestTestUtils {
       payload: {
         telemetryType: "mdn",
         title,
+        subtitleL10n: { id: "urlbar-result-mdn-subtitle" },
         url: finalUrl.href,
         originalUrl: url,
-        displayUrl: finalUrl.href.replace(/^https:\/\//, ""),
         isSponsored: false,
         description,
         icon: "chrome://global/skin/icons/mdn.svg",
-        shouldShowUrl: true,
-        bottomTextL10n: { id: "firefox-suggest-mdn-bottom-text" },
+        bottomTextL10n: {
+          id: "urlbar-result-suggestion-recommended",
+        },
         source: "rust",
         provider: "Mdn",
         suggestionObject: new lazy.Suggestion.Mdn({
@@ -1022,9 +1021,10 @@ class _QuickSuggestTestUtils {
     source = "rust",
     provider = "Yelp",
     isTopPick = false,
-    // The default Yelp suggestedIndex is 0, unlike most other Suggest
-    // suggestion types, which use -1. Note that many callers still use
-    // -1 here because they test without the search suggestion provider.
+    // The logic for the default Yelp `suggestedIndex` is complex and depends on
+    // whether `UrlbarProviderSearchSuggestions` is active and whether search
+    // suggestions are shown first. By default -- when the answer to both of
+    // those questions is Yes -- Yelp's `suggestedIndex` is 0.
     suggestedIndex = 0,
     isSuggestedIndexRelativeToGroup = true,
     originalUrl = undefined,
@@ -1055,13 +1055,16 @@ class _QuickSuggestTestUtils {
         source,
         provider,
         telemetryType: "yelp",
-        bottomTextL10n: { id: "firefox-suggest-yelp-bottom-text" },
+        bottomTextL10n: {
+          id: "urlbar-result-action-sponsored",
+        },
         url,
         originalUrl,
         title,
         titleL10n,
         icon: null,
         isSponsored: true,
+        subtitleL10n: { id: "urlbar-result-yelp-subtitle" },
       },
     };
 
@@ -1125,14 +1128,13 @@ class _QuickSuggestTestUtils {
         unit: temperatureUnit.toUpperCase(),
       },
       parseMarkup: true,
-      cacheable: true,
-      excludeArgsFromCacheKey: true,
     };
 
     return {
       type: lazy.UrlbarUtils.RESULT_TYPE.URL,
       source: lazy.UrlbarUtils.RESULT_SOURCE.SEARCH,
       heuristic: false,
+      isBestMatch: true,
       suggestedIndex: 1,
       isRichSuggestion: true,
       richSuggestionIconVariation: "6",
@@ -1142,7 +1144,6 @@ class _QuickSuggestTestUtils {
         bottomTextL10n: {
           id: "urlbar-result-weather-provider-sponsored",
           args: { provider: "AccuWeather®" },
-          cacheable: true,
         },
         source,
         provider,
@@ -1172,11 +1173,6 @@ class _QuickSuggestTestUtils {
    *   Whether the result is expected to be sponsored.
    * @param {boolean} [options.isBestMatch]
    *   Whether the result is expected to be a best match.
-   * @param {boolean} [options.isManageable]
-   *   Whether the result is expected to show Manage result menu item.
-   * @param {boolean} [options.hasSponsoredLabel]
-   *   Whether the result is expected to show the "Sponsored" label below the
-   *   title.
    * @returns {Promise<object>}
    *   The quick suggest result.
    */
@@ -1187,8 +1183,6 @@ class _QuickSuggestTestUtils {
     index = -1,
     isSponsored = true,
     isBestMatch = false,
-    isManageable = true,
-    hasSponsoredLabel = isSponsored || isBestMatch,
   }) {
     this.Assert.ok(
       url || originalUrl,
@@ -1247,34 +1241,15 @@ class _QuickSuggestTestUtils {
 
     let { row } = details.element;
 
-    let sponsoredElement = row._elements.get("description");
-    if (hasSponsoredLabel) {
-      this.Assert.ok(sponsoredElement, "Result sponsored label element exists");
-      this.Assert.equal(
-        sponsoredElement.textContent,
-        isSponsored ? "Sponsored" : "",
-        "Result sponsored label"
-      );
-    } else {
-      this.Assert.ok(
-        !sponsoredElement?.textContent,
-        "Result sponsored label element should not exist"
-      );
-    }
-
-    this.Assert.equal(
-      result.payload.isManageable,
-      isManageable,
-      "Result isManageable"
+    let bottomLabel = row._elements.get("bottomLabel");
+    this.Assert.ok(bottomLabel, "Result bottom label should exist");
+    this.Assert.deepEqual(
+      window.document.l10n.getAttributes(bottomLabel),
+      isSponsored
+        ? { id: "urlbar-result-action-sponsored", args: null }
+        : { id: "urlbar-result-suggestion-recommended", args: null },
+      "Result bottom label should have correct l10n"
     );
-
-    if (!isManageable) {
-      this.Assert.equal(
-        result.payload.helpUrl,
-        lazy.QuickSuggest.HELP_URL,
-        "Result helpURL"
-      );
-    }
 
     this.Assert.ok(
       row._buttons.get("result-menu"),
@@ -1596,7 +1571,7 @@ class _QuickSuggestTestUtils {
             lazy.SearchUtils.TOPIC_SEARCH_SERVICE,
             (subject, data) => {
               this.#log(
-                "setLocales",
+                "#waitForAllLocaleChanges",
                 "Observed TOPIC_SEARCH_SERVICE with data: " + data
               );
               return data == "engines-reloaded";
@@ -1605,7 +1580,7 @@ class _QuickSuggestTestUtils {
           new Promise(resolve => {
             lazy.setTimeout(() => {
               this.#log(
-                "setLocales",
+                "#waitForAllLocaleChanges",
                 "Timed out waiting for TOPIC_SEARCH_SERVICE (not an error)"
               );
               resolve();

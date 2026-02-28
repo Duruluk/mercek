@@ -5,6 +5,8 @@
 package org.mozilla.fenix.home.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -15,20 +17,25 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.tooling.preview.PreviewLightDark
 import androidx.compose.ui.unit.dp
+import mozilla.components.ui.icons.R
 import org.mozilla.fenix.home.fake.FakeHomepagePreview
 import org.mozilla.fenix.home.interactor.HomepageInteractor
 import org.mozilla.fenix.home.pocket.ui.PocketSection
+import org.mozilla.fenix.home.store.HeaderState
 import org.mozilla.fenix.home.store.HomepageState
 import org.mozilla.fenix.home.topsites.TopSiteColors
 import org.mozilla.fenix.home.ui.HomepageTestTag.HOMEPAGE
@@ -45,7 +52,7 @@ private const val BOTTOM_PADDING = 47
  * @param onMiddleSearchBarVisibilityChanged Invoked when the middle search is shown/hidden.
  * @param onTopSitesItemBound Invoked during the composition of a top site item.
  */
-@Suppress("LongMethod", "CyclomaticComplexMethod")
+@Suppress("LongMethod", "CyclomaticComplexMethod", "CognitiveComplexMethod")
 @Composable
 internal fun MiddleSearchHomepage(
     state: HomepageState,
@@ -68,7 +75,8 @@ internal fun MiddleSearchHomepage(
                 }
                 .pointerInput(state.isSearchInProgress) {
                     if (state.isSearchInProgress) {
-                        awaitPointerEventScope {
+                        awaitEachGesture {
+                            awaitFirstDown(false, PointerEventPass.Initial)
                             interactor.onHomeContentFocusedWhileSearchIsActive()
                         }
                     }
@@ -145,7 +153,7 @@ internal fun MiddleSearchHomepage(
 private fun Scrim(onDismiss: () -> Unit) {
     Box(
         modifier = Modifier
-            .background(FirefoxTheme.colors.layerScrim.copy(alpha = 0.75f))
+            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.75f))
             .fillMaxSize()
             .pointerInput(Unit) {
                 detectTapGestures(onTap = { onDismiss() })
@@ -159,6 +167,7 @@ private fun MiddleSearchHomepagePreview() {
     FirefoxTheme {
         MiddleSearchHomepage(
             HomepageState.Normal(
+                shouldShowPrivacyNoticeBanner = false,
                 nimbusMessage = null,
                 topSites = FakeHomepagePreview.topSites(),
                 recentTabs = FakeHomepagePreview.recentTabs(),
@@ -174,7 +183,15 @@ private fun MiddleSearchHomepagePreview() {
                 showRecentlyVisited = true,
                 showPocketStories = true,
                 showCollections = true,
-                showHeader = false,
+                headerState = HeaderState(
+                    showHeader = false,
+                    wordmarkTextColor = null,
+                    privateBrowsingButtonColor = colorResource(
+                        getAttr(
+                            R.attr.mozac_ic_private_mode_circle_fill_icon_color,
+                        ),
+                    ),
+                ),
                 searchBarVisible = true,
                 searchBarEnabled = true,
                 firstFrameDrawn = true,
@@ -184,6 +201,7 @@ private fun MiddleSearchHomepagePreview() {
                 buttonTextColor = WallpaperState.default.buttonTextColor,
                 buttonBackgroundColor = WallpaperState.default.buttonBackgroundColor,
                 isSearchInProgress = false,
+                bottomPadding = 68,
             ),
             interactor = FakeHomepagePreview.homepageInteractor,
             onTopSitesItemBound = {},

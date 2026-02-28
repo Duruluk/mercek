@@ -47,7 +47,7 @@ const UI_BASE_URL_PATH_DEFAULT = "/from-browser";
  * profiler.firefox.com to be analyzed. This function opens up profiler.firefox.com
  * into a new browser tab.
  *
- * @typedef {Object} OpenProfilerOptions
+ * @typedef {object} OpenProfilerOptions
  * @property {ProfilerViewMode | undefined} [profilerViewMode] - View mode for the Firefox Profiler
  *   front-end timeline. While opening the url, we should append a query string
  *   if a view other than "full" needs to be displayed.
@@ -137,16 +137,17 @@ function restartBrowserWithEnvironmentVariable(env) {
 
 /**
  * @param {Window} window
+ * @param {string} pickerTitle
  * @param {string[]} objdirs
  * @param {(objdirs: string[]) => unknown} changeObjdirs
  */
-function openFilePickerForObjdir(window, objdirs, changeObjdirs) {
+function openFilePickerForObjdir(window, pickerTitle, objdirs, changeObjdirs) {
   const FilePicker = Cc["@mozilla.org/filepicker;1"].createInstance(
     Ci.nsIFilePicker
   );
   FilePicker.init(
     window.browsingContext,
-    "Pick build directory",
+    pickerTitle,
     FilePicker.modeGetFolder
   );
   FilePicker.open(rv => {

@@ -20,11 +20,11 @@ from gecko_taskgraph.optimize.bugbug import (
     DisperseGroups,
     SkipUnlessDebug,
 )
+from gecko_taskgraph.optimize.docs import SkipUnlessSphinxJs
 from gecko_taskgraph.optimize.mozlint import SkipUnlessMozlint
 from gecko_taskgraph.optimize.strategies import SkipUnlessMissing, SkipUnlessSchedules
 from gecko_taskgraph.util.backstop import BACKSTOP_PUSH_INTERVAL
 from gecko_taskgraph.util.bugbug import (
-    BUGBUG_BASE_FALLBACK_URL,
     BUGBUG_BASE_URL,
     BugbugTimeoutException,
     push_schedules,
@@ -33,7 +33,7 @@ from gecko_taskgraph.util.bugbug import (
 
 @pytest.fixture(autouse=True)
 def clear_push_schedules_memoize():
-    push_schedules.clear()
+    push_schedules.cache_clear()
 
 
 @pytest.fixture
@@ -359,9 +359,12 @@ def test_bugbug_multiple_pushes(responses, params):
     labels = [
         t.label for t in default_tasks if not opt.should_remove_task(t, params, {})
     ]
-    assert sorted(labels) == sorted(
-        ["task-0-label", "task-1-label", "task-2-label", "task-4-label"]
-    )
+    assert sorted(labels) == sorted([
+        "task-0-label",
+        "task-1-label",
+        "task-2-label",
+        "task-4-label",
+    ])
 
 
 def test_bugbug_timeout(monkeypatch, responses, params):
@@ -370,13 +373,6 @@ def test_bugbug_timeout(monkeypatch, responses, params):
     responses.add(
         responses.GET,
         url,
-        json={"ready": False},
-        status=202,
-    )
-    fallback_url = BUGBUG_BASE_FALLBACK_URL + query
-    responses.add(
-        responses.GET,
-        fallback_url,
         json={"ready": False},
         status=202,
     )
@@ -395,13 +391,6 @@ def test_bugbug_fallback(monkeypatch, responses, params):
     responses.add(
         responses.GET,
         url,
-        json={"ready": False},
-        status=202,
-    )
-    fallback_url = BUGBUG_BASE_FALLBACK_URL + query
-    responses.add(
-        responses.GET,
-        fallback_url,
         json={"ready": False},
         status=202,
     )
@@ -684,6 +673,62 @@ def test_skip_unless_missing(monkeypatch, responses, params):
         status=200,
     )
     opt.should_remove_task(task, params, index)
+
+
+@pytest.mark.parametrize(
+    "files_changed,js_source_paths,expected",
+    [
+        pytest.param(
+            [],
+            ["browser/components/urlbar"],
+            True,
+            id="no_files_changed",
+        ),
+        pytest.param(
+            ["browser/components/urlbar/UrlbarView.sys.mjs"],
+            ["browser/components/urlbar"],
+            False,
+            id="matching_file",
+        ),
+        pytest.param(
+            ["browser/components/urlbar/content/quickactions.js"],
+            ["browser/components/urlbar", "browser/components/urlbar/content"],
+            False,
+            id="matching_nested_file",
+        ),
+        pytest.param(
+            ["browser/components/migration/MigrationUtils.sys.mjs"],
+            ["browser/components/urlbar"],
+            True,
+            id="non_matching_file",
+        ),
+        pytest.param(
+            ["README.md", "browser/components/urlbar/UrlbarInput.sys.mjs"],
+            ["browser/components/urlbar"],
+            False,
+            id="one_matching_one_not",
+        ),
+        pytest.param(
+            ["toolkit/actors/AutoScrollChild.sys.mjs"],
+            ["toolkit/actors", "browser/components/urlbar"],
+            False,
+            id="matches_first_path",
+        ),
+    ],
+)
+def test_skip_unless_sphinx_js(
+    monkeypatch, params, files_changed, js_source_paths, expected
+):
+    opt = SkipUnlessSphinxJs()
+
+    def mock_get_js_source_paths():
+        return js_source_paths
+
+    monkeypatch.setattr(opt, "_get_js_source_paths", mock_get_js_source_paths)
+    params["files_changed"] = files_changed
+
+    result = opt.should_remove_task(default_tasks[0], params, None)
+    assert result == expected
 
 
 if __name__ == "__main__":

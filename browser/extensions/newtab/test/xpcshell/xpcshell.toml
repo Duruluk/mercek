@@ -1,5 +1,7 @@
 [DEFAULT]
-run-if = ["os != 'android'"]
+run-if = [
+  "os != 'android'",
+]
 firefox-appdir = "browser"
 head = "head.js"
 prefs = [
@@ -13,9 +15,13 @@ support-files = ["topstories.json"]
 
 ["test_AdsFeed.js"]
 
+["test_ExternalComponentsFeed.js"]
+
 ["test_HighlightsFeed.js"]
 
 ["test_InferredFeatureModel.js"]
+
+["test_InferredPersonalizationFeed.js"]
 
 ["test_ListsFeed.js"]
 
@@ -33,6 +39,9 @@ support-files = ["topstories.json"]
 
 ["test_PlacesFeed.js"]
 
+["test_SectionsLayoutFeed.js"]
+tags = "remote-settings"
+
 ["test_ShortcutRanker.js"]
 
 ["test_SmartShortcutsFeed.js"]
@@ -49,6 +58,10 @@ support-files = ["../schemas/*.schema.json"]
 ["test_TimerFeed.js"]
 
 ["test_TopSitesFeed.js"]
+
+["test_TopSitesFeed_frecencyDeduping.js"]
+
+["test_TopSitesFeed_frecencyRanking.js"]
 
 ["test_TopSitesFeed_glean.js"]
 

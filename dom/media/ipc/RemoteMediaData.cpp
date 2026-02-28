@@ -273,7 +273,6 @@ IPC::ParamTraits<mozilla::ArrayOfRemoteMediaRawData::RemoteMediaRawData>::Write(
 /* static */ bool
 IPC::ParamTraits<mozilla::ArrayOfRemoteMediaRawData::RemoteMediaRawData>::Read(
     MessageReader* aReader, paramType* aVar) {
-  mozilla::MediaDataIPDL mBase;
   return ReadParam(aReader, &aVar->mBase) && ReadParam(aReader, &aVar->mEOS) &&
          ReadParam(aReader, &aVar->mHeight) &&
          ReadParam(aReader, &aVar->mTemporalLayerId) &&
@@ -382,7 +381,6 @@ IPC::ParamTraits<mozilla::ArrayOfRemoteAudioData::RemoteAudioData>::Write(
 /* static */ bool
 IPC::ParamTraits<mozilla::ArrayOfRemoteAudioData::RemoteAudioData>::Read(
     IPC::MessageReader* aReader, paramType* aVar) {
-  mozilla::MediaDataIPDL mBase;
   return ReadParam(aReader, &aVar->mBase) &&
          ReadParam(aReader, &aVar->mChannels) &&
          ReadParam(aReader, &aVar->mRate) &&

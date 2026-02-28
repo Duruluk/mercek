@@ -96,7 +96,7 @@ nsresult Http3ConnectUDPStream::TryActivating() {
   }
 
   RefPtr<UriTemplateWrapper> builder;
-  UriTemplateWrapper::Init(info->PathTemplate(), getter_AddRefs(builder));
+  UriTemplateWrapper::Init(info->MasqueTemplate(), getter_AddRefs(builder));
   if (!builder) {
     return NS_ERROR_UNEXPECTED;
   }
@@ -118,11 +118,11 @@ nsresult Http3ConnectUDPStream::TryActivating() {
     return rv;
   }
 
-  nsCString path;
-  builder->Build(&path);
-  LOG(("Http3ConnectUDPStream::TryActivating [host=%s path=%s]",
-       info->Host().get(), path.get()));
-  return mSession->TryActivating(""_ns, ""_ns, info->Host(), path,
+  nsCString pathQuery;
+  builder->Build(&pathQuery);
+  LOG(("Http3ConnectUDPStream::TryActivating [host=%s pathQuery=%s]",
+       info->Host().get(), pathQuery.get()));
+  return mSession->TryActivating(""_ns, ""_ns, info->Host(), pathQuery,
                                  mFlatHttpRequestHeaders, &mStreamId, this);
 }
 
@@ -266,6 +266,8 @@ int64_t Http3ConnectUDPStream::GetFileDescriptor() { return -1; }
 
 void Http3ConnectUDPStream::EnableWritePoll() {}
 
+bool Http3ConnectUDPStream::IsSocketClosed() { return mSendState == SEND_DONE; }
+
 void Http3ConnectUDPStream::AddOutputBytes(uint32_t aBytes) {}
 
 void Http3ConnectUDPStream::AddInputBytes(uint32_t aBytes) {}
@@ -326,6 +328,14 @@ NS_IMETHODIMP Http3ConnectUDPStream::GetDontFragment(bool* aDontFragment) {
 
 NS_IMETHODIMP Http3ConnectUDPStream::SetDontFragment(bool aDontFragment) {
   return NS_OK;
+}
+
+void Http3ConnectUDPStream::MarkAsTRRServiceChannel() {
+  mIsTRRServiceChannel = true;
+}
+
+bool Http3ConnectUDPStream::IsTRRServiceChannel() {
+  return mIsTRRServiceChannel;
 }
 
 }  // namespace mozilla::net

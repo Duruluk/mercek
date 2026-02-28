@@ -5,6 +5,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 #include "nsPageContentFrame.h"
 
+#include "mozilla/AbsoluteContainingBlock.h"
 #include "mozilla/PresShell.h"
 #include "mozilla/PresShellInlines.h"
 #include "mozilla/StaticPrefs_layout.h"
@@ -67,7 +68,11 @@ void nsPageContentFrame::Reflow(nsPresContext* aPresContext,
     nsIFrame* const frame = mFrames.FirstChild();
     const WritingMode frameWM = frame->GetWritingMode();
     const LogicalSize logicalSize(frameWM, maxSize);
-    ReflowInput kidReflowInput(aPresContext, aReflowInput, frame, logicalSize);
+    LogicalSize availSize = logicalSize;
+    if (aReflowInput.mFlags.mIsInFragmentainerMeasuringReflow) {
+      availSize.BSize(frameWM) = NS_UNCONSTRAINEDSIZE;
+    }
+    ReflowInput kidReflowInput(aPresContext, aReflowInput, frame, availSize);
     kidReflowInput.SetComputedBSize(logicalSize.BSize(frameWM));
     ReflowOutput kidReflowOutput(kidReflowInput);
     ReflowChild(frame, aPresContext, kidReflowOutput, kidReflowInput, 0, 0,
@@ -135,14 +140,37 @@ void nsPageContentFrame::Reflow(nsPresContext* aPresContext,
 
   FinishAndStoreOverflow(&aReflowOutput);
 
-  // Reflow our fixed frames
+  // Reflow any fixed-pos children. Note that we don't need to call
+  // PrepareAbsoluteFrames() because the fixed pos frames cannot split.
   nsReflowStatus fixedStatus;
-  ReflowAbsoluteFrames(aPresContext, aReflowOutput, aReflowInput, fixedStatus);
+  if (auto* absCB = GetAbsoluteContainingBlock();
+      absCB && absCB->HasAbsoluteFrames()) {
+    // The containing block for the fixed-pos children is formed by our padding
+    // edge.
+    const auto wm = GetWritingMode();
+    LogicalRect cbRect(wm, LogicalPoint(wm), aReflowOutput.Size(wm));
+    cbRect.Deflate(wm, GetLogicalUsedBorder(wm).ApplySkipSides(
+                           PreReflowBlockLevelLogicalSkipSides()));
+
+    // XXX: To optimize the performance, set the flags only when the CB width or
+    // height actually changes.
+    AbsPosReflowFlags flags{AbsPosReflowFlag::CBWidthChanged,
+                            AbsPosReflowFlag::CBHeightChanged};
+
+    // PageContentFrame replicates fixed-pos children, so we really don't want
+    // them contributing to overflow areas; otherwise we'll create new pages ad
+    // infinitum if one of them overflows the page.
+    absCB->Reflow(this, aPresContext, aReflowInput, fixedStatus,
+                  cbRect.GetPhysicalRect(wm, aReflowOutput.PhysicalSize()),
+                  flags,
+                  /* aOverflowAreas */ nullptr);
+  }
   NS_ASSERTION(fixedStatus.IsComplete(),
                "fixed frames can be truncated, but not incomplete");
 
   if (StaticPrefs::layout_display_list_improve_fragmentation() &&
-      mFrames.NotEmpty()) {
+      mFrames.NotEmpty() &&
+      !aReflowInput.mFlags.mIsInFragmentainerMeasuringReflow) {
     auto* const previous =
         static_cast<nsPageContentFrame*>(GetPrevContinuation());
     const nscoord previousPageOverflow =
@@ -397,11 +425,12 @@ void nsPageContentFrame::AppendDirectlyOwnedAnonBoxes(
 }
 
 void nsPageContentFrame::EnsurePageName() {
-  MOZ_ASSERT(HasAnyStateBits(NS_FRAME_FIRST_REFLOW),
-             "Should only have been called on first reflow");
   if (mPageName) {
     return;
   }
+  MOZ_ASSERT(HasAnyStateBits(NS_FRAME_FIRST_REFLOW),
+             "Should only have been called on first reflow");
+
   MOZ_ASSERT(!GetPrevInFlow(),
              "Only the first page should initially have a null page name.");
   // This was the first page, we need to find our own page name and then set

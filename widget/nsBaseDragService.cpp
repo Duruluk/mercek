@@ -15,7 +15,6 @@
 #include "nsIFrame.h"
 #include "nsFrameLoaderOwner.h"
 #include "nsIContent.h"
-#include "nsViewManager.h"
 #include "nsINode.h"
 #include "nsPresContext.h"
 #include "nsIImageLoadingContent.h"
@@ -200,31 +199,6 @@ nsBaseDragSession::GetSourceNode(nsINode** aSourceNode) {
   return NS_OK;
 }
 
-void nsBaseDragSession::UpdateSource(nsINode* aNewSourceNode,
-                                     Selection* aNewSelection) {
-  MOZ_ASSERT(mSourceNode);
-  MOZ_ASSERT(aNewSourceNode);
-  MOZ_ASSERT(mSourceNode->IsInNativeAnonymousSubtree() ||
-             aNewSourceNode->IsInNativeAnonymousSubtree());
-  MOZ_ASSERT(mSourceDocument == aNewSourceNode->OwnerDoc());
-  LOGD(
-      "[%p] %s | mSourceNode: %p | aNewSourceNode: %p | mSelection: %p | "
-      "aNewSelection: %p",
-      this, __FUNCTION__, mSourceNode.get(), aNewSourceNode, mSelection.get(),
-      aNewSelection);
-  mSourceNode = aNewSourceNode;
-  // Don't set mSelection if the session was invoked without selection or
-  // making it becomes nullptr.  The latter occurs when the old frame is
-  // being destroyed.
-  if (mSelection && aNewSelection) {
-    // XXX If the dragging image is created once (e.g., at drag start), the
-    //     image won't be updated unless we notify `DrawDrag` callers.
-    //     However, it must be okay for now to keep using older image of
-    //     Selection.
-    mSelection = aNewSelection;
-  }
-}
-
 NS_IMETHODIMP
 nsBaseDragSession::GetTriggeringPrincipal(nsIPrincipal** aPrincipal) {
   NS_IF_ADDREF(*aPrincipal = mTriggeringPrincipal);
@@ -288,10 +262,6 @@ bool nsBaseDragSession::IsSynthesizedForTests() {
   return mSessionIsSynthesizedForTests;
 }
 
-bool nsBaseDragSession::IsDraggingTextInTextControl() {
-  return mIsDraggingTextInTextControl;
-}
-
 uint32_t nsBaseDragSession::GetEffectAllowedForTests() {
   MOZ_ASSERT(mSessionIsSynthesizedForTests);
   return mEffectAllowedForTests;
@@ -343,10 +313,6 @@ nsresult nsBaseDragSession::InvokeDragSession(
   mTriggeringPrincipal = aPrincipal;
   mPolicyContainer = aPolicyContainer;
   mSourceNode = aDOMNode;
-  mIsDraggingTextInTextControl =
-      mSourceNode->IsInNativeAnonymousSubtree() &&
-      TextControlElement::FromNodeOrNull(
-          mSourceNode->GetClosestNativeAnonymousSubtreeRootParentOrHost());
   mContentPolicyType = aContentPolicyType;
   mEndDragPoint = LayoutDeviceIntPoint(0, 0);
 
@@ -814,7 +780,6 @@ nsresult nsBaseDragSession::EndDragSessionImpl(bool aDoneDrag,
 
   mDoingDrag = false;
   mSessionIsSynthesizedForTests = false;
-  mIsDraggingTextInTextControl = false;
   mEffectAllowedForTests = nsIDragService::DRAGDROP_ACTION_UNINITIALIZED;
   mEndingSession = false;
   mCanDrop = false;
@@ -1149,7 +1114,8 @@ nsresult nsBaseDragSession::DrawDragForImage(
     ImgDrawResult res = imgContainer->Draw(
         &ctx, destSize, ImageRegion::Create(destSize),
         imgIContainer::FRAME_CURRENT, SamplingFilter::GOOD, SVGImageContext(),
-        imgIContainer::FLAG_SYNC_DECODE, 1.0);
+        imgIContainer::FLAG_SYNC_DECODE | imgIContainer::FLAG_ASYNC_NOTIFY,
+        1.0);
     if (res == ImgDrawResult::BAD_IMAGE || res == ImgDrawResult::BAD_ARGS ||
         res == ImgDrawResult::NOT_SUPPORTED) {
       return NS_ERROR_FAILURE;

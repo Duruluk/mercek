@@ -154,8 +154,8 @@ def retrigger_action(parameters, graph_config, input, task_group_id, task_id):
     to_run = [label]
 
     if not input.get("force", None) and not _should_retrigger(full_task_graph, label):
-        logger.info(
-            f"Not retriggering task {label}, task should not be retrigged "
+        logger.error(
+            f"fatal error: Not retriggering task {label}, task should not be retriggered "
             "and force not specified."
         )
         sys.exit(1)
@@ -293,13 +293,11 @@ def retrigger_multiple(parameters, graph_config, input, task_group_id, task_id):
             for rerun_taskid in label_to_taskids[label]:
                 _rerun_task(rerun_taskid, label)
 
-        retrigger_tasks.extend(
-            [
-                label
-                for label in request.get("tasks")
-                if _should_retrigger(full_task_graph, label)
-            ]
-        )
+        retrigger_tasks.extend([
+            label
+            for label in request.get("tasks")
+            if _should_retrigger(full_task_graph, label)
+        ])
 
     create_tasks(
         graph_config,

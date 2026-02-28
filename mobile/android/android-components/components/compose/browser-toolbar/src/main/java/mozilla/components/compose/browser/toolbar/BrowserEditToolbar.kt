@@ -12,17 +12,24 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DividerDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewLightDark
 import androidx.compose.ui.unit.dp
 import mozilla.components.compose.base.theme.AcornTheme
+import mozilla.components.compose.base.theme.acornPrivateColorScheme
+import mozilla.components.compose.base.theme.privateColorPalette
 import mozilla.components.compose.browser.toolbar.concept.Action
 import mozilla.components.compose.browser.toolbar.concept.Action.ActionButtonRes
 import mozilla.components.compose.browser.toolbar.concept.Action.SearchSelectorAction
@@ -49,6 +56,8 @@ private val ROUNDED_CORNER_SHAPE = RoundedCornerShape(90.dp)
  * @param isQueryPrefilled Whether [query] is prefilled and not user entered.
  * @param usePrivateModeQueries Whether queries should be done in private / incognito mode.
  * @param gravity [ToolbarGravity] for where the toolbar is being placed on the screen.
+ * @param backgroundColor Color of the background.
+ * @param outlineColor Color of the divider.
  * @param editActionsStart List of [Action]s to be displayed at the start of the URL of
  * the edit toolbar.
  * @param editActionsEnd List of [Action]s to be displayed at the end of the URL of
@@ -67,57 +76,61 @@ fun BrowserEditToolbar(
     isQueryPrefilled: Boolean = false,
     usePrivateModeQueries: Boolean = false,
     gravity: ToolbarGravity = Top,
+    backgroundColor: Color = MaterialTheme.colorScheme.surface,
+    outlineColor: Color = DividerDefaults.color,
     editActionsStart: List<Action> = emptyList(),
     editActionsEnd: List<Action> = emptyList(),
     onUrlEdit: (BrowserToolbarQuery) -> Unit = {},
     onUrlCommitted: (String) -> Unit = {},
     onInteraction: (BrowserToolbarEvent) -> Unit,
 ) {
-    Box(
-        modifier = Modifier
-            .background(color = AcornTheme.colors.layer1)
-            .fillMaxWidth()
-            .semantics { testTagsAsResourceId = true },
-    ) {
-        Row(
+    Surface(color = backgroundColor) {
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(all = 8.dp)
-                .height(48.dp)
-                .clip(shape = ROUNDED_CORNER_SHAPE)
-                .background(color = AcornTheme.colors.layer3),
-            verticalAlignment = Alignment.CenterVertically,
+                .semantics { testTagsAsResourceId = true },
         ) {
-            ActionContainer(
-                actions = editActionsStart,
-                onInteraction = onInteraction,
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(all = 8.dp)
+                    .height(48.dp)
+                    .clip(shape = ROUNDED_CORNER_SHAPE)
+                    .background(color = MaterialTheme.colorScheme.surfaceDim),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ActionContainer(
+                    actions = editActionsStart,
+                    onInteraction = onInteraction,
+                )
 
-            InlineAutocompleteTextField(
-                query = query,
-                hint = hint,
-                suggestion = suggestion,
-                showQueryAsPreselected = isQueryPrefilled,
-                usePrivateModeQueries = usePrivateModeQueries,
-                modifier = Modifier.weight(1f),
-                onUrlEdit = onUrlEdit,
-                onUrlCommitted = onUrlCommitted,
-            )
+                InlineAutocompleteTextField(
+                    query = query,
+                    hint = hint,
+                    suggestion = suggestion,
+                    showQueryAsPreselected = isQueryPrefilled,
+                    usePrivateModeQueries = usePrivateModeQueries,
+                    modifier = Modifier.weight(1f),
+                    onUrlEdit = onUrlEdit,
+                    onUrlCommitted = onUrlCommitted,
+                )
 
-            ActionContainer(
-                actions = editActionsEnd,
-                onInteraction = onInteraction,
+                ActionContainer(
+                    actions = editActionsEnd,
+                    onInteraction = onInteraction,
+                )
+            }
+
+            HorizontalDivider(
+                modifier = Modifier.align(
+                    when (gravity) {
+                        Top -> Alignment.BottomCenter
+                        Bottom -> Alignment.TopCenter
+                    },
+                ),
+                color = outlineColor,
             )
         }
-
-        HorizontalDivider(
-            modifier = Modifier.align(
-                when (gravity) {
-                    Top -> Alignment.BottomCenter
-                    Bottom -> Alignment.TopCenter
-                },
-            ),
-        )
     }
 }
 
@@ -125,6 +138,45 @@ fun BrowserEditToolbar(
 @Composable
 private fun BrowserEditToolbarPreview() {
     AcornTheme {
+        BrowserEditToolbar(
+            query = "http://www.mozilla.org",
+            hint = "Search or enter address",
+            gravity = Top,
+            suggestion = null,
+            editActionsStart = listOf(
+                SearchSelectorAction(
+                    icon = DrawableIcon(
+                        AppCompatResources.getDrawable(LocalContext.current, iconsR.drawable.mozac_ic_search_24)!!,
+                    ),
+                    contentDescription = StringResContentDescription(android.R.string.untitled),
+                    menu = { emptyList() },
+                    onClick = null,
+                ),
+            ),
+            editActionsEnd = listOf(
+                ActionButtonRes(
+                    drawableResId = iconsR.drawable.mozac_ic_microphone_24,
+                    contentDescription = android.R.string.untitled,
+                    onClick = object : BrowserToolbarEvent {},
+                ),
+                ActionButtonRes(
+                    drawableResId = iconsR.drawable.mozac_ic_qr_code_24,
+                    contentDescription = android.R.string.untitled,
+                    onClick = object : BrowserToolbarEvent {},
+                ),
+            ),
+            onInteraction = {},
+        )
+    }
+}
+
+@Preview
+@Composable
+private fun BrowserEditToolbarPrivatePreview() {
+    AcornTheme(
+        colors = privateColorPalette,
+        colorScheme = acornPrivateColorScheme(),
+    ) {
         BrowserEditToolbar(
             query = "http://www.mozilla.org",
             hint = "Search or enter address",

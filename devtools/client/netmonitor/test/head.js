@@ -127,6 +127,7 @@ const CSP_RESEND_URL = EXAMPLE_URL + "html_csp-resend-test-page.html";
 const IMAGE_CACHE_URL = HTTPS_EXAMPLE_URL + "html_image-cache.html";
 const STYLESHEET_CACHE_URL = HTTPS_EXAMPLE_URL + "html_stylesheet-cache.html";
 const SCRIPT_CACHE_URL = HTTPS_EXAMPLE_URL + "html_script-cache.html";
+const SOURCEMAP_URL = HTTPS_EXAMPLE_URL + "html_maps-test-page.html";
 const MODULE_SCRIPT_CACHE_URL =
   HTTPS_EXAMPLE_URL + "html_module-script-cache.html";
 const SLOW_REQUESTS_URL = EXAMPLE_URL + "html_slow-requests-test-page.html";
@@ -441,7 +442,8 @@ function restartNetMonitor(monitor, { requestCount }) {
 
 /**
  * Clears the network requests in the UI
- * @param {Object} monitor
+ *
+ * @param {object} monitor
  *         The netmonitor instance used for retrieving a context menu element.
  */
 async function clearNetworkEvents(monitor) {
@@ -477,11 +479,11 @@ function teardown(monitor, privateWindow) {
 /**
  * Wait for the request(s) to be fully notified to the frontend.
  *
- * @param {Object} monitor
+ * @param {object} monitor
  *        The netmonitor instance used for retrieving a context menu element.
- * @param {Number} getRequests
+ * @param {number} getRequests
  *        The number of request to wait for
- * @param {Object} options (optional)
+ * @param {object} options (optional)
  *        - expectedEventTimings {Number} Number of EVENT_TIMINGS events to wait for.
  *        In case of filtering, we get less of such events.
  */
@@ -970,7 +972,6 @@ function testFilterButtonsCustom(monitor, isChecked) {
  * @return Promise A promise that's resolved with object
  *         { status: XMLHttpRequest.status,
  *           response: XMLHttpRequest.response }
- *
  */
 function promiseXHR(data) {
   return new Promise(resolve => {
@@ -1017,7 +1018,6 @@ function promiseXHR(data) {
  * @return Promise A promise that's resolved with object
  *         { status: websocket status(101),
  *           response: empty string }
- *
  */
 function promiseWS(data) {
   return new Promise(resolve => {
@@ -1143,7 +1143,7 @@ async function showColumn(monitor, column) {
 /**
  * Select a request and switch to its response panel.
  *
- * @param {Number} index The request index to be selected
+ * @param {number} index The request index to be selected
  */
 async function selectIndexAndWaitForSourceEditor(monitor, index) {
   const { document } = monitor.panelWin;
@@ -1169,9 +1169,9 @@ async function selectIndexAndWaitForSourceEditor(monitor, index) {
 /**
  * Helper function for executing XHRs on a test page.
  *
- * @param {Object} monitor
- * @param {Object} tab - The current browser tab
- * @param {Number} count - Number of requests to be executed.
+ * @param {object} monitor
+ * @param {object} tab - The current browser tab
+ * @param {number} count - Number of requests to be executed.
  */
 async function performRequests(monitor, tab, count) {
   const wait = waitForNetworkEvents(monitor, count);
@@ -1228,10 +1228,10 @@ function getSettingsMenuItem(monitor, itemKey) {
 /**
  * Wait for lazy fields to be loaded in a request.
  *
- * @param {Object} Store - redux store containing request list.
+ * @param {object} Store - redux store containing request list.
  * @param {Array} fields - array of strings which contain field names to be checked
- * @param {Number} id - The id of the request whose data we need to wait for
- * @param {Number} index - The position of the request in the sorted request list.
+ * @param {number} id - The id of the request whose data we need to wait for
+ * @param {number} index - The position of the request in the sorted request list.
  */
 function waitForRequestData(store, fields, id, index = 0) {
   return waitUntil(() => {
@@ -1301,7 +1301,7 @@ function queryTelemetryEvents(query) {
 /**
  * Check that the provided requests match the requests displayed in the netmonitor.
  *
- * @param {array} requests
+ * @param {Array} requests
  *     The expected requests.
  * @param {object} monitor
  *     The netmonitor instance.
@@ -1439,11 +1439,11 @@ async function waitForDOMIfNeeded(target, selector, expectedLength = 1) {
  *
  * @param {Element} element
  *        Target request list item to be right clicked to bring up its context menu.
- * @param {Object} monitor
+ * @param {object} monitor
  *        The netmonitor instance used for retrieving a context menu element.
- * @param {Object} store
+ * @param {object} store
  *        The redux store (wait-service middleware required).
- * @param {String} action
+ * @param {string} action
  *        The action, block or unblock, to construct a corresponding context menu id.
  */
 async function toggleBlockedUrl(element, monitor, store, action = "block") {
@@ -1465,7 +1465,7 @@ async function toggleBlockedUrl(element, monitor, store, action = "block") {
  *
  * @param {Element} element
  *        Target element to be clicked
- * @param {Object} monitor
+ * @param {object} monitor
  *        The netmonitor instance used for retrieving the window.
  */
 
@@ -1516,9 +1516,10 @@ function compareValues(first, second) {
 
 /**
  * Click on the "Response" tab to open "Response" panel in the sidebar.
+ *
  * @param {Document} doc
  *        Network panel document.
- * @param {String} name
+ * @param {string} name
  *        Network panel sidebar tab name.
  */
 const clickOnSidebarTab = (doc, name) => {
@@ -1540,7 +1541,7 @@ const clickOnSidebarTab = (doc, name) => {
  *
  * @param {string} pattern
  *     The URL pattern to add to block requests.
- * @param {Object} monitor
+ * @param {object} monitor
  *     The netmonitor instance.
  */
 async function addBlockedRequest(pattern, monitor) {
@@ -1582,7 +1583,7 @@ function checkRequestListItemBlocked(item) {
  *
  * @param {string} string
  *     The string to type.
- * @param {Object} monitor
+ * @param {object} monitor
  *     The netmonitor instance used to type the string.
  */
 function typeInNetmonitor(string, monitor) {
@@ -1594,7 +1595,7 @@ function typeInNetmonitor(string, monitor) {
 /**
  * Opens/ closes the URL preview in the headers side panel
  *
- * @param {Boolean} shouldExpand
+ * @param {boolean} shouldExpand
  * @param {NetMonitorPanel} monitor
  * @returns
  */
@@ -1618,8 +1619,9 @@ async function toggleUrlPreview(shouldExpand, monitor) {
 
 /**
  * Wait for the eager evaluated result from the split console
- * @param {Object} hud
- * @param {String} text - expected evaluation result
+ *
+ * @param {object} hud
+ * @param {string} text - expected evaluation result
  */
 async function waitForEagerEvaluationResult(hud, text) {
   await waitUntil(() => {
@@ -1639,7 +1641,7 @@ async function waitForEagerEvaluationResult(hud, text) {
  * Assert the contents of the filter urls autocomplete box
  *
  * @param {Array} expected
- * @param {Object} document
+ * @param {object} document
  */
 function testAutocompleteContents(expected, document) {
   expected.forEach(function (item, i) {
@@ -1661,7 +1663,6 @@ function testAutocompleteContents(expected, document) {
  *     A request element from the netmonitor requests list.
  * @return {boolean}
  *     True if the size column contains a valid size, false otherwise.
- *
  */
 function hasValidSize(request) {
   const VALID_SIZE_RE = /^\d+(\.\d+)? \w+/;

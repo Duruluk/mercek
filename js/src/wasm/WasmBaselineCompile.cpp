@@ -216,6 +216,40 @@ class OutOfLineCode : public TempObject {
   virtual void generate(MacroAssembler* masm) = 0;
 };
 
+class OutOfLineAbortingTrap : public OutOfLineCode {
+  Trap trap_;
+  TrapSiteDesc desc_;
+
+ public:
+  OutOfLineAbortingTrap(Trap trap, const TrapSiteDesc& desc)
+      : trap_(trap), desc_(desc) {}
+
+  virtual void generate(MacroAssembler* masm) override {
+    masm->wasmTrap(trap_, desc_);
+    MOZ_ASSERT(!rejoin()->bound());
+  }
+};
+
+class OutOfLineResumableTrap : public OutOfLineCode {
+  Trap trap_;
+  TrapSiteDesc desc_;
+  wasm::StackMap* stackMap_;
+  wasm::StackMaps* stackMaps_;
+
+ public:
+  OutOfLineResumableTrap(Trap trap, const TrapSiteDesc& desc,
+                         wasm::StackMap* stackMap, wasm::StackMaps* stackMaps)
+      : trap_(trap), desc_(desc), stackMap_(stackMap), stackMaps_(stackMaps) {}
+
+  virtual void generate(MacroAssembler* masm) override {
+    masm->wasmTrap(trap_, desc_);
+    if (stackMap_ && !stackMaps_->add(masm->currentOffset(), stackMap_)) {
+      masm->setOOM();
+    }
+    masm->jump(rejoin());
+  }
+};
+
 OutOfLineCode* BaseCompiler::addOutOfLineCode(OutOfLineCode* ool) {
   if (!ool || !outOfLine_.append(ool)) {
     return nullptr;
@@ -539,17 +573,34 @@ bool BaseCompiler::beginFunction() {
 
   // Generate a stack-overflow check and its associated stackmap.
 
-  fr.checkStack(ABINonArgReg0,
-                TrapSiteDesc(BytecodeOffset(func_.lineOrBytecode)));
-
   ExitStubMapVector extras;
-  if (!stackMapGenerator_.generateStackmapEntriesForTrapExit(args, &extras)) {
+  StackMap* functionEntryStackMap;
+  if (!stackMapGenerator_.generateStackmapEntriesForTrapExit(args, &extras) ||
+      !stackMapGenerator_.createStackMap("stack check", extras,
+                                         HasDebugFrameWithLiveRefs::No, stk_,
+                                         &functionEntryStackMap)) {
     return false;
   }
-  if (!createStackMap("stack check", extras, masm.currentOffset(),
-                      HasDebugFrameWithLiveRefs::No)) {
+
+  OutOfLineCode* oolStackOverflowTrap =
+      addOutOfLineCode(new (alloc_) OutOfLineAbortingTrap(
+          Trap::StackOverflow,
+          TrapSiteDesc(BytecodeOffset(func_.lineOrBytecode))));
+  if (!oolStackOverflowTrap) {
     return false;
   }
+  fr.checkStack(ABINonArgReg0, ABINonArgReg1, oolStackOverflowTrap->entry());
+
+  OutOfLineCode* oolInterruptTrap = addOutOfLineCode(
+      new (alloc_) OutOfLineResumableTrap(Trap::CheckInterrupt, trapSiteDesc(),
+                                          functionEntryStackMap, stackMaps_));
+  if (!oolInterruptTrap) {
+    return false;
+  }
+  masm.branch32(Assembler::NotEqual,
+                Address(InstanceReg, wasm::Instance::offsetOfInterrupt()),
+                Imm32(0), oolInterruptTrap->entry());
+  masm.bind(oolInterruptTrap->rejoin());
 
   size_t reservedBytes = fr.fixedAllocSize() - masm.framePushed();
   MOZ_ASSERT(0 == (reservedBytes % sizeof(void*)));
@@ -782,6 +833,11 @@ bool BaseCompiler::endFunction() {
 
 void BaseCompiler::insertBreakablePoint(CallSiteKind kind) {
   MOZ_ASSERT(!deadCode_);
+
+  // A sync() must happen before this. The debug stub does not save all live
+  // registers.
+  MOZ_ASSERT(!hasLiveRegsOnStk());
+
 #ifndef RABALDR_PIN_INSTANCE
   fr.loadInstancePtr(InstanceReg);
 #endif
@@ -865,9 +921,8 @@ void BaseCompiler::insertBreakablePoint(CallSiteKind kind) {
   Label L;
   masm.loadPtr(Address(InstanceReg, Instance::offsetOfDebugStub()), scratch);
   masm.branchPtr(Assembler::Equal, scratch, ImmWord(0), &L);
-  masm.call(&perFunctionDebugStub_);
-  masm.append(CallSiteDesc(iter_.lastOpcodeOffset(), kind),
-              CodeOffset(masm.currentOffset()));
+  const CodeOffset retAddr = masm.call(&perFunctionDebugStub_);
+  masm.append(CallSiteDesc(iter_.lastOpcodeOffset(), kind), retAddr);
   masm.bind(&L);
 #else
   MOZ_CRASH("BaseCompiler platform hook: insertBreakablePoint");
@@ -1102,9 +1157,10 @@ class OutOfLineRequestTierUp : public OutOfLineCode {
     }
 #endif
     // Call the stub
-    masm->call(Address(InstanceReg, Instance::offsetOfRequestTierUpStub()));
+    const CodeOffset retAddr =
+        masm->call(Address(InstanceReg, Instance::offsetOfRequestTierUpStub()));
     masm->append(CallSiteDesc(lastOpcodeOffset_, CallSiteKind::RequestTierUp),
-                 CodeOffset(masm->currentOffset()));
+                 retAddr);
     // And swap again, if we swapped above.
 #ifndef RABALDR_PIN_INSTANCE
     if (Register(instance_) != InstanceReg) {
@@ -1148,6 +1204,10 @@ Maybe<CodeOffset> BaseCompiler::addHotnessCheck() {
   // hotness-counting purposes.
 
   AutoCreatedBy acb(masm, "BC::addHotnessCheck");
+
+  // A sync() must happen before this. The request tier-up stub does not save
+  // all live registers.
+  MOZ_ASSERT(!hasLiveRegsOnStk());
 
 #ifdef RABALDR_PIN_INSTANCE
   Register instance(InstanceReg);
@@ -1669,27 +1729,6 @@ ABIArg BaseCompiler::reservePointerArgument(FunctionCall* call) {
   return call->abi.next(MIRType::Pointer);
 }
 
-// TODO / OPTIMIZE (Bug 1316821): Note passArg is used only in one place.
-// (Or it was, until Luke wandered through, but that can be fixed again.)
-// I'm not saying we should manually inline it, but we could hoist the
-// dispatch into the caller and have type-specific implementations of
-// passArg: passArgI32(), etc.  Then those might be inlined, at least in PGO
-// builds.
-//
-// The bulk of the work here (60%) is in the next() call, though.
-//
-// Notably, since next() is so expensive, StackArgAreaSizeUnaligned()
-// becomes expensive too.
-//
-// Somehow there could be a trick here where the sequence of argument types
-// (read from the input stream) leads to a cached entry for
-// StackArgAreaSizeUnaligned() and for how to pass arguments...
-//
-// But at least we could reduce the cost of StackArgAreaSizeUnaligned() by
-// first reading the argument types into a (reusable) vector, then we have
-// the outgoing size at low cost, and then we can pass args based on the
-// info we read.
-
 void BaseCompiler::passArg(ValType type, const Stk& arg, FunctionCall* call) {
   switch (type.kind()) {
     case ValType::I32: {
@@ -1948,7 +1987,6 @@ void BaseCompiler::popStackResultsAfterWasmCall(const StackResultsLoc& results,
 
 void BaseCompiler::pushBuiltinCallResult(const FunctionCall& call,
                                          MIRType type) {
-  MOZ_ASSERT(call.abiKind == ABIKind::System);
   switch (type) {
     case MIRType::Int32: {
       RegI32 rv = captureReturnedI32();
@@ -2013,20 +2051,6 @@ CodeOffset BaseCompiler::callSymbolic(SymbolicAddress callee,
 }
 
 // Precondition: sync()
-
-class OutOfLineAbortingTrap : public OutOfLineCode {
-  Trap trap_;
-  TrapSiteDesc desc_;
-
- public:
-  OutOfLineAbortingTrap(Trap trap, const TrapSiteDesc& desc)
-      : trap_(trap), desc_(desc) {}
-
-  virtual void generate(MacroAssembler* masm) override {
-    masm->wasmTrap(trap_, desc_);
-    MOZ_ASSERT(!rejoin()->bound());
-  }
-};
 
 static ReturnCallAdjustmentInfo BuildReturnCallAdjustmentInfo(
     const FuncType& callerType, const FuncType& calleeType) {
@@ -3712,8 +3736,9 @@ bool BaseCompiler::jumpConditionalWithResults(BranchState* b, RegRef object,
 
       masm.branchWasmRefIsSubtype(
           object, sourceType, destType, &notTaken,
-          /*onSuccess=*/b->invertBranch ? onSuccess : !onSuccess, regs.superSTV,
-          regs.scratch1, regs.scratch2);
+          /*onSuccess=*/b->invertBranch ? onSuccess : !onSuccess,
+          /*signalNullChecks=*/false, regs.superSTV, regs.scratch1,
+          regs.scratch2);
       freeRegistersForBranchIfRefSubtype(regs);
 
       // Shuffle stack args.
@@ -3727,8 +3752,8 @@ bool BaseCompiler::jumpConditionalWithResults(BranchState* b, RegRef object,
 
   masm.branchWasmRefIsSubtype(
       object, sourceType, destType, b->label,
-      /*onSuccess=*/b->invertBranch ? !onSuccess : onSuccess, regs.superSTV,
-      regs.scratch1, regs.scratch2);
+      /*onSuccess=*/b->invertBranch ? !onSuccess : onSuccess,
+      /*signalNullChecks=*/false, regs.superSTV, regs.scratch1, regs.scratch2);
   freeRegistersForBranchIfRefSubtype(regs);
   return true;
 }
@@ -4011,8 +4036,12 @@ bool BaseCompiler::emitLoop() {
     }
     masm.nopAlign(CodeAlignment);
     masm.bind(&controlItem(0).label);
-    // The interrupt check barfs if there are live registers.
+
+    // The interrupt check barfs if there are live registers. The hotness check
+    // also can call the request tier-up stub, which assumes that no registers
+    // are live.
     sync();
+
     if (!addInterruptCheck()) {
       return false;
     }
@@ -5745,7 +5774,7 @@ bool BaseCompiler::emitUnaryMathBuiltinCall(SymbolicAddress callee,
   uint32_t numArgs = signature.length();
   size_t stackSpace = stackConsumed(numArgs);
 
-  FunctionCall baselineCall(ABIKind::System, RestoreState::None);
+  FunctionCall baselineCall(ABIForBuiltin(callee), RestoreState::None);
   beginCall(baselineCall);
 
   if (!emitCallArgs(signature, NoCallResults(), &baselineCall,
@@ -5790,7 +5819,7 @@ bool BaseCompiler::emitDivOrModI64BuiltinCall(SymbolicAddress callee,
     checkDivideSignedOverflow(rhs, srcDest, &done, ZeroOnOverflow(true));
   }
 
-  masm.setupWasmABICall();
+  masm.setupWasmABICall(callee);
   masm.passABIArg(srcDest.high);
   masm.passABIArg(srcDest.low);
   masm.passABIArg(rhs.high);
@@ -5819,7 +5848,7 @@ bool BaseCompiler::emitConvertInt64ToFloatingCallout(SymbolicAddress callee,
 
   FunctionCall call(ABIKind::Wasm, RestoreState::None);
 
-  masm.setupWasmABICall();
+  masm.setupWasmABICall(callee);
 #  ifdef JS_PUNBOX64
   MOZ_CRASH("BaseCompiler platform hook: emitConvertInt64ToFloatingCallout");
 #  else
@@ -5869,7 +5898,7 @@ bool BaseCompiler::emitConvertFloatingToInt64Callout(SymbolicAddress callee,
 
   FunctionCall call(ABIKind::Wasm, RestoreState::None);
 
-  masm.setupWasmABICall();
+  masm.setupWasmABICall(callee);
   masm.passABIArg(doubleInput, ABIType::Float64);
   CodeOffset raOffset = masm.callWithABI(
       bytecodeOffset(), callee, mozilla::Some(fr.getInstancePtrOffset()));
@@ -6496,7 +6525,8 @@ bool BaseCompiler::emitInstanceCall(const SymbolicAddressSignature& builtin) {
   uint32_t numNonInstanceArgs = builtin.numArgs - 1 /* instance */;
   size_t stackSpace = stackConsumed(numNonInstanceArgs);
 
-  FunctionCall baselineCall(ABIKind::System, RestoreState::PinnedRegs);
+  FunctionCall baselineCall(ABIForBuiltin(builtin.identity),
+                            RestoreState::PinnedRegs);
   beginCall(baselineCall);
 
   ABIArg instanceArg = reservePointerArgument(&baselineCall);
@@ -6582,7 +6612,8 @@ bool BaseCompiler::emitRefNull() {
 
 bool BaseCompiler::emitRefIsNull() {
   Nothing nothing;
-  if (!iter_.readRefIsNull(&nothing)) {
+  RefType unusedRefType;
+  if (!iter_.readRefIsNull(&nothing, &unusedRefType)) {
     return false;
   }
 
@@ -7011,7 +7042,7 @@ bool BaseCompiler::emitTableGet() {
 
   replaceTableAddressWithClampedInt32(
       codeMeta_.tables[tableIndex].addressType());
-  if (codeMeta_.tables[tableIndex].elemType.tableRepr() == TableRepr::Ref) {
+  if (codeMeta_.tables[tableIndex].elemType().tableRepr() == TableRepr::Ref) {
     return emitTableGetAnyRef(tableIndex);
   }
   pushI32(tableIndex);
@@ -7062,7 +7093,7 @@ bool BaseCompiler::emitTableSet() {
     replaceTableAddressWithClampedInt32(AddressType::I64);
     pushAny(value);
   }
-  if (codeMeta_.tables[tableIndex].elemType.tableRepr() == TableRepr::Ref) {
+  if (codeMeta_.tables[tableIndex].elemType().tableRepr() == TableRepr::Ref) {
     return emitTableSetAnyRef(tableIndex);
   }
   pushI32(tableIndex);
@@ -7286,6 +7317,13 @@ bool BaseCompiler::emitPostBarrierEdgeImprecise(const Maybe<RegRef>& object,
 bool BaseCompiler::emitPostBarrierEdgePrecise(const Maybe<RegRef>& object,
                                               RegPtr valueAddr,
                                               RegRef prevValue, RegRef value) {
+  // Currently this is only called to write into wasm tables.
+  //
+  // If this changes and we use this method to write into objects which might be
+  // in the nursery then we need to check for that here and skip the barrier (we
+  // only need to record pointers from the tenured heap into the nursery).
+  MOZ_ASSERT(object.isNothing());
+
   // Push `object` and `value` to preserve them across the call.
   if (object) {
     pushRef(*object);
@@ -7688,9 +7726,9 @@ bool BaseCompiler::emitStructAlloc(uint32_t typeIndex, RegRef* object,
                                    uint32_t allocSiteIndex) {
   const TypeDef& typeDef = (*codeMeta_.types)[typeIndex];
   const StructType& structType = typeDef.structType();
-  gc::AllocKind allocKind = WasmStructObject::allocKindForTypeDef(&typeDef);
+  gc::AllocKind allocKind = structType.allocKind_;
 
-  *isOutlineStruct = WasmStructObject::requiresOutlineBytes(structType.size_);
+  *isOutlineStruct = structType.hasOOL();
 
   // Reserve this register early if we will need it so that it is not taken by
   // any register used in this function.
@@ -7814,12 +7852,7 @@ bool BaseCompiler::emitStructNew() {
   while (fieldIndex-- > 0) {
     const FieldType& field = structType.fields_[fieldIndex];
     StorageType type = field.type;
-    uint32_t fieldOffset = structType.fieldOffset(fieldIndex);
-
-    bool areaIsOutline;
-    uint32_t areaOffset;
-    WasmStructObject::fieldOffsetToAreaAndOffset(type, fieldOffset,
-                                                 &areaIsOutline, &areaOffset);
+    FieldAccessPath path = structType.fieldAccessPaths_[fieldIndex];
 
     // Reserve the barrier reg if we might need it for this store
     if (type.isRefRepr()) {
@@ -7831,22 +7864,21 @@ bool BaseCompiler::emitStructNew() {
       freePtr(RegPtr(PreBarrierReg));
     }
 
-    if (areaIsOutline) {
-      // Load the outline data pointer
-      masm.loadPtr(Address(object, WasmStructObject::offsetOfOutlineData()),
-                   outlineBase);
+    if (path.hasOOL()) {
+      // Load the outline data pointer.
+      // The path has two components, of which the first (the IL component) is
+      // the offset where the OOL pointer is stored.  Hence `path.ilOffset()`.
+      masm.loadPtr(Address(object, path.ilOffset()), outlineBase);
 
       // Consumes value and outline data, object is preserved by this call.
-      if (!emitGcStructSet<NoNullCheck>(object, outlineBase, areaOffset, type,
-                                        value, PreBarrierKind::None)) {
+      if (!emitGcStructSet<NoNullCheck>(object, outlineBase, path.oolOffset(),
+                                        type, value, PreBarrierKind::None)) {
         return false;
       }
     } else {
       // Consumes value. object is unchanged by this call.
-      if (!emitGcStructSet<NoNullCheck>(
-              object, RegPtr(object),
-              WasmStructObject::offsetOfInlineData() + areaOffset, type, value,
-              PreBarrierKind::None)) {
+      if (!emitGcStructSet<NoNullCheck>(object, RegPtr(object), path.ilOffset(),
+                                        type, value, PreBarrierKind::None)) {
         return false;
       }
     }
@@ -7904,31 +7936,26 @@ bool BaseCompiler::emitStructGet(FieldWideningOp wideningOp) {
   }
 
   const StructType& structType = (*codeMeta_.types)[typeIndex].structType();
-
-  // Decide whether we're accessing inline or outline, and at what offset
-  StorageType fieldType = structType.fields_[fieldIndex].type;
-  uint32_t fieldOffset = structType.fieldOffset(fieldIndex);
-
-  bool areaIsOutline;
-  uint32_t areaOffset;
-  WasmStructObject::fieldOffsetToAreaAndOffset(fieldType, fieldOffset,
-                                               &areaIsOutline, &areaOffset);
+  const FieldType& structField = structType.fields_[fieldIndex];
+  StorageType fieldType = structField.type;
+  FieldAccessPath path = structType.fieldAccessPaths_[fieldIndex];
 
   RegRef object = popRef();
-  if (areaIsOutline) {
+  if (path.hasOOL()) {
+    // The path has two components, of which the first (the IL component) is
+    // the offset where the OOL pointer is stored.  Hence `path.ilOffset()`.
     RegPtr outlineBase = needPtr();
-    FaultingCodeOffset fco = masm.loadPtr(
-        Address(object, WasmStructObject::offsetOfOutlineData()), outlineBase);
+    FaultingCodeOffset fco =
+        masm.loadPtr(Address(object, path.ilOffset()), outlineBase);
     SignalNullCheck::emitTrapSite(this, fco, TrapMachineInsnForLoadWord());
     // Load the value
     emitGcGet<Address, NoNullCheck>(fieldType, wideningOp,
-                                    Address(outlineBase, areaOffset));
+                                    Address(outlineBase, path.oolOffset()));
     freePtr(outlineBase);
   } else {
     // Load the value
-    emitGcGet<Address, SignalNullCheck>(
-        fieldType, wideningOp,
-        Address(object, WasmStructObject::offsetOfInlineData() + areaOffset));
+    emitGcGet<Address, SignalNullCheck>(fieldType, wideningOp,
+                                        Address(object, path.ilOffset()));
   }
   freeRef(object);
 
@@ -7949,52 +7976,48 @@ bool BaseCompiler::emitStructSet() {
 
   const StructType& structType = (*codeMeta_.types)[typeIndex].structType();
   const FieldType& structField = structType.fields_[fieldIndex];
-
-  // Decide whether we're accessing inline or outline, and at what offset
-  StorageType fieldType = structType.fields_[fieldIndex].type;
-  uint32_t fieldOffset = structType.fieldOffset(fieldIndex);
-
-  bool areaIsOutline;
-  uint32_t areaOffset;
-  WasmStructObject::fieldOffsetToAreaAndOffset(fieldType, fieldOffset,
-                                               &areaIsOutline, &areaOffset);
+  StorageType fieldType = structField.type;
+  FieldAccessPath path = structType.fieldAccessPaths_[fieldIndex];
 
   // Reserve this register early if we will need it so that it is not taken by
   // any register used in this function.
-  if (structField.type.isRefRepr()) {
+  if (fieldType.isRefRepr()) {
     needPtr(RegPtr(PreBarrierReg));
   }
 
-  RegPtr outlineBase = areaIsOutline ? needPtr() : RegPtr();
+  // Set up other required registers
+  RegPtr outlineBase = path.hasOOL() ? needPtr() : RegPtr();
   AnyReg value = popAny();
   RegRef object = popRef();
 
   // Free the barrier reg after we've allocated all registers
-  if (structField.type.isRefRepr()) {
+  if (fieldType.isRefRepr()) {
     freePtr(RegPtr(PreBarrierReg));
   }
 
-  // Make outlineBase point at the first byte of the relevant area
-  if (areaIsOutline) {
-    FaultingCodeOffset fco = masm.loadPtr(
-        Address(object, WasmStructObject::offsetOfOutlineData()), outlineBase);
+  if (path.hasOOL()) {
+    // Make `outlineBase` point at the first byte of the relevant area.
+    // The path has two components, of which the first (the IL component) is
+    // the offset where the OOL pointer is stored.  Hence `path.ilOffset()`.
+    FaultingCodeOffset fco =
+        masm.loadPtr(Address(object, path.ilOffset()), outlineBase);
     SignalNullCheck::emitTrapSite(this, fco, TrapMachineInsnForLoadWord());
-    if (!emitGcStructSet<NoNullCheck>(object, outlineBase, areaOffset,
+    // Consumes `value`. `object` is unchanged by this call.
+    if (!emitGcStructSet<NoNullCheck>(object, outlineBase, path.oolOffset(),
                                       fieldType, value,
                                       PreBarrierKind::Normal)) {
       return false;
     }
   } else {
-    // Consumes value. object is unchanged by this call.
-    if (!emitGcStructSet<SignalNullCheck>(
-            object, RegPtr(object),
-            WasmStructObject::offsetOfInlineData() + areaOffset, fieldType,
-            value, PreBarrierKind::Normal)) {
+    // Consumes `value`. `object` is unchanged by this call.
+    if (!emitGcStructSet<SignalNullCheck>(object, RegPtr(object),
+                                          path.ilOffset(), fieldType, value,
+                                          PreBarrierKind::Normal)) {
       return false;
     }
   }
 
-  if (areaIsOutline) {
+  if (path.hasOOL()) {
     freePtr(outlineBase);
   }
   freeRef(object);
@@ -8065,7 +8088,7 @@ bool BaseCompiler::emitArrayAllocFixed(uint32_t typeIndex, RegRef object,
   static_assert(MaxArrayNewFixedElements * sizeof(wasm::LitVal) <
                 MaxArrayPayloadBytes);
   uint32_t storageBytes =
-      WasmArrayObject::calcStorageBytesUnchecked(elemSize, numElements);
+      WasmArrayObject::calcArrayDataBytesUnchecked(elemSize, numElements);
   if (storageBytes > WasmArrayObject_MaxInlineBytes) {
     freeRef(object);
     pushI32(numElements);
@@ -8778,27 +8801,25 @@ bool BaseCompiler::emitArrayFill() {
     freePtr(RegPtr(PreBarrierReg));
   }
 
-  // Perform an initialization loop using `numElements` as the loop variable,
-  // starting at `numElements` and counting down to zero.
+  // Perform the fill loop using `numElements` as the loop variable, counting
+  // down to zero.
   Label done;
   Label loop;
-  // Skip initialization if numElements = 0
   masm.branch32(Assembler::Equal, numElements, Imm32(0), &done);
-  masm.bind(&loop);
 
-  // Move to the next element
+  masm.bind(&loop);
   masm.sub32(Imm32(1), numElements);
 
   // Assign value to rdata[numElements]. All registers are preserved.
   if (!emitGcArraySet(rp, rdata, numElements, arrayType, value,
-                      PreBarrierKind::None, PostBarrierKind::Imprecise)) {
+                      PreBarrierKind::Normal, PostBarrierKind::Imprecise)) {
     return false;
   }
 
-  // Loop back if there are still elements to initialize
   masm.branch32(Assembler::NotEqual, numElements, Imm32(0), &loop);
   masm.bind(&done);
 
+  // Clean up
   freePtr(rdata);
   freeRef(rp);
   freeI32(numElements);
@@ -8906,8 +8927,8 @@ bool BaseCompiler::emitRefTest(bool nullable) {
   BranchIfRefSubtypeRegisters regs =
       allocRegistersForBranchIfRefSubtype(destType);
   masm.branchWasmRefIsSubtype(ref, MaybeRefType(sourceType), destType, &success,
-                              /*onSuccess=*/true, regs.superSTV, regs.scratch1,
-                              regs.scratch2);
+                              /*onSuccess=*/true, /*signalNullChecks=*/false,
+                              regs.superSTV, regs.scratch1, regs.scratch2);
   freeRegistersForBranchIfRefSubtype(regs);
 
   masm.xor32(result, result);
@@ -8936,16 +8957,24 @@ bool BaseCompiler::emitRefCast(bool nullable) {
 
   RegRef ref = popRef();
 
-  Label success;
+  OutOfLineCode* ool = addOutOfLineCode(
+      new (alloc_) OutOfLineAbortingTrap(Trap::BadCast, trapSiteDesc()));
+  if (!ool) {
+    return false;
+  }
+
   BranchIfRefSubtypeRegisters regs =
       allocRegistersForBranchIfRefSubtype(destType);
-  masm.branchWasmRefIsSubtype(ref, MaybeRefType(sourceType), destType, &success,
-                              /*onSuccess=*/true, regs.superSTV, regs.scratch1,
-                              regs.scratch2);
+  FaultingCodeOffset fco = masm.branchWasmRefIsSubtype(
+      ref, MaybeRefType(sourceType), destType, ool->entry(),
+      /*onSuccess=*/false, /*signalNullChecks=*/true, regs.superSTV,
+      regs.scratch1, regs.scratch2);
+  if (fco.isValid()) {
+    masm.append(wasm::Trap::BadCast, wasm::TrapMachineInsnForLoadWord(),
+                fco.get(), trapSiteDesc());
+  }
   freeRegistersForBranchIfRefSubtype(regs);
 
-  trap(Trap::BadCast);
-  masm.bind(&success);
   pushRef(ref);
 
   return true;
@@ -10459,6 +10488,9 @@ bool BaseCompiler::emitBody() {
           // TODO sync only registers that can be clobbered by the exit
           // prologue/epilogue or disable these registers for use in
           // baseline compiler when compilerEnv_.debugEnabled() is set.
+          //
+          // This will require the debug stub to save/restore allocatable
+          // registers.
           sync();
 
           insertBreakablePoint(CallSiteKind::Breakpoint);
@@ -11802,7 +11834,7 @@ bool BaseCompiler::emitBody() {
                                       ValType::F32, ValType::I32));
           case uint32_t(MiscOp::I32TruncSatF32U):
             CHECK_NEXT(dispatchConversionOOM(
-                emitTruncateF32ToI32 < TRUNC_UNSIGNED | TRUNC_SATURATING >,
+                emitTruncateF32ToI32<TRUNC_UNSIGNED | TRUNC_SATURATING>,
                 ValType::F32, ValType::I32));
           case uint32_t(MiscOp::I32TruncSatF64S):
             CHECK_NEXT(
@@ -11810,7 +11842,7 @@ bool BaseCompiler::emitBody() {
                                       ValType::F64, ValType::I32));
           case uint32_t(MiscOp::I32TruncSatF64U):
             CHECK_NEXT(dispatchConversionOOM(
-                emitTruncateF64ToI32 < TRUNC_UNSIGNED | TRUNC_SATURATING >,
+                emitTruncateF64ToI32<TRUNC_UNSIGNED | TRUNC_SATURATING>,
                 ValType::F64, ValType::I32));
           case uint32_t(MiscOp::I64TruncSatF32S):
 #ifdef RABALDR_FLOAT_TO_I64_CALLOUT
@@ -11831,7 +11863,7 @@ bool BaseCompiler::emitBody() {
                 ValType::I64));
 #else
             CHECK_NEXT(dispatchConversionOOM(
-                emitTruncateF32ToI64 < TRUNC_UNSIGNED | TRUNC_SATURATING >,
+                emitTruncateF32ToI64<TRUNC_UNSIGNED | TRUNC_SATURATING>,
                 ValType::F32, ValType::I64));
 #endif
           case uint32_t(MiscOp::I64TruncSatF64S):
@@ -11853,7 +11885,7 @@ bool BaseCompiler::emitBody() {
                 ValType::I64));
 #else
             CHECK_NEXT(dispatchConversionOOM(
-                emitTruncateF64ToI64 < TRUNC_UNSIGNED | TRUNC_SATURATING >,
+                emitTruncateF64ToI64<TRUNC_UNSIGNED | TRUNC_SATURATING>,
                 ValType::F64, ValType::I64));
 #endif
           case uint32_t(MiscOp::MemoryCopy):
@@ -12305,6 +12337,7 @@ BaseCompiler::BaseCompiler(const CodeMetadata& codeMeta,
       decoder_(decoder),
       iter_(codeMeta, decoder, locals),
       fr(*masm),
+      stackMaps_(stackMaps),
       stackMapGenerator_(stackMaps, trapExitLayout, trapExitLayoutNumWords,
                          *masm),
       deadCode_(false),

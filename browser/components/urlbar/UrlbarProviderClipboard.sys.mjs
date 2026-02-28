@@ -67,7 +67,7 @@ export class UrlbarProviderClipboard extends UrlbarProvider {
       return false;
     }
     textFromClipboard =
-      controller.input.sanitizeTextFromClipboard(textFromClipboard);
+      UrlbarUtils.sanitizeTextFromClipboard(textFromClipboard);
     const validUrl = this.#validUrl(textFromClipboard);
     if (!validUrl) {
       return false;
@@ -106,22 +106,26 @@ export class UrlbarProviderClipboard extends UrlbarProvider {
     return 1;
   }
 
+  /**
+   * Starts querying.
+   *
+   * @param {UrlbarQueryContext} queryContext
+   * @param {(provider: UrlbarProvider, result: UrlbarResult) => void} addCallback
+   *   Callback invoked by the provider to add a new result.
+   */
   async startQuery(queryContext, addCallback) {
     // If the query was started, isActive should have cached a url already.
     let result = new lazy.UrlbarResult({
       type: UrlbarUtils.RESULT_TYPE.URL,
       source: UrlbarUtils.RESULT_SOURCE.OTHER_LOCAL,
-      ...lazy.UrlbarResult.payloadAndSimpleHighlights(queryContext.tokens, {
-        fallbackTitle: [
-          UrlbarUtils.prepareUrlForDisplay(this.#previousClipboard.value, {
-            trimURL: false,
-          }),
-          UrlbarUtils.HIGHLIGHT.NONE,
-        ],
-        url: [this.#previousClipboard.value, UrlbarUtils.HIGHLIGHT.NONE],
+      payload: {
+        title: UrlbarUtils.prepareUrlForDisplay(this.#previousClipboard.value, {
+          trimURL: false,
+        }),
+        url: this.#previousClipboard.value,
         icon: "chrome://global/skin/icons/clipboard.svg",
         isBlockable: true,
-      }),
+      },
     });
 
     addCallback(this, result);

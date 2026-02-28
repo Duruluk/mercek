@@ -9,7 +9,6 @@
 
 #include "mozilla/DebugOnly.h"
 #include "mozilla/IntegerPrintfMacros.h"
-#include "mozilla/Maybe.h"
 #include "mozilla/Sprintf.h"
 #include "mozilla/TimeStamp.h"
 
@@ -79,9 +78,9 @@ struct NurseryChunk : public ChunkBase {
   // not marked as unused.
   void markPagesUnusedHard(size_t startOffset);
 
-  // Mark pages from the second page of the chunk to endOffset as in use,
-  // following a call to markPagesUnusedHard.
-  [[nodiscard]] bool markPagesInUseHard(size_t endOffset);
+  // Mark pages from startOffset to endOffset as in use, undoing the effect of a
+  // previous call to markPagesUnusedHard.
+  [[nodiscard]] bool markPagesInUseHard(size_t startOffset, size_t endOffset);
 
   uintptr_t start() const { return uintptr_t(&data); }
   uintptr_t end() const { return uintptr_t(this) + ChunkSize; }
@@ -179,12 +178,14 @@ inline void js::NurseryChunk::markPagesUnusedHard(size_t startOffset) {
   MarkPagesUnusedHard(reinterpret_cast<void*>(start), length);
 }
 
-inline bool js::NurseryChunk::markPagesInUseHard(size_t endOffset) {
-  MOZ_ASSERT(endOffset >= NurseryChunkHeaderSize);
-  MOZ_ASSERT(endOffset >= SystemPageSize());
+inline bool js::NurseryChunk::markPagesInUseHard(size_t startOffset,
+                                                 size_t endOffset) {
+  MOZ_ASSERT(startOffset >= NurseryChunkHeaderSize);
+  MOZ_ASSERT(startOffset >= SystemPageSize());
+  MOZ_ASSERT(startOffset < endOffset);
   MOZ_ASSERT(endOffset <= ChunkSize);
-  uintptr_t start = uintptr_t(this) + SystemPageSize();
-  size_t length = endOffset - SystemPageSize();
+  uintptr_t start = uintptr_t(this) + startOffset;
+  size_t length = endOffset - startOffset;
   return MarkPagesInUseHard(reinterpret_cast<void*>(start), length);
 }
 
@@ -652,14 +653,9 @@ void js::Nursery::enterZealMode() {
   AutoEnterOOMUnsafeRegion oomUnsafe;
 
   if (isSubChunkMode()) {
-    {
-      if (!chunk(0).markPagesInUseHard(ChunkSize)) {
-        oomUnsafe.crash("Out of memory trying to extend chunk for zeal mode");
-      }
+    if (!chunk(0).markPagesInUseHard(capacity_, ChunkSize)) {
+      oomUnsafe.crash("Out of memory trying to extend chunk for zeal mode");
     }
-
-    // It'd be simpler to poison the whole chunk, but we can't do that
-    // because the nursery might be partially used.
     chunk(0).poisonRange(capacity_, ChunkSize, JS_FRESH_NURSERY_PATTERN,
                          MemCheckKind::MakeUndefined);
   }
@@ -1713,6 +1709,12 @@ void js::Nursery::traceRoots(AutoGCSession& session, TenuringTracer& mover) {
     DebugAPI::traceAllForMovingGC(&mover);
   }
   endProfile(ProfileKey::MarkDebugger);
+
+  // This should happen after debugger marking as this also marks weak map
+  // entries.
+  startProfile(ProfileKey::TraceWeakMaps);
+  traceWeakMaps(mover);
+  endProfile(ProfileKey::TraceWeakMaps);
 }
 
 bool js::Nursery::shouldTenureEverything(JS::GCReason reason) {
@@ -1899,9 +1901,9 @@ void Nursery::requestMinorGC(JS::GCReason reason) {
     MOZ_ASSERT(CurrentThreadCanAccessRuntime(runtime()));
   } else if (heapState == JS::HeapState::MajorCollecting) {
     // The GC runs sweeping tasks that may access the storebuffer in parallel
-    // and these require taking the store buffer lock.
+    // and these require taking the sweeping lock.
     MOZ_ASSERT(!CurrentThreadIsGCMarking());
-    runtime()->gc.assertCurrentThreadHasLockedStoreBuffer();
+    runtime()->gc.assertCurrentThreadHasLockedSweepingLock();
   } else {
     MOZ_CRASH("Unexpected heap state");
   }
@@ -2063,6 +2065,8 @@ void js::Nursery::sweep() {
   }
 
   sweepMapAndSetObjects();
+
+  sweepWeakMaps();
 
   runtime()->caches().sweepAfterMinorGC(&trc);
 }
@@ -2401,7 +2405,7 @@ bool js::Nursery::Space::commitSubChunkRegion(size_t oldCapacity,
   size_t newChunkEnd = std::min(newCapacity, ChunkSize);
 
   // The remainder of the chunk may have been decommitted.
-  if (!chunks_[0]->markPagesInUseHard(newChunkEnd)) {
+  if (!chunks_[0]->markPagesInUseHard(oldCapacity, newChunkEnd)) {
     // The OS won't give us the memory we need, we can't grow.
     return false;
   }
@@ -2427,7 +2431,7 @@ void js::Nursery::freeChunksFrom(Space& space, const unsigned firstFreeChunk) {
     // Part of the first chunk may be hard-decommitted, un-decommit it so that
     // the GC's normal chunk-handling doesn't segfault.
     MOZ_ASSERT(space.currentChunk_ == 0);
-    if (!space.chunks_[0]->markPagesInUseHard(ChunkSize)) {
+    if (!space.chunks_[0]->markPagesInUseHard(capacity_, ChunkSize)) {
       // Free the chunk if we can't allocate its pages.
       UnmapPages(space.chunks_[0], ChunkSize);
       firstChunkToDecommit = 1;
@@ -2594,8 +2598,27 @@ void js::Nursery::sweepMapAndSetObjects() {
   }
 }
 
-void js::Nursery::joinSweepTask() { sweepTask->join(); }
-void js::Nursery::joinDecommitTask() { decommitTask->join(); }
+void Nursery::traceWeakMaps(TenuringTracer& trc) {
+  MOZ_ASSERT(trc.weakMapAction() == JS::WeakMapTraceAction::TraceKeysAndValues);
+  weakMapsWithNurseryEntries_.eraseIf(
+      [&](WeakMapBase* wm) { return wm->traceNurseryEntriesOnMinorGC(&trc); });
+}
+
+void js::Nursery::sweepWeakMaps() {
+  // This sweeps all weak maps that contain nursery keys to remove entries for
+  // keys that have not survived. Nursery values in weak maps are always
+  // promoted.
+
+  // Don't update retained size for weak maps here.
+  AutoSetThreadGCUse setUse(runtime()->gcContext(), GCUse::Unspecified);
+
+  weakMapsWithNurseryEntries_.eraseIf(
+      [&](WeakMapBase* wm) { return wm->sweepAfterMinorGC(); });
+}
+
+bool js::Nursery::joinSweepTask() { return sweepTask->join(); }
+
+bool js::Nursery::joinDecommitTask() { return decommitTask->join(); }
 
 #ifdef DEBUG
 bool js::Nursery::sweepTaskIsIdle() { return sweepTask->isIdle(); }

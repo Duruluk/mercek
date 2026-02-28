@@ -25,11 +25,19 @@ using ::testing::StartsWith;
 using ::testing::StrEq;
 using ::testing::StrictMock;
 
+// Only allow 2 pages to test by default.
+constexpr int kDefaultNumberOfPagesForTesting = 2;
 static const nsLiteralString sWinUserProfile = uR"(C:\Users\Moz User)"_ns;
 static const nsLiteralString sLocalAppData =
     uR"(C:\Users\Moz User\AppData\Local)"_ns;
+static const nsLiteralString sRoamingAppData =
+    uR"(C:\Users\Moz User\AppData\Roaming)"_ns;
 static const wchar_t* sWinUserFonts =
     LR"(C:\Users\Moz User\AppData\Local\Microsoft\Windows\Fonts\*)";
+static const wchar_t* sAdobeLiveTypeFonts =
+    LR"(C:\Users\Moz User\AppData\Roaming\ADOBE\CORESYNC\PLUGINS\LIVETYPE\R\*)";
+static const wchar_t* sAdobeUserOwnedFonts =
+    LR"(C:\Users\Moz User\AppData\Roaming\ADOBE\USER OWNED FONTS\*)";
 static const wchar_t* sTestRegKey = LR"(Software\MozFontsPathsTest)";
 static const wchar_t* sTestFailRegKey = LR"(Software\MozFontsPathsTestFail)";
 
@@ -112,6 +120,8 @@ class UserFontConfigHelperTest : public testing::Test {
   // We always expect the Windows User font dir rule to be added.
   UserFontConfigHelperTest()
       : mWinUserFontCall(EXPECT_READONLY_EQ(sWinUserFonts)) {
+    EXPECT_READONLY_EQ(sAdobeLiveTypeFonts);
+    EXPECT_READONLY_EQ(sAdobeUserOwnedFonts);
     ::RegCreateKeyExW(HKEY_CURRENT_USER, sTestRegKey, 0, nullptr,
                       REG_OPTION_VOLATILE, KEY_ALL_ACCESS, nullptr,
                       &mTestUserFontKey, nullptr);
@@ -128,28 +138,27 @@ class UserFontConfigHelperTest : public testing::Test {
     SetUpPathsInKey(mTestUserFontKey, aFontPaths);
   }
 
-  void CreateHelperAndCallAddRules() {
+  bool CreateHelperAndCallAddRules() {
     UserFontConfigHelper policyHelper(sTestRegKey, sWinUserProfile,
-                                      sLocalAppData);
+                                      sLocalAppData, sRoamingAppData);
     sandboxing::SizeTrackingConfig trackingPolicy(&mConfig,
                                                   mNumberOfStoragePages);
-    policyHelper.AddRules(trackingPolicy);
+    return policyHelper.AddRules(trackingPolicy);
   }
 
   // StrictMock because we only expect AllowFileAccess to be called.
   StrictMock<MockConfig> mConfig;
   const Expectation mWinUserFontCall;
   HKEY mTestUserFontKey = nullptr;
-  // Only allow one page to test by default.
-  int32_t mNumberOfStoragePages = 1;
+  int32_t mNumberOfStoragePages = kDefaultNumberOfPagesForTesting;
 };
 
-TEST_F(UserFontConfigHelperTest, WindowsDirRProgramDatauleAddedOnKeyFailure) {
+TEST_F(UserFontConfigHelperTest, WindowsDirRuleAddedOnKeyFailure) {
   // Create helper with incorrect key name.
   UserFontConfigHelper policyHelper(sTestFailRegKey, sWinUserProfile,
-                                    sLocalAppData);
+                                    sLocalAppData, sRoamingAppData);
   sandboxing::SizeTrackingConfig trackingPolicy(&mConfig, 1);
-  policyHelper.AddRules(trackingPolicy);
+  EXPECT_TRUE(policyHelper.AddRules(trackingPolicy));
 }
 
 TEST_F(UserFontConfigHelperTest, PathsInsideUsersDirAdded) {
@@ -159,7 +168,7 @@ TEST_F(UserFontConfigHelperTest, PathsInsideUsersDirAdded) {
   EXPECT_READONLY_EQ(LR"(C:\Users\Moz User\Fonts\FontFile1.ttf)")
       .After(mWinUserFontCall);
 
-  CreateHelperAndCallAddRules();
+  EXPECT_TRUE(CreateHelperAndCallAddRules());
 }
 
 TEST_F(UserFontConfigHelperTest, PathsInsideUsersDirAddedIgnoringCase) {
@@ -168,7 +177,7 @@ TEST_F(UserFontConfigHelperTest, PathsInsideUsersDirAddedIgnoringCase) {
   EXPECT_READONLY_EQ(LR"(C:\users\moz uSER\Fonts\FontFile1.ttf)")
       .After(mWinUserFontCall);
 
-  CreateHelperAndCallAddRules();
+  EXPECT_TRUE(CreateHelperAndCallAddRules());
 }
 
 TEST_F(UserFontConfigHelperTest, PathsOutsideUsersDirAdded) {
@@ -180,7 +189,7 @@ TEST_F(UserFontConfigHelperTest, PathsOutsideUsersDirAdded) {
   EXPECT_READONLY_EQ(LR"(C:\programdata\Fonts\FontFile2.ttf)")
       .After(mWinUserFontCall);
 
-  CreateHelperAndCallAddRules();
+  EXPECT_TRUE(CreateHelperAndCallAddRules());
 }
 
 TEST_F(UserFontConfigHelperTest, SubKeyPathsInsideUsersDirAdded) {
@@ -199,7 +208,7 @@ TEST_F(UserFontConfigHelperTest, SubKeyPathsInsideUsersDirAdded) {
   EXPECT_READONLY_EQ(LR"(C:\Users\Moz User\Fonts\FontFile2.ttf)")
       .After(fontFile1);
 
-  CreateHelperAndCallAddRules();
+  EXPECT_TRUE(CreateHelperAndCallAddRules());
 }
 
 TEST_F(UserFontConfigHelperTest, PathsOutsideUsersDirAddedAtEnd) {
@@ -213,16 +222,13 @@ TEST_F(UserFontConfigHelperTest, PathsOutsideUsersDirAddedAtEnd) {
   const auto* pdFont2 = LR"(C:\ProgramData\Fonts\FontFile2.ttf)";
   SetUpPaths({pdFont1, userFont1, pdFont2, userFont2, userFont3});
 
-  // These font rules won't fit in 1 page.
-  mNumberOfStoragePages = 2;
-
   auto& userDirFont1 = EXPECT_READONLY_EQ(userFont1).After(mWinUserFontCall);
   auto& userDirFont2 = EXPECT_READONLY_EQ(userFont2).After(mWinUserFontCall);
   auto& userDirFont3 = EXPECT_READONLY_EQ(userFont3).After(mWinUserFontCall);
   EXPECT_READONLY_EQ(pdFont1).After(userDirFont1, userDirFont2, userDirFont3);
   EXPECT_READONLY_EQ(pdFont2).After(userDirFont1, userDirFont2, userDirFont3);
 
-  CreateHelperAndCallAddRules();
+  EXPECT_TRUE(CreateHelperAndCallAddRules());
 }
 
 TEST_F(UserFontConfigHelperTest, SubKeyPathsOutsideUsersDirAddedAtEnd) {
@@ -242,9 +248,6 @@ TEST_F(UserFontConfigHelperTest, SubKeyPathsOutsideUsersDirAddedAtEnd) {
   ASSERT_EQ(lStatus, ERROR_SUCCESS);
   SetUpPathsInKey(subKey.get(), {pdFont2, userFont3});
 
-  // These font rules won't fit in 1 page.
-  mNumberOfStoragePages = 2;
-
   auto& userDirFont1 = EXPECT_READONLY_EQ(userFont1).After(mWinUserFontCall);
   auto& userDirFont2 = EXPECT_READONLY_EQ(userFont2).After(mWinUserFontCall);
   auto& userDirFont3 =
@@ -252,7 +255,7 @@ TEST_F(UserFontConfigHelperTest, SubKeyPathsOutsideUsersDirAddedAtEnd) {
   EXPECT_READONLY_EQ(pdFont1).After(userDirFont3);
   EXPECT_READONLY_EQ(pdFont2).After(userDirFont3);
 
-  CreateHelperAndCallAddRules();
+  EXPECT_TRUE(CreateHelperAndCallAddRules());
 }
 
 TEST_F(UserFontConfigHelperTest, NonStringValueIsIgnored) {
@@ -267,7 +270,7 @@ TEST_F(UserFontConfigHelperTest, NonStringValueIsIgnored) {
 
   EXPECT_READONLY_EQ(LR"(C:\Users\Moz User\Fonts\FontFile1.ttf)").Times(0);
 
-  CreateHelperAndCallAddRules();
+  EXPECT_TRUE(CreateHelperAndCallAddRules());
 }
 
 TEST_F(UserFontConfigHelperTest, PathNotNullTerminated) {
@@ -281,7 +284,7 @@ TEST_F(UserFontConfigHelperTest, PathNotNullTerminated) {
   EXPECT_READONLY_EQ(LR"(C:\Users\Moz User\Fonts\FontFile1.ttf)")
       .After(mWinUserFontCall);
 
-  CreateHelperAndCallAddRules();
+  EXPECT_TRUE(CreateHelperAndCallAddRules());
 }
 
 TEST_F(UserFontConfigHelperTest, PathEmpty) {
@@ -291,7 +294,7 @@ TEST_F(UserFontConfigHelperTest, PathEmpty) {
 
   EXPECT_READONLY_EQ(fontPath).Times(0);
 
-  CreateHelperAndCallAddRules();
+  EXPECT_TRUE(CreateHelperAndCallAddRules());
 }
 
 TEST_F(UserFontConfigHelperTest, PathEmptyNotNullTerminated) {
@@ -303,7 +306,7 @@ TEST_F(UserFontConfigHelperTest, PathEmptyNotNullTerminated) {
 
   EXPECT_READONLY_EQ(L"").Times(0);
 
-  CreateHelperAndCallAddRules();
+  EXPECT_TRUE(CreateHelperAndCallAddRules());
 }
 
 TEST_F(UserFontConfigHelperTest, DirsAreIgnored) {
@@ -311,7 +314,7 @@ TEST_F(UserFontConfigHelperTest, DirsAreIgnored) {
 
   EXPECT_READONLY_EQ(LR"(C:\Users\Moz Us]er\Fonts\)").Times(0);
 
-  CreateHelperAndCallAddRules();
+  EXPECT_TRUE(CreateHelperAndCallAddRules());
 }
 
 TEST_F(UserFontConfigHelperTest, PathsInWindowsUsersFontDirNotAdded) {
@@ -327,7 +330,7 @@ TEST_F(UserFontConfigHelperTest, PathsInWindowsUsersFontDirNotAdded) {
       LR"(C:\Users\Moz User\AppData\Local\Microsoft\Windows\Fonts\Sub\FontFile2.ttf)")
       .Times(0);
 
-  CreateHelperAndCallAddRules();
+  EXPECT_TRUE(CreateHelperAndCallAddRules());
 }
 
 TEST_F(UserFontConfigHelperTest,
@@ -344,18 +347,21 @@ TEST_F(UserFontConfigHelperTest,
       LR"(c:\uSERS\moz user\aPPdATA\lOCAL\MICRosoft\WindOWS\fONTS\Sub\FontFile2.ttf)")
       .Times(0);
 
-  CreateHelperAndCallAddRules();
+  EXPECT_TRUE(CreateHelperAndCallAddRules());
+}
+
+auto RuleSize(const wchar_t* aRulePath) {
+  return (12 * sizeof(sandbox::PolicyOpcode)) +
+         ((wcslen(aRulePath) + 4) * sizeof(wchar_t) * 4);
 }
 
 std::wstring MakeLongFontPath(const wchar_t* aPrefix, const wchar_t* aSuffix) {
   static size_t sReqPathLen = []() {
-    // Bytes taken up by the Windows user font path rule.
-    size_t winUserFontSpace =
-        (12 * sizeof(sandbox::PolicyOpcode)) +
-        ((wcslen(sWinUserFonts) + 4) * sizeof(wchar_t) * 4);
-
-    // The test fixture allows for one page.
-    size_t remainingSpace = 4096 - winUserFontSpace;
+    // Take the bytes required for the static rules from the starting memory
+    // allowance for tests.
+    size_t remainingSpace =
+        (4096 * kDefaultNumberOfPagesForTesting) - RuleSize(sWinUserFonts) -
+        RuleSize(sAdobeLiveTypeFonts) - RuleSize(sAdobeUserOwnedFonts);
 
     // We want 3 paths to be too big, so divide by 3 and reverse the formula.
     size_t spacePerFontPath = remainingSpace / 3;
@@ -391,7 +397,7 @@ TEST_F(UserFontConfigHelperTest, PathsTooLongForStorage) {
   path1.pop_back();
   EXPECT_READONLY_STARTS(path1).Times(2).After(mWinUserFontCall);
 
-  CreateHelperAndCallAddRules();
+  EXPECT_FALSE(CreateHelperAndCallAddRules());
 }
 
 TEST_F(UserFontConfigHelperTest, PathsTooLongOneOutsideUserProfile) {
@@ -412,7 +418,7 @@ TEST_F(UserFontConfigHelperTest, PathsTooLongOneOutsideUserProfile) {
   EXPECT_READONLY_EQ(path2).After(mWinUserFontCall);
   EXPECT_READONLY_EQ(path3).After(mWinUserFontCall);
 
-  CreateHelperAndCallAddRules();
+  EXPECT_TRUE(CreateHelperAndCallAddRules());
 }
 
 }  // namespace mozilla

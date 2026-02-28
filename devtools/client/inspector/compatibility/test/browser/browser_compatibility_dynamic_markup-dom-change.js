@@ -17,15 +17,15 @@ const {
 const ISSUE_DEPRECATED = {
   type: COMPATIBILITY_ISSUE_TYPE.CSS_PROPERTY,
   property: "-moz-user-focus",
-  url: "https://developer.mozilla.org/docs/Web/CSS/-moz-user-focus",
+  url: "https://developer.mozilla.org/docs/Web/CSS/Reference/Properties/-moz-user-focus",
   deprecated: true,
   experimental: false,
 };
 
-const ISSUE_SCROLLBAR_COLOR = {
+const ISSUE_NOT_DEPRECATED = {
   type: COMPATIBILITY_ISSUE_TYPE.CSS_PROPERTY,
-  property: "scrollbar-color",
-  url: "https://developer.mozilla.org/docs/Web/CSS/scrollbar-color",
+  property: "overflow-anchor",
+  url: "https://developer.mozilla.org/docs/Web/CSS/Reference/Properties/overflow-anchor",
   deprecated: false,
   experimental: false,
 };
@@ -39,7 +39,7 @@ const TEST_URI = `
   <body>
     <div></div>
     <div class="parent">
-      <div style="scrollbar-color: auto"></div>
+      <div style="overflow-anchor: auto"></div>
     </div>
   </body>
 `;
@@ -55,7 +55,7 @@ add_task(async function () {
   info("Check initial issues");
   await assertIssueList(allElementsPane, [
     ISSUE_DEPRECATED,
-    ISSUE_SCROLLBAR_COLOR,
+    ISSUE_NOT_DEPRECATED,
   ]);
 
   info("Delete node whose child node has CSS compatibility issue");
@@ -77,7 +77,8 @@ add_task(async function () {
  * that corresponds to the selector passed.
  * This overrides the definition in inspector/test/head.js which times
  * out when the container to be clicked is already the selected node.
- * @param {String|NodeFront} selector
+ *
+ * @param {string | NodeFront} selector
  * @param {InspectorPanel} inspector The instance of InspectorPanel currently
  * loaded in the toolbox
  * @return {Promise} Resolves when the node has been selected.

@@ -11,9 +11,7 @@
  * and create derivative works of this document.
  */
 
-[LegacyUnforgeable,
- Exposed=Window,
- InstrumentedProps=(ancestorOrigins)]
+[LegacyUnforgeable, Exposed=Window]
 interface Location {
   [Throws, CrossOriginWritable, NeedsSubjectPrincipal]
   stringifier attribute UTF8String href;
@@ -44,5 +42,7 @@ interface Location {
   [Throws, NeedsSubjectPrincipal]
   undefined reload(optional boolean forceget = false);
 
-  // Bug 1085214 [SameObject] readonly attribute USVString[] ancestorOrigins;
+  // https://html.spec.whatwg.org/#dom-location-ancestororigins
+  [Throws, UseCounter, LegacyUnforgeable, GetterNeedsSubjectPrincipal, Pref="dom.location.ancestorOrigins.enabled"]
+  readonly attribute DOMStringList ancestorOrigins;
 };

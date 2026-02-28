@@ -87,7 +87,6 @@
 #include "api/audio_codecs/audio_decoder_factory.h"
 #include "api/audio_codecs/audio_encoder_factory.h"
 #include "api/audio_options.h"
-#include "api/candidate.h"
 #include "api/crypto/crypto_options.h"
 #include "api/data_channel_event_observer_interface.h"
 #include "api/data_channel_interface.h"
@@ -126,7 +125,6 @@
 #include "api/video/video_bitrate_allocator_factory.h"
 #include "api/video_codecs/video_decoder_factory.h"
 #include "api/video_codecs/video_encoder_factory.h"
-#include "call/rtp_transport_controller_send_factory_interface.h"
 #include "media/base/media_config.h"
 // TODO(bugs.webrtc.org/7447): We plan to provide a way to let applications
 // inject a PacketSocketFactory and/or NetworkManager, and not expose
@@ -136,6 +134,7 @@
 #include "api/units/time_delta.h"
 #include "p2p/base/port.h"
 #include "p2p/base/port_allocator.h"
+#include "p2p/dtls/dtls_transport_factory.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/network.h"
 #include "rtc_base/network_constants.h"
@@ -147,10 +146,6 @@
 #include "rtc_base/ssl_stream_adapter.h"
 #include "rtc_base/system/rtc_export.h"
 #include "rtc_base/thread.h"
-
-// TODO: bugs.webrtc.org/42220069 - Remove this include when users of this
-// function include "create_modular_peer_connection_factory.h" instead.
-#include "api/create_modular_peer_connection_factory_internal.h"  // IWYU pragma: keep
 
 namespace webrtc {
 // IWYU pragma: begin_keep
@@ -232,10 +227,6 @@ class RTC_EXPORT PeerConnectionInterface : public RefCountInterface {
     kIceConnectionMax,
   };
   static constexpr absl::string_view AsString(IceConnectionState state);
-  template <typename Sink>
-  void AbslStringify(Sink& sink, IceConnectionState state) {
-    sink.Append(AsString(state));
-  }
 
   // TLS certificate policy.
   enum TlsCertPolicy {
@@ -650,26 +641,9 @@ class RTC_EXPORT PeerConnectionInterface : public RefCountInterface {
     // process).
     SdpSemantics sdp_semantics = SdpSemantics::kUnifiedPlan;
 
-    // TODO(bugs.webrtc.org/9891) - Move to crypto_options or remove.
-    // Actively reset the SRTP parameters whenever the DTLS transports
-    // underneath are reset for every offer/answer negotiation.
-    // This is only intended to be a workaround for crbug.com/835958
-    // WARNING: This would cause RTP/RTCP packets decryption failure if not used
-    // correctly. This flag will be deprecated soon. Do not rely on it.
-    bool active_reset_srtp_params = false;
-
     // Defines advanced optional cryptographic settings related to SRTP and
     // frame encryption for native WebRTC.
-    std::optional<CryptoOptions> crypto_options;
-
-    // TODO: bugs.webrtc.org/42235111 - remove after converting callers that
-    // expect an optional.
-    CryptoOptions& GetWritableCryptoOptions() {
-      if (!crypto_options) {
-        crypto_options = CryptoOptions();
-      }
-      return *crypto_options;
-    }
+    CryptoOptions crypto_options;
 
     // Configure if we should include the SDP attribute extmap-allow-mixed in
     // our offer on session level.
@@ -707,6 +681,11 @@ class RTC_EXPORT PeerConnectionInterface : public RefCountInterface {
 
     // The burst interval of the pacer, see TaskQueuePacedSender constructor.
     std::optional<TimeDelta> pacer_burst_interval;
+
+    // Always negotiate datachannels as the first m-line in the SDP even if
+    // no datachannel have been created yet.
+    // https://github.com/w3c/webrtc-pc/issues/3072
+    bool always_negotiate_data_channels = false;
 
     //
     // Don't forget to update operator== if adding something.
@@ -1140,16 +1119,6 @@ class RTC_EXPORT PeerConnectionInterface : public RefCountInterface {
                                std::function<void(RTCError)> callback) {}
   virtual bool RemoveIceCandidate(const IceCandidate* candidate) = 0;
 
-  // Removes a group of remote candidates from the ICE agent. Needed mainly for
-  // continual gathering, to avoid an ever-growing list of candidates as
-  // networks come and go. Note that the candidates' transport_name must be set
-  // to the MID of the m= section that generated the candidate.
-  // TODO(bugs.webrtc.org/8395): Use IceCandidate instead of
-  // Candidate, which would avoid the transport_name oddity.
-  [[deprecated("Use IceCandidate version")]]
-  virtual bool RemoveIceCandidates(
-      const std::vector<Candidate>& candidates) = 0;
-
   // SetBitrate limits the bandwidth allocated for all RTP streams sent by
   // this PeerConnection. Other limitations might affect these limits and
   // are respected (for example "b=AS" in SDP).
@@ -1251,14 +1220,33 @@ class RTC_EXPORT PeerConnectionInterface : public RefCountInterface {
   // pointers.
   virtual Thread* signaling_thread() const = 0;
 
-  // NetworkController instance being used by this PeerConnection, to be used
-  // to identify instances when using a custom NetworkControllerFactory.
-  virtual NetworkControllerInterface* GetNetworkController() = 0;
-
  protected:
   // Dtor protected as objects shouldn't be deleted via this interface.
   ~PeerConnectionInterface() override = default;
 };
+
+template <typename Sink>
+void AbslStringify(Sink& sink, PeerConnectionInterface::SignalingState state) {
+  sink.Append(PeerConnectionInterface::AsString(state));
+}
+
+template <typename Sink>
+void AbslStringify(Sink& sink,
+                   PeerConnectionInterface::IceGatheringState state) {
+  sink.Append(PeerConnectionInterface::AsString(state));
+}
+
+template <typename Sink>
+void AbslStringify(Sink& sink,
+                   PeerConnectionInterface::PeerConnectionState state) {
+  sink.Append(PeerConnectionInterface::AsString(state));
+}
+
+template <typename Sink>
+void AbslStringify(Sink& sink,
+                   PeerConnectionInterface::IceConnectionState state) {
+  sink.Append(PeerConnectionInterface::AsString(state));
+}
 
 // PeerConnection callback interface, used for RTCPeerConnection events.
 // Application should implement these methods.
@@ -1329,11 +1317,9 @@ class PeerConnectionObserver {
                                    int /* error_code */,
                                    const std::string& /* error_text */) {}
 
-  // Ice candidates have been removed.
-  // TODO(honghaiz): Make this a pure virtual method when all its subclasses
-  // implement it.
-  virtual void OnIceCandidatesRemoved(
-      const std::vector<Candidate>& /* candidates */) {}
+  // Fired when an IceCandidate has been removed.
+  virtual void OnIceCandidateRemoved(const IceCandidate* candidate) {
+  }
 
   // Called when the ICE connection receiving status changes.
   virtual void OnIceConnectionReceivingChange(bool /* receiving */) {}
@@ -1410,12 +1396,10 @@ struct RTC_EXPORT PeerConnectionDependencies final {
   // Factory for creating resolvers that look up hostnames in DNS
   std::unique_ptr<AsyncDnsResolverFactoryInterface> async_dns_resolver_factory;
   std::unique_ptr<IceTransportFactory> ice_transport_factory;
+  std::unique_ptr<DtlsTransportFactory> dtls_transport_factory;
   std::unique_ptr<RTCCertificateGeneratorInterface> cert_generator;
   std::unique_ptr<SSLCertificateVerifier> tls_cert_verifier;
   std::unique_ptr<VideoBitrateAllocatorFactory> video_bitrate_allocator_factory;
-  // Optional network controller factory to use.
-  // Overrides that set in PeerConnectionFactoryDependencies.
-  std::unique_ptr<NetworkControllerFactoryInterface> network_controller_factory;
 
   // Optional permission factory to request Local Network Access permission.
   std::unique_ptr<LocalNetworkAccessPermissionFactoryInterface>
@@ -1471,8 +1455,6 @@ struct RTC_EXPORT PeerConnectionFactoryDependencies final {
   std::unique_ptr<NetworkMonitorFactory> network_monitor_factory;
   std::unique_ptr<NetEqFactory> neteq_factory;
   std::unique_ptr<SctpTransportFactoryInterface> sctp_factory;
-  std::unique_ptr<RtpTransportControllerSendFactoryInterface>
-      transport_controller_send_factory;
   // Metronome used for decoding, must be called on the worker thread.
   std::unique_ptr<Metronome> decode_metronome;
   // Metronome used for encoding, must be called on the worker thread.

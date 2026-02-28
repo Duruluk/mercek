@@ -2,6 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+@import url("chrome://global/skin/design-system/toolbar.css");
 @import url("chrome://browser/skin/browser-colors.css");
 @import url("chrome://browser/skin/addons/extension-controlled.css");
 @import url("chrome://browser/skin/addons/unified-extensions.css");
@@ -24,6 +25,8 @@
 @import url("chrome://browser/skin/places/editBookmarkPanel.css");
 @import url("chrome://browser/skin/searchbar.css");
 @import url("chrome://browser/skin/sidebar.css");
+@import url("chrome://browser/skin/urlbar-variables.css");
+@import url("chrome://browser/skin/aiWindowSidebar.css");
 @import url("chrome://browser/skin/customizableui/customizeMode.css");
 @import url("chrome://browser/skin/UITour.css");
 @import url("chrome://browser/skin/formautofill-notification.css");
@@ -88,6 +91,7 @@ body {
   --browser-stack-z-index-devtools-splitter: 1;
   --browser-stack-z-index-dialog-stack: 2;
   --browser-stack-z-index-rdm-toolbar: 3;
+  --browser-stack-z-index-screenshots-panel: 4;
 
   /* z-indices that fight in the general browser / toolbox area */
   --browser-area-z-index-toolbox: 0;
@@ -98,18 +102,6 @@ body {
 
   /* on macOS the animation of the toolbox in fullscreen needs the toolbox to be higher */
   --browser-area-z-index-toolbox-while-animating: 4;
-
-  --toolbarbutton-border-radius: var(--button-border-radius);
-  --identity-box-margin-inline: 4px;
-  --urlbar-min-height: max(32px, 1.4em);
-  --urlbar-icon-padding: calc((var(--urlbar-min-height) - 2px /* border */ - 2px /* padding */ - 16px /* icon */) / 2);
-
-  /* This should be used for icons and chiclets inside the input field, as well
-     as result rows. It makes the gap around them more uniform when they are
-     close to the field edges. */
-  --urlbar-inner-border-radius: calc(var(--toolbarbutton-border-radius) - 1px);
-  --urlbar-searchmodeswitcher-inline-padding: 6px;
-  --urlbar-searchmodeswitcher-margin-inline-end: 0.45em;
 
   --lwt-additional-images: none;
   --lwt-background-alignment: right top;
@@ -136,14 +128,6 @@ body {
 
   &[lwtheme] {
     color: var(--lwt-text-color);
-  }
-
-  &[uidensity="compact"] {
-    --urlbar-min-height: max(26px, 1.4em);
-  }
-
-  &[uidensity="touch"] {
-    --urlbar-min-height: max(34px, 1.4em);
   }
 }
 
@@ -174,31 +158,11 @@ body {
     box-shadow: var(--content-area-shadow);
     border-bottom-color: var(--chrome-content-separator-color);
   }
-
-  /* Themes define a set of toolbox foreground and background colors which we
-   * want to use across the toolbox and sidebar areas. That happens via the
-   * .browser-toolbox-background class. It's hard to make a theme's background
-   * images work with something other than the toolbox, so for now we ignore
-   * them on other things like the sidebar that could have
-   * .browser-toolbox-background */
-  :root[lwtheme] & {
-    background-image: var(--lwt-additional-images);
-    background-repeat: var(--lwt-background-tiling);
-    background-position: var(--lwt-background-alignment);
-  }
-
-  /* When a theme defines both theme_frame and additional_backgrounds, show
-     the latter atop the former. */
-  :root[lwtheme-image] & {
-    background-image: var(--lwt-header-image), var(--lwt-additional-images);
-    background-repeat: no-repeat, var(--lwt-background-tiling);
-    background-position:
-      right top,
-      var(--lwt-background-alignment);
-  }
 }
 
-.browser-toolbox-background {
+body {
+  /* Prevents the background from propagating to the viewport */
+  contain: paint;
   position: relative;
   background-color: var(--toolbox-bgcolor);
   color: var(--toolbox-textcolor);
@@ -240,6 +204,25 @@ body {
         appearance: auto;
       }
     }
+  }
+}
+
+/* Images go on the body by default, unless they are aligned in the y axis in
+ * which case they go on the toolbox for backwards compatibility */
+:root[lwtheme]:not([lwtheme-image-y-align]) body,
+:root[lwtheme][lwtheme-image-y-align] #navigator-toolbox {
+  background-image: var(--lwt-additional-images);
+  background-repeat: var(--lwt-background-tiling);
+  background-position: var(--lwt-background-alignment);
+
+  /* When a theme defines both theme_frame and additional_backgrounds, show
+     the latter atop the former. */
+  :root[lwtheme-image] & {
+    background-image: var(--lwt-header-image), var(--lwt-additional-images);
+    background-repeat: no-repeat, var(--lwt-background-tiling);
+    background-position:
+      right top,
+      var(--lwt-background-alignment);
   }
 }
 
@@ -316,14 +299,14 @@ body {
 
   @media (-moz-platform: linux) and (-moz-gtk-csd-reversed-placement: 0) {
     :root:not([sizemode="normal"]) &[type="pre-tabs"],
-    :root[gtktiledwindow="true"] &[type="pre-tabs"] {
+    :root[gtktiledwindow] &[type="pre-tabs"] {
       display: none;
     }
   }
 
   @media (-moz-gtk-csd-reversed-placement) {
     :root:not([sizemode="normal"]) &[type="post-tabs"],
-    :root[gtktiledwindow="true"] &[type="post-tabs"] {
+    :root[gtktiledwindow] &[type="post-tabs"] {
       display: none;
     }
   }
@@ -408,14 +391,12 @@ body {
 /* Profiles menu */
 
 #menu_newProfile {
-  -moz-context-properties: fill;
-  fill: currentColor;
   --menuitem-icon: url(chrome://global/skin/icons/plus.svg);
 }
 
 .menuitem-iconic-profile {
+  --menuitem-icon-fill: var(--menu-profiles-theme-bg);
   -moz-context-properties: fill, stroke;
-  fill: var(--menu-profiles-theme-bg);
   stroke: var(--menu-profiles-theme-fg);
 }
 
@@ -460,6 +441,11 @@ body {
   :root[taskbartab] & {
     display: none;
   }
+}
+
+/* Share Button */
+.share-more-button {
+  --menuitem-icon: url("chrome://global/skin/icons/more.svg");
 }
 
 /* Bookmarks toolbar */
@@ -588,7 +574,7 @@ menupopup::part(drop-indicator) {
   list-style-image: none;
   height: 2px;
   margin-inline-end: -4em;
-  background-color: SelectedItem;
+  background-color: AccentColor;
   pointer-events: none;
 }
 
@@ -596,12 +582,6 @@ menupopup::part(drop-indicator) {
 
 .unified-nav-current {
   font-weight: var(--font-weight-semibold);
-}
-
-.unified-nav-back,
-.unified-nav-forward {
-  -moz-context-properties: fill;
-  fill: currentColor;
 }
 
 .unified-nav-back[_moz-menuactive]:-moz-locale-dir(ltr),
@@ -624,7 +604,7 @@ menupopup::part(drop-indicator) {
 
   :root[lwtheme] & {
     background-color: var(--lwt-accent-color);
-    background-image: linear-gradient(var(--toolbar-bgcolor), var(--toolbar-bgcolor)), var(--lwt-additional-images);
+    background-image: linear-gradient(var(--toolbar-bgcolor)), var(--lwt-additional-images);
     background-repeat: no-repeat, var(--lwt-background-tiling);
     background-position:
       right bottom,
@@ -684,10 +664,10 @@ menupopup::part(drop-indicator) {
 
 /* Various panels and popup notifications */
 
-#screenshotsPagePanel {
+.screenshotsPagePanel {
   position: relative;
   max-height: 0;
-  z-index: 1; /* Above the web content in this stack. */
+  z-index: var(--browser-stack-z-index-screenshots-panel); /* Above the web content in this stack. */
 }
 
 /* Override theme colors since the picker uses extra colors that
@@ -699,7 +679,7 @@ menupopup::part(drop-indicator) {
 }
 
 #widget-overflow .webextension-popup-browser {
-  background: #fff;
+  background: white;
 
   /* height set via JS can be lower than the stack min-height,
      ensure the browser takes up at least that min-height */
@@ -748,7 +728,7 @@ menupopup::part(drop-indicator) {
 
       &::part(button) {
         font-size: var(--font-size-large);
-        font-weight: var(--font-weight);
+        font-weight: normal;
         justify-content: flex-start;
         padding-inline: calc((var(--button-size-icon) - var(--icon-size)) / 2 - var(--border-width));
       }
@@ -778,7 +758,7 @@ menupopup::part(drop-indicator) {
 
 #cfr-notification-header-label {
   margin: 9px;
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 #cfr-notification-header-link {
@@ -804,7 +784,7 @@ menupopup::part(drop-indicator) {
 }
 
 #contextual-feature-recommendation-notification {
-  width: 400px;
+  width: var(--size-layout-large);
 
   .popup-notification-icon {
     margin-inline-end: 4px;
@@ -862,7 +842,7 @@ menupopup::part(drop-indicator) {
     }
 
     description {
-      font-weight: 400;
+      font-weight: normal;
       margin: unset;
       margin-inline: 12px;
     }
@@ -974,7 +954,7 @@ menupopup::part(drop-indicator) {
     }
 
     .popup-notification-description {
-      font-weight: 600;
+      font-weight: var(--font-weight-semibold);
       margin-bottom: 15px;
     }
 
@@ -1150,7 +1130,7 @@ popupnotificationcontent {
 }
 
 .popup-notification-description {
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   margin-top: 0;
 
   > b {
@@ -1226,7 +1206,7 @@ popupnotificationcontent {
     margin-inline: 8px;
 
     > span:first-of-type {
-      font-weight: bold;
+      font-weight: var(--font-weight-bold);
     }
 
     > span:last-of-type {
@@ -1291,8 +1271,8 @@ popupnotificationcontent {
 
 #historySwipeAnimationPreviousArrow,
 #historySwipeAnimationNextArrow {
-  --swipe-nav-icon-primary-color: SelectedItemText;
-  --swipe-nav-icon-accent-color: SelectedItem;
+  --swipe-nav-icon-primary-color: AccentColorText;
+  --swipe-nav-icon-accent-color: AccentColor;
 
   will-change: transform;
 
@@ -1399,6 +1379,98 @@ popupnotificationcontent {
 
 #PictureInPicturePanelFooter {
   margin: 8px 16px 16px;
+}
+
+/* AI Window Toggle Button */
+
+#ai-window-toggle {
+  list-style-image: url("chrome://branding/content/icon32.png");
+  padding-inline-end: var(--space-small);
+  border-radius: var(--border-radius-medium);
+
+  /* Toggle button icon is designed to be slightly larger at 20px */
+  > .toolbarbutton-icon {
+    padding: 8px;
+    box-shadow: 0 0 16px 4px var(--box-shadow-color-darker-layer-1) inset;
+  }
+
+  :root[ai-window] & {
+    list-style-image: url("chrome://browser/skin/ai-window.svg");
+
+    > .toolbarbutton-icon {
+      box-shadow: 0 0 16px 4px var(--smartwindow-toggle-shadow-color) inset;
+    }
+  }
+}
+
+#ai-window-switch-classic,
+#ai-window-switch-ai {
+  &:hover {
+    background-color: var(--button-background-color-ghost-hover);
+  }
+
+  .toolbarbutton-icon {
+    margin-inline-end: var(--space-small);
+    width: var(--icon-size-medium);
+    height: var(--icon-size-medium);
+  }
+
+  &::after {
+    content: url("chrome://global/skin/icons/check.svg");
+    -moz-context-properties: fill;
+    fill: currentColor;
+    width: 16px;
+    height: 16px;
+  }
+}
+
+#ai-window-switch-classic {
+  list-style-image: url("chrome://branding/content/icon32.png");
+
+  :root[ai-window] &::after {
+    display: none;
+  }
+}
+
+#ai-window-switch-ai {
+  list-style-image: url("chrome://browser/skin/ai-window.svg");
+
+  :root:not([ai-window]) &::after {
+    display: none;
+  }
+}
+
+/* AI window immersive view (hidden nav bar and buttons) */
+:root[ai-window][aiwindow-immersive-view] {
+  #nav-bar:not(.browser-titlebar) {
+    height: 0;
+    min-height: 0;
+    visibility: hidden;
+  }
+
+  #urlbar-container,
+  #nav-bar-customization-target > *:not(#sidebar-button),
+  #nav-bar-overflow-button,
+  #PanelUI-button,
+  #smartwindow-ask-button {
+    visibility: hidden;
+  }
+
+  /* immersive view styles exclusive for first run */
+  &[aiwindow-first-run] {
+    #TabsToolbar > .toolbar-items {
+      opacity: 0.2;
+      pointer-events: none;
+    }
+
+    /* stylelint-disable-next-line media-query-no-invalid */
+    @media -moz-pref("sidebar.verticalTabs") {
+      #sidebar-main {
+        opacity: 0.2;
+        pointer-events: none;
+      }
+    }
+  }
 }
 
 /* Bookmarks roots menu-items */

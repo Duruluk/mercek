@@ -606,7 +606,7 @@ RefPtr<WaylandBuffer> NativeLayerRootWayland::BorrowExternalBuffer(
 NativeLayerWayland::NativeLayerWayland(NativeLayerRootWayland* aRootLayer,
                                        const IntSize& aSize, bool aIsOpaque)
     : mRootLayer(aRootLayer), mIsOpaque(aIsOpaque), mSize(aSize) {
-  mSurface = new WaylandSurface(mRootLayer->GetRootWaylandSurface(), mSize);
+  mSurface = new WaylandSurface(mRootLayer->GetRootWaylandSurface());
 #ifdef MOZ_LOGGING
   mSurface->SetLoggingWidget(this);
 #endif
@@ -794,16 +794,30 @@ void NativeLayerWayland::UpdateLayerPlacementLocked(
 
   mSurface->SetTransformFlippedLocked(aProofOfLock, transform2D._11 < 0.0,
                                       transform2D._22 < 0.0);
+
+  // TODO! Downscale introduces rounding errors here.
   auto unscaledRect =
       gfx::RoundedToInt(surfaceRectClipped / UnknownScaleFactor(mScale));
-  mSurface->MoveLocked(aProofOfLock, unscaledRect.TopLeft());
-  mSurface->SetViewPortDestLocked(aProofOfLock, unscaledRect.Size());
+  auto rect = DesktopIntRect::FromUnknownRect(unscaledRect);
+  mSurface->MoveLocked(aProofOfLock, rect.TopLeft());
+  mSurface->SetViewPortDestLocked(aProofOfLock, rect.Size());
+
+  LOGVERBOSE(
+      "NativeLayerWayland::UpdateLayerPlacement(): destination [%d,%d] -> [%d "
+      "x %d]",
+      rect.x, rect.y, rect.width, rect.height);
 
   auto transform2DInversed = transform2D.Inverse();
   Rect bufferClip = transform2DInversed.TransformBounds(surfaceRectClipped);
-  mSurface->SetViewPortSourceRectLocked(
-      aProofOfLock,
+  auto viewportRect = gfx::RoundedToInt(
       bufferClip.Intersect(Rect(0, 0, mSize.width, mSize.height)));
+
+  LOGVERBOSE(
+      "NativeLayerWayland::UpdateLayerPlacement(): source [%d,%d] -> [%d x %d]",
+      viewportRect.x, viewportRect.y, viewportRect.width, viewportRect.height);
+
+  mSurface->SetViewPortSourceRectLocked(
+      aProofOfLock, DesktopIntRect::FromUnknownRect(viewportRect));
 }
 
 void NativeLayerWayland::RenderLayer(double aScale) {
@@ -864,7 +878,7 @@ bool NativeLayerWayland::Map(WaylandSurfaceLock* aParentWaylandSurfaceLock) {
   MOZ_DIAGNOSTIC_ASSERT(mNeedsMainThreadUpdate != MainThreadUpdate::Map);
 
   if (!mSurface->MapLocked(surfaceLock, aParentWaylandSurfaceLock,
-                           gfx::IntPoint(0, 0))) {
+                           DesktopIntPoint())) {
     gfxCriticalError() << "NativeLayerWayland::Map() failed!";
     return false;
   }
@@ -947,6 +961,7 @@ void NativeLayerWayland::Unmap() {
   mState.mMutatedVisibility = true;
   mState.mIsRendered = false;
   mState.mIsVisible = false;
+  DiscardBackbuffersLocked(surfaceLock);
   mNeedsMainThreadUpdate = MainThreadUpdate::Unmap;
 }
 
@@ -1019,7 +1034,7 @@ RefPtr<DrawTarget> NativeLayerWaylandRender::NextSurfaceAsDrawTarget(
   mDirtyRegion = aUpdateRegion;
 
   MOZ_DIAGNOSTIC_ASSERT(!mInProgressBuffer);
-  if (mFrontBuffer && !mFrontBuffer->IsAttached()) {
+  if (mFrontBuffer && !mFrontBuffer->IsAttached(lock)) {
     LOGVERBOSE(
         "NativeLayerWaylandRender::NextSurfaceAsDrawTarget(): use front buffer "
         "for rendering");
@@ -1030,13 +1045,13 @@ RefPtr<DrawTarget> NativeLayerWaylandRender::NextSurfaceAsDrawTarget(
         "NativeLayerWaylandRender::NextSurfaceAsDrawTarget(): use progress "
         "buffer for rendering");
     mInProgressBuffer = mSurfacePoolHandle->ObtainBufferFromPool(
-        mSize, mRootLayer->GetDRMFormat());
+        lock, mSize, mRootLayer->GetDRMFormat());
     if (mFrontBuffer) {
       LOGVERBOSE(
           "NativeLayerWaylandRender::NextSurfaceAsDrawTarget(): read-back from "
           "front buffer");
       ReadBackFrontBuffer(lock);
-      mSurfacePoolHandle->ReturnBufferToPool(mFrontBuffer);
+      mSurfacePoolHandle->ReturnBufferToPool(lock, mFrontBuffer);
       mFrontBuffer = nullptr;
     }
   }
@@ -1049,7 +1064,7 @@ RefPtr<DrawTarget> NativeLayerWaylandRender::NextSurfaceAsDrawTarget(
     return nullptr;
   }
 
-  MOZ_DIAGNOSTIC_ASSERT(!mInProgressBuffer->IsAttached(),
+  MOZ_DIAGNOSTIC_ASSERT(!mInProgressBuffer->IsAttached(lock),
                         "Reusing attached buffer!");
 
   return mInProgressBuffer->Lock();
@@ -1069,7 +1084,7 @@ Maybe<GLuint> NativeLayerWaylandRender::NextSurfaceAsFramebuffer(
   mDirtyRegion = IntRegion(aUpdateRegion);
 
   MOZ_DIAGNOSTIC_ASSERT(!mInProgressBuffer);
-  if (mFrontBuffer && !mFrontBuffer->IsAttached()) {
+  if (mFrontBuffer && !mFrontBuffer->IsAttached(lock)) {
     LOGVERBOSE(
         "NativeLayerWaylandRender::NextSurfaceAsFramebuffer(): use front "
         "buffer for rendering");
@@ -1080,7 +1095,7 @@ Maybe<GLuint> NativeLayerWaylandRender::NextSurfaceAsFramebuffer(
         "NativeLayerWaylandRender::NextSurfaceAsFramebuffer(): use progress "
         "buffer for rendering");
     mInProgressBuffer = mSurfacePoolHandle->ObtainBufferFromPool(
-        mSize, mRootLayer->GetDRMFormat());
+        lock, mSize, mRootLayer->GetDRMFormat());
   }
 
   MOZ_DIAGNOSTIC_ASSERT(mInProgressBuffer,
@@ -1089,7 +1104,7 @@ Maybe<GLuint> NativeLayerWaylandRender::NextSurfaceAsFramebuffer(
     return Nothing();
   }
 
-  MOZ_DIAGNOSTIC_ASSERT(!mInProgressBuffer->IsAttached(),
+  MOZ_DIAGNOSTIC_ASSERT(!mInProgressBuffer->IsAttached(lock),
                         "Reusing attached buffer!");
 
   // get the framebuffer before handling partial damage so we don't accidently
@@ -1107,7 +1122,7 @@ Maybe<GLuint> NativeLayerWaylandRender::NextSurfaceAsFramebuffer(
         "NativeLayerWaylandRender::NextSurfaceAsFramebuffer(): read-back from "
         "front buffer");
     ReadBackFrontBuffer(lock);
-    mSurfacePoolHandle->ReturnBufferToPool(mFrontBuffer);
+    mSurfacePoolHandle->ReturnBufferToPool(lock, mFrontBuffer);
     mFrontBuffer = nullptr;
   }
 
@@ -1189,9 +1204,12 @@ void NativeLayerWaylandRender::NotifySurfaceReady() {
 
   WaylandSurfaceLock lock(mSurface);
 
-  MOZ_DIAGNOSTIC_ASSERT(!mFrontBuffer);
-  MOZ_DIAGNOSTIC_ASSERT(mInProgressBuffer);
+  // NotifySurfaceReady() may be called even if NextSurfaceAsDrawTarget() fails.
+  if (!mInProgressBuffer) {
+    return;
+  }
 
+  MOZ_DIAGNOSTIC_ASSERT(!mFrontBuffer);
   mFrontBuffer = std::move(mInProgressBuffer);
   if (mSurfacePoolHandle->gl()) {
     auto* buffer = mFrontBuffer->AsWaylandBufferDMABUF();
@@ -1210,12 +1228,13 @@ void NativeLayerWaylandRender::DiscardBackbuffersLocked(
       "NativeLayerWaylandRender::DiscardBackbuffersLocked() force %d progress "
       "%p front %p",
       aForce, mInProgressBuffer.get(), mFrontBuffer.get());
-  if (mInProgressBuffer && (!mInProgressBuffer->IsAttached() || aForce)) {
-    mSurfacePoolHandle->ReturnBufferToPool(mInProgressBuffer);
+  if (mInProgressBuffer &&
+      (!mInProgressBuffer->IsAttached(aProofOfLock) || aForce)) {
+    mSurfacePoolHandle->ReturnBufferToPool(aProofOfLock, mInProgressBuffer);
     mInProgressBuffer = nullptr;
   }
-  if (mFrontBuffer && (!mFrontBuffer->IsAttached() || aForce)) {
-    mSurfacePoolHandle->ReturnBufferToPool(mFrontBuffer);
+  if (mFrontBuffer && (!mFrontBuffer->IsAttached(aProofOfLock) || aForce)) {
+    mSurfacePoolHandle->ReturnBufferToPool(aProofOfLock, mFrontBuffer);
     mFrontBuffer = nullptr;
   }
 }

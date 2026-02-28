@@ -9,22 +9,6 @@ $schema: moz://mozilla.org/schemas/glean/metrics/2-0-0
 $tags:
   - 'Core :: Security: PSM'
 
-cert_storage:
-  memory:
-    type: memory_distribution
-    memory_unit: byte
-    description: >
-      Heap memory used by cert_storage.
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1910500
-    data_reviews:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1910500
-    data_sensitivity:
-      - technical
-    notification_emails:
-      - jschanck@mozilla.com
-    expires: 148
-
 data_storage:
   alternate_services:
     type: quantity
@@ -90,12 +74,13 @@ tls:
     bugs:
       - https://bugzilla.mozilla.org/1874963
       - https://bugzilla.mozilla.org/1933879
+      - https://bugzilla.mozilla.org/2005387
     data_reviews:
       - https://bugzilla.mozilla.org/1874963
       - https://bugzilla.mozilla.org/1974141
     notification_emails:
       - jschanck@mozilla.com
-    expires: 149
+    expires: 158
     labels:
       - PR_CONNECT_RESET_ERROR
       - PR_END_OF_FILE_ERROR
@@ -251,7 +236,7 @@ pkcs11:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1905453
     notification_emails:
       - haftandilian@mozilla.com
-    expires: 147
+    expires: 159
     extra_keys:
       filename:
         type: string
@@ -276,7 +261,7 @@ pkcs11:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1905453
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1905453
-    expires: 147
+    expires: 159
 
   external_trust_anchor_module_loaded:
     type: boolean
@@ -1663,7 +1648,7 @@ oskeystore:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1958791
     notification_emails:
       - simon@mozilla.com
-    expires: 150
+    expires: never
     extra_keys:
       function:
         description: >

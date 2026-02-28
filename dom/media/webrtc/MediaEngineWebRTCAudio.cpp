@@ -5,8 +5,6 @@
 
 #include "MediaEngineWebRTCAudio.h"
 
-#include <stdio.h>
-
 #include <algorithm>
 
 #include "AudioConverter.h"
@@ -111,6 +109,17 @@ MediaEngineWebRTCMicrophoneSource::MediaEngineWebRTCMicrophoneSource(
           capabilities->mChannelCount.Construct(channelCountRange);
         }
       }));
+}
+
+/*static*/ already_AddRefed<MediaEngineWebRTCMicrophoneSource>
+MediaEngineWebRTCMicrophoneSource::CreateFrom(
+    const MediaEngineWebRTCMicrophoneSource* aSource,
+    const MediaDevice* aMediaDevice) {
+  auto src = MakeRefPtr<MediaEngineWebRTCMicrophoneSource>(aMediaDevice);
+  *static_cast<dom::MediaTrackSettings*>(src->mSettings) = *aSource->mSettings;
+  *static_cast<dom::MediaTrackCapabilities*>(src->mCapabilities) =
+      *aSource->mCapabilities;
+  return src.forget();
 }
 
 nsresult MediaEngineWebRTCMicrophoneSource::EvaluateSettings(

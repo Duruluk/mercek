@@ -46,17 +46,19 @@ export class _WallpaperCategories extends React.PureComponent {
     this.focusCategory = this.focusCategory.bind(this);
     this.handleUpload = this.handleUpload.bind(this);
     this.handleBack = this.handleBack.bind(this);
+    this.handleWallpaperListEntered =
+      this.handleWallpaperListEntered.bind(this);
     this.getRGBColors = this.getRGBColors.bind(this);
     this.prefersHighContrastQuery = null;
     this.prefersDarkQuery = null;
     this.categoryRef = []; // store references for wallpaper category list
     this.wallpaperRef = []; // store reference for wallpaper selection list
+    this.arrowButtonRef = React.createRef(); // Used to focus arrow button when category opens
     this.customColorPickerRef = React.createRef(); // Used to determine contrast icon color for custom color picker
     this.customColorInput = React.createRef(); // Used to determine contrast icon color for custom color picker
     this.state = {
       activeCategory: null,
       activeCategoryFluentID: null,
-      showColorPicker: false,
       inputType: "radio",
       activeId: null,
       customWallpaperErrorType: null,
@@ -186,7 +188,7 @@ export class _WallpaperCategories extends React.PureComponent {
     if (event.key === "Tab") {
       if (event.shiftKey) {
         event.preventDefault();
-        this.backToMenuButton?.focus();
+        this.arrowButtonRef.current?.focus();
       } else {
         event.preventDefault(); // prevent tabbing within wallpaper selection. We should only be using the Tab key to tab between groups
       }
@@ -267,6 +269,11 @@ export class _WallpaperCategories extends React.PureComponent {
 
     this.handleUserEvent(at.WALLPAPER_CATEGORY_CLICK, event.target.id);
 
+    // Notify parent menu when subpanel opens
+    if (this.props.onSubpanelToggle) {
+      this.props.onSubpanelToggle(true);
+    }
+
     let fluent_id;
     switch (event.target.id) {
       case "abstracts":
@@ -280,6 +287,10 @@ export class _WallpaperCategories extends React.PureComponent {
         break;
       case "solid-colors":
         fluent_id = "newtab-wallpaper-category-title-colors";
+        break;
+      case "firefox":
+        fluent_id = "newtab-wallpaper-category-title-firefox";
+        break;
     }
 
     this.setState({ activeCategoryFluentID: fluent_id });
@@ -359,11 +370,20 @@ export class _WallpaperCategories extends React.PureComponent {
 
   handleBack() {
     this.setState({ activeCategory: null }, () => {
+      // Notify parent menu when subpanel closes
+      if (this.props.onSubpanelToggle) {
+        this.props.onSubpanelToggle(false);
+      }
+
       // Wait for the category grid to be back in the DOM
       requestAnimationFrame(() => {
         this.focusCategory(this.state.focusedCategoryIndex);
       });
     });
+  }
+
+  handleWallpaperListEntered() {
+    this.arrowButtonRef.current?.focus();
   }
 
   // Record user interaction when changing wallpaper and reseting wallpaper to default
@@ -391,12 +411,31 @@ export class _WallpaperCategories extends React.PureComponent {
     return 0.2125 * r + 0.7154 * g + 0.0721 * b <= 110;
   }
 
+  sortWallpapersByOrder(wallpapers) {
+    return wallpapers.sort((a, b) => {
+      const aOrder = a.order || 0;
+      const bOrder = b.order || 0;
+      if (aOrder === 0 && bOrder === 0) {
+        return 0;
+      }
+      if (aOrder === 0) {
+        return 1;
+      }
+      if (bOrder === 0) {
+        return -1;
+      }
+      return aOrder - bOrder;
+    });
+  }
+
   render() {
     const prefs = this.props.Prefs.values;
     const { wallpaperList, categories } = this.props.Wallpapers;
     const { activeWallpaper } = this.props;
-    const { activeCategory, showColorPicker } = this.state;
+    const { activeCategory } = this.state;
     const { activeCategoryFluentID } = this.state;
+    // Enable custom color select if pref'ed on
+    let showColorPicker = prefs["newtabWallpapers.customColor.enabled"];
     let filteredWallpapers = wallpaperList.filter(
       wallpaper => wallpaper.category === activeCategory
     );
@@ -417,15 +456,10 @@ export class _WallpaperCategories extends React.PureComponent {
 
     // User has previous selected a custom color
     if (selectedWallpaper.includes("solid-color-picker")) {
-      this.setState({ showColorPicker: true });
+      showColorPicker = true;
       const regex = /#([a-fA-F0-9]{6})/;
       [wallpaperCustomSolidColorHex] = selectedWallpaper.match(regex);
     }
-
-    // Enable custom color select if pref'ed on
-    this.setState({
-      showColorPicker: prefs["newtabWallpapers.customColor.enabled"],
-    });
 
     // Remove last item of solid colors to make space for custom color picker
     if (
@@ -505,14 +539,15 @@ export class _WallpaperCategories extends React.PureComponent {
               const filteredList = wallpaperList.filter(
                 wallpaper => wallpaper.category === category
               );
+              const sortedList = this.sortWallpapersByOrder(filteredList);
               const activeWallpaperObj =
                 activeWallpaper &&
-                filteredList.find(wp => wp.title === activeWallpaper);
+                sortedList.find(wp => wp.title === activeWallpaper);
               // Detect custom solid color
               const isCustomSolidColor =
                 category === "solid-colors" &&
                 activeWallpaper.startsWith("solid-color-picker");
-              const thumbnail = activeWallpaperObj || filteredList[0];
+              const thumbnail = activeWallpaperObj || sortedList[0];
               let fluent_id;
               switch (category) {
                 case "abstracts":
@@ -529,10 +564,16 @@ export class _WallpaperCategories extends React.PureComponent {
                   break;
                 case "solid-colors":
                   fluent_id = "newtab-wallpaper-category-title-colors";
+                  break;
+                case "firefox":
+                  fluent_id = "newtab-wallpaper-category-title-firefox";
+                  break;
               }
               let style = {};
               if (thumbnail?.wallpaperUrl) {
-                style.backgroundImage = `url(${thumbnail.wallpaperUrl})`;
+                style.backgroundImage = `url(${thumbnail?.thumbnail || thumbnail?.wallpaperUrl})`;
+                style.backgroundPosition =
+                  thumbnail.background_position || "center";
               } else {
                 style.backgroundColor = thumbnail?.solid_color || "";
               }
@@ -610,29 +651,38 @@ export class _WallpaperCategories extends React.PureComponent {
           timeout={300}
           classNames="wallpaper-list"
           unmountOnExit={true}
+          onEntered={this.handleWallpaperListEntered}
         >
           <section className="category wallpaper-list ignore-color-mode">
             <button
+              ref={this.arrowButtonRef}
               className="arrow-button"
               data-l10n-id={activeCategoryFluentID}
               onClick={this.handleBack}
-              ref={el => {
-                this.backToMenuButton = el;
-              }}
             />
             <div
               role="grid"
               aria-label="Wallpaper selection. Use arrow keys to navigate."
             >
               <fieldset>
-                {filteredWallpapers.map(
+                {this.sortWallpapersByOrder(filteredWallpapers).map(
                   (
-                    { title, theme, fluent_id, solid_color, wallpaperUrl },
+                    {
+                      background_position,
+                      fluent_id,
+                      solid_color,
+                      theme,
+                      title,
+                      thumbnail,
+                      wallpaperUrl,
+                    },
                     index
                   ) => {
                     let style = {};
                     if (wallpaperUrl) {
-                      style.backgroundImage = `url(${wallpaperUrl})`;
+                      style.backgroundImage = `url(${thumbnail || wallpaperUrl})`;
+                      style.backgroundPosition =
+                        background_position || "center";
                     } else {
                       style.backgroundColor = solid_color || "";
                     }

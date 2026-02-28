@@ -38,6 +38,7 @@ export var PlacesDBUtils = {
       this.checkCoherence,
       this._refreshUI,
       this.incrementalVacuum,
+      this.optimize,
       this.removeOldCorruptDBs,
       this.deleteOrphanPreviews,
     ];
@@ -218,6 +219,30 @@ export var PlacesDBUtils = {
       throw new Error("Unable to delete orphan previews " + ex);
     }
     return logs;
+  },
+
+  /**
+   * Run PRAGMA optimize to update query planner statistics.
+   *
+   * @returns {Promise<string[]>}
+   *   Resolves with the logs when done.
+   */
+  async optimize() {
+    let logs = [];
+    return lazy.PlacesUtils.withConnectionWrapper(
+      "PlacesDBUtils: optimize",
+      async db => {
+        // 0x10012: run ANALYZE on tables that might benefit (0x02), with a row
+        // limit to keep runtime bounded (0x10), including tables not queried
+        // during this connection (0x10000).
+        await db.execute("PRAGMA optimize(0x10012)");
+        logs.push("The database has been optimized.");
+        return logs;
+      }
+    ).catch(ex => {
+      PlacesDBUtils.clearPendingTasks();
+      throw new Error("Unable to optimize the database " + ex);
+    });
   },
 
   async _getCoherenceStatements() {
@@ -1357,6 +1382,44 @@ export var PlacesDBUtils = {
       tasksMap.set(task.name, result);
     }
     return tasksMap;
+  },
+
+  /**
+   * Helper used by FxBackup to remove downloads metadata from a copy of the Places
+   * database, for profile migration to another install (such as on another
+   * machine).
+   *
+   * @param {string} placesDbPath Full path to places.sqlite database to filter
+   *                              downloads metadata from.
+   */
+  async removeDownloadsMetadataFromDb(placesDbPath) {
+    // Don't create the database if it doesn't exist.
+    if (!(await IOUtils.exists(placesDbPath))) {
+      return;
+    }
+
+    let connection;
+    try {
+      connection = await lazy.Sqlite.openConnection({
+        path: placesDbPath,
+      });
+      const removeDownloads = `
+        -- Find download annotations
+        WITH found_annos AS (
+            SELECT a.id AS anno_id
+            FROM moz_annos a
+            JOIN moz_anno_attributes attr
+              ON a.anno_attribute_id = attr.id
+            WHERE INSTR(attr.name, 'downloads/') = 1
+        )
+        -- Delete downloads from moz_annos but leave the URLs in moz_places history
+        DELETE FROM moz_annos
+        WHERE id IN (SELECT anno_id FROM found_annos);
+      `;
+      await connection.execute(removeDownloads);
+    } finally {
+      await connection?.close();
+    }
   },
 };
 

@@ -72,7 +72,57 @@ ChromeUtils.defineESModuleGetters(lazy, {
   AddonManager: "resource://gre/modules/AddonManager.sys.mjs",
   PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.sys.mjs",
   SitePermissions: "resource:///modules/SitePermissions.sys.mjs",
+  clearTimeout: "resource://gre/modules/Timer.sys.mjs",
+  setTimeout: "resource://gre/modules/Timer.sys.mjs",
 });
+
+// Lazy getter for site categories from pref
+XPCOMUtils.defineLazyPreferenceGetter(
+  lazy,
+  "siteCategories",
+  "permissions.desktop-notification.telemetry.siteCategories",
+  "{}",
+  null,
+  val => {
+    // Parse the JSON pref into a Map
+    // Format: {"domain1":"category1","domain2":"category2",...}
+    try {
+      let obj = JSON.parse(val);
+      return new Map(Object.entries(obj));
+    } catch (e) {
+      console.error("Failed to parse site categories pref:", e);
+      return new Map();
+    }
+  }
+);
+
+/**
+ * Get the site category for telemetry based on the domain.
+ *
+ * @param {nsIPrincipal} principal - The principal of the requesting site
+ * @returns {string} The category name or "other" if not in the known list
+ */
+function getSiteCategory(principal) {
+  try {
+    // Check the full host first for specific subdomain matches
+    // (e.g., "mail.google.com" should match before falling back to "google.com")
+    let host = principal.URI.host;
+    if (lazy.siteCategories.has(host)) {
+      return lazy.siteCategories.get(host);
+    }
+
+    // Fall back to baseDomain (eTLD+1) for general domain matches
+    // (e.g., "example.com" from "sub.example.com")
+    let baseDomain = principal.baseDomain;
+    if (lazy.siteCategories.has(baseDomain)) {
+      return lazy.siteCategories.get(baseDomain);
+    }
+
+    return "other";
+  } catch (e) {
+    return "other";
+  }
+}
 
 XPCOMUtils.defineLazyServiceGetter(
   lazy,
@@ -110,6 +160,13 @@ XPCOMUtils.defineLazyPreferenceGetter(
   "sitePermsAddonsProviderEnabled",
   SITEPERMS_ADDON_PROVIDER_PREF,
   false
+);
+
+XPCOMUtils.defineLazyPreferenceGetter(
+  lazy,
+  "lnaPromptTimeoutMs",
+  "network.lna.prompt.timeout",
+  300000
 );
 
 /**
@@ -736,7 +793,7 @@ class SitePermsAddonInstallRequest extends PermissionPromptForRequest {
    * This should be overriden by children classes.
    *
    * @param {Components.Exception} err
-   * @returns {String} The error message
+   * @returns {string} The error message
    */
   getInstallErrorMessage() {
     return null;
@@ -1009,18 +1066,97 @@ class XRPermissionPrompt extends PermissionPromptForRequest {
 }
 
 /**
+ * Base class for Local Network Access (LNA) permission prompts.
+ * Provides automatic timeout handling for LNA prompts.
+ *
+ * If the user doesn't respond to the prompt within the timeout period,
+ * the prompt is automatically cancelled and the network request fails.
+ */
+class LNAPermissionPromptBase extends PermissionPromptForRequest {
+  static DEFAULT_PROMPT_TIMEOUT_MS = 300000;
+
+  #timeoutTimer = null;
+
+  constructor(request) {
+    super();
+    this.request = request;
+  }
+
+  onBeforeShow() {
+    // Notify LNAPermissionRequest that the prompt is being shown.
+    // This triggers telemetry recording and notifies nsHttpChannel.
+    if (typeof this.request.notifyShown === "function") {
+      this.request.notifyShown();
+    }
+    return true;
+  }
+
+  onShown() {
+    this.#startTimeoutTimer();
+  }
+
+  onAfterShow() {
+    this.#clearTimeoutTimer();
+  }
+
+  cancel() {
+    super.cancel();
+  }
+
+  allow(choices) {
+    super.allow(choices);
+  }
+
+  #startTimeoutTimer() {
+    this.#clearTimeoutTimer();
+
+    this.#timeoutTimer = lazy.setTimeout(() => {
+      let scriptError = Cc["@mozilla.org/scripterror;1"].createInstance(
+        Ci.nsIScriptError
+      );
+      scriptError.initWithWindowID(
+        `LNA permission prompt timed out after ${lazy.lnaPromptTimeoutMs / 1000} seconds`,
+        null,
+        0,
+        0,
+        Ci.nsIScriptError.warningFlag,
+        "content javascript",
+        this.browser.browsingContext.currentWindowGlobal.innerWindowId
+      );
+      Services.console.logMessage(scriptError);
+
+      this.#removePrompt();
+      this.cancel();
+    }, lazy.lnaPromptTimeoutMs);
+  }
+
+  #removePrompt() {
+    let chromeWin = this.browser?.ownerGlobal;
+    let notification = chromeWin?.PopupNotifications.getNotification(
+      this.notificationID,
+      this.browser
+    );
+    if (notification) {
+      chromeWin.PopupNotifications.remove(notification);
+    }
+  }
+
+  #clearTimeoutTimer() {
+    if (this.#timeoutTimer) {
+      lazy.clearTimeout(this.#timeoutTimer);
+      this.#timeoutTimer = null;
+    }
+  }
+}
+
+/**
  * Creates a PermissionPrompt for a nsIContentPermissionRequest for
  * the Local Host Access.
  *
  * @param request (nsIContentPermissionRequest)
  *        The request for a permission from content.
  */
-class LocalHostPermissionPrompt extends PermissionPromptForRequest {
-  constructor(request) {
-    super();
-    this.request = request;
-  }
-
+class LocalHostPermissionPrompt extends LNAPermissionPromptBase {
   get type() {
     return "localhost";
   }
@@ -1160,6 +1296,9 @@ class DesktopNotificationPermissionPrompt extends PermissionPromptForRequest {
   }
 
   get promptActions() {
+    // Capture the site category now, while this.principal is still valid
+    let siteCategory = getSiteCategory(this.principal);
+
     let actions = [
       {
         label: lazy.gBrowserBundle.GetStringFromName("webNotifications.allow2"),
@@ -1168,6 +1307,13 @@ class DesktopNotificationPermissionPrompt extends PermissionPromptForRequest {
         ),
         action: lazy.SitePermissions.ALLOW,
         scope: lazy.SitePermissions.SCOPE_PERSISTENT,
+        callback: () => {
+          Glean.webNotificationPermission.promptInteraction.record({
+            site_category: siteCategory,
+            action: "allow",
+            is_persistent: true,
+          });
+        },
       },
     ];
     if (this.notNowEnabled) {
@@ -1177,6 +1323,13 @@ class DesktopNotificationPermissionPrompt extends PermissionPromptForRequest {
           "webNotifications.notNow.accesskey"
         ),
         action: lazy.SitePermissions.BLOCK,
+        callback: () => {
+          Glean.webNotificationPermission.promptInteraction.record({
+            site_category: siteCategory,
+            action: "block",
+            is_persistent: false,
+          });
+        },
       });
     }
 
@@ -1198,11 +1351,21 @@ class DesktopNotificationPermissionPrompt extends PermissionPromptForRequest {
       scope: isBrowserPrivate
         ? lazy.SitePermissions.SCOPE_SESSION
         : lazy.SitePermissions.SCOPE_PERSISTENT,
+      callback: () => {
+        Glean.webNotificationPermission.promptInteraction.record({
+          site_category: siteCategory,
+          action: "block",
+          is_persistent: true,
+        });
+      },
     });
     return actions;
   }
 
   get postPromptActions() {
+    // Capture the site category now, while this.principal is still valid
+    let siteCategory = getSiteCategory(this.principal);
+
     let actions = [
       {
         label: lazy.gBrowserBundle.GetStringFromName("webNotifications.allow2"),
@@ -1210,6 +1373,13 @@ class DesktopNotificationPermissionPrompt extends PermissionPromptForRequest {
           "webNotifications.allow2.accesskey"
         ),
         action: lazy.SitePermissions.ALLOW,
+        callback: () => {
+          Glean.webNotificationPermission.promptInteraction.record({
+            site_category: siteCategory,
+            action: "allow",
+            is_persistent: true,
+          });
+        },
       },
     ];
 
@@ -1228,8 +1398,75 @@ class DesktopNotificationPermissionPrompt extends PermissionPromptForRequest {
             "webNotifications.alwaysBlock.accesskey"
           ),
       action: lazy.SitePermissions.BLOCK,
+      callback: () => {
+        Glean.webNotificationPermission.promptInteraction.record({
+          site_category: siteCategory,
+          action: "block",
+          is_persistent: true,
+        });
+      },
     });
     return actions;
+  }
+
+  prompt() {
+    // Capture site category early (before this.principal becomes invalid)
+    let siteCategory = getSiteCategory(this.principal);
+
+    // Determine the blocking reason (check most specific to least specific)
+    let blockReason = null;
+
+    // Only check for pre-existing BLOCK if the parent hasn't already handled this
+    // The parent's prompt() will cancel immediately if state is BLOCK, so we need
+    // to detect this AFTER the parent runs, not before
+
+    // Check for no user gesture (will be blocked by parent)
+    if (
+      this.requiresUserInput &&
+      !this.request.hasValidTransientUserGestureActivation
+    ) {
+      blockReason = "no_user_gesture";
+
+      Glean.webNotificationPermission.promptBlocked.record({
+        site_category: siteCategory,
+        reason: blockReason,
+      });
+    }
+
+    // Call parent prompt()
+    return super.prompt();
+  }
+
+  postPrompt() {
+    Glean.webNotificationPermission.iconShown.record({
+      site_category: getSiteCategory(this.principal),
+    });
+
+    // Call parent postPrompt()
+    return super.postPrompt();
+  }
+
+  onShown() {
+    // Determine if this was triggered by icon click or script
+    // If requiresUserInput is enabled and the request lacks a user gesture,
+    // but we're showing the prompt anyway, it means the user clicked the icon
+    let trigger = "script";
+    if (
+      this.requiresUserInput &&
+      !this.request.hasValidTransientUserGestureActivation
+    ) {
+      trigger = "icon_click";
+
+      // Record icon_clicked telemetry when user clicks the post-prompt icon
+      Glean.webNotificationPermission.iconClicked.record({
+        site_category: getSiteCategory(this.principal),
+      });
+    }
+
+    Glean.webNotificationPermission.promptShown.record({
+      site_category: getSiteCategory(this.principal),
+      trigger,
+    });
   }
 }
 
@@ -1240,12 +1477,7 @@ class DesktopNotificationPermissionPrompt extends PermissionPromptForRequest {
  * @param request (nsIContentPermissionRequest)
  *        The request for a permission from content.
  */
-class LocalNetworkPermissionPrompt extends PermissionPromptForRequest {
-  constructor(request) {
-    super();
-    this.request = request;
-  }
-
+class LocalNetworkPermissionPrompt extends LNAPermissionPromptBase {
   get type() {
     return "local-network";
   }
@@ -1508,7 +1740,7 @@ class MIDIPermissionPrompt extends SitePermsAddonInstallRequest {
   /**
    * @override
    * @param {Components.Exception} err
-   * @returns {String}
+   * @returns {string}
    */
   getInstallErrorMessage(err) {
     return `WebMIDI access request was denied: ❝${err.message}❞. See https://developer.mozilla.org/docs/Web/API/Navigator/requestMIDIAccess for more information`;
@@ -1528,9 +1760,9 @@ class StorageAccessPermissionPrompt extends PermissionPromptForRequest {
     let perm = types.queryElementAt(0, Ci.nsIContentPermissionType);
     let options = perm.options.QueryInterface(Ci.nsIArray);
     // If we have an option, the permission request is different in some way.
-    // We may be in a call from requestStorageAccessUnderSite or a frame-scoped
-    // request, which means that the embedding principal is not the current top-level
-    // or the permission key is different.
+    // We may be in a call from a frame-scoped request, which means that the
+    // embedding principal is not the current top-level or the permission key is
+    // different.
     if (options.length != 2) {
       return;
     }
@@ -1659,4 +1891,5 @@ export const PermissionUI = {
   StorageAccessPermissionPrompt,
   LocalHostPermissionPrompt,
   LocalNetworkPermissionPrompt,
+  getSiteCategory,
 };

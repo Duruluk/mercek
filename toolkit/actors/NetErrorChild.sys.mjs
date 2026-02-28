@@ -7,6 +7,7 @@ const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
   AppInfo: "chrome://remote/content/shared/AppInfo.sys.mjs",
+  BrowserUtils: "resource://gre/modules/BrowserUtils.sys.mjs",
 });
 
 import { RemotePageChild } from "resource://gre/actors/RemotePageChild.sys.mjs";
@@ -19,7 +20,8 @@ export class NetErrorChild extends RemotePageChild {
     // to allow content-privileged about:neterror or about:certerror to use it.
     const exportableFunctions = [
       "RPMGetAppBuildID",
-      "RPMGetInnerMostURI",
+      "RPMGetHostForDisplay",
+      "RPMGetInnermostAsciiHost",
       "RPMRecordGleanEvent",
       "RPMCheckAlternateHostAvailable",
       "RPMGetHttpResponseHeader",
@@ -70,13 +72,26 @@ export class NetErrorChild extends RemotePageChild {
     }
   }
 
-  RPMGetInnerMostURI(uriString) {
-    let uri = Services.io.newURI(uriString);
+  RPMGetHostForDisplay(document) {
+    // Note: not document.documentURIObject, which will be the network error
+    // page's URI - we want the URI of the page that failed to load.
+    let uri = document.mozDocumentURIIfNotForErrorPages;
+    return lazy.BrowserUtils.formatURIForDisplay(uri);
+  }
+
+  /**
+   * Use this to get the ascii host for the load that showed an error.
+   * Do NOT rely on `document.location.href` or similar as it will not work
+   * reliably for nested URLs like view-source.
+   *
+   * @returns {string} ASCII (potentially punycode) version of the hostname.
+   */
+  RPMGetInnermostAsciiHost() {
+    let uri = this.contentWindow.document.mozDocumentURIIfNotForErrorPages;
     if (uri instanceof Ci.nsINestedURI) {
       uri = uri.QueryInterface(Ci.nsINestedURI).innermostURI;
     }
-
-    return uri.spec;
+    return uri.asciiHost;
   }
 
   RPMGetAppBuildID() {
@@ -130,8 +145,21 @@ export class NetErrorChild extends RemotePageChild {
         });
 
         const shortDesc = doc.getElementById("errorShortDesc");
-        shortDesc.textContent += " ";
-        shortDesc.appendChild(span);
+        if (shortDesc) {
+          shortDesc.textContent += " ";
+          shortDesc.appendChild(span);
+        }
+
+        // For Felt Privacy experience (net-error-card), also update the learn more link
+        // to point to the corrected domain instead of the SUMO support page
+        const netErrorCard =
+          doc.querySelector("net-error-card").wrappedJSObject;
+        if (netErrorCard) {
+          const learnMoreLink = netErrorCard.netErrorLearnMoreLink;
+          if (learnMoreLink) {
+            learnMoreLink.href = displaySpec;
+          }
+        }
       },
     };
 

@@ -349,6 +349,7 @@ StyleSheetInfo::StyleSheetInfo(CORSMode aCORSMode,
 StyleSheetInfo::StyleSheetInfo(StyleSheetInfo& aCopy, StyleSheet* aPrimarySheet)
     : mCORSMode(aCopy.mCORSMode),
       mIntegrity(aCopy.mIntegrity),
+      mOriginClean(aCopy.mOriginClean),
       // We don't rebuild the child because we're making a copy without
       // children.
       mSourceMapURL(aCopy.mSourceMapURL),
@@ -407,7 +408,7 @@ void StyleSheetInfo::RemoveSheet(StyleSheet* aSheet) {
     return;
   }
 
-  mSheets.RemoveElement(aSheet);
+  mSheets.UnorderedRemoveElement(aSheet);
 }
 
 void StyleSheet::GetType(nsAString& aType) { aType.AssignLiteral("text/css"); }
@@ -454,7 +455,7 @@ void StyleSheet::AddStyleSet(ServoStyleSet* aStyleSet) {
 }
 
 void StyleSheet::DropStyleSet(ServoStyleSet* aStyleSet) {
-  bool found = mStyleSets.RemoveElement(aStyleSet);
+  bool found = mStyleSets.UnorderedRemoveElement(aStyleSet);
   MOZ_DIAGNOSTIC_ASSERT(found, "didn't find style set");
 #ifndef MOZ_DIAGNOSTIC_ASSERT_ENABLED
   (void)found;
@@ -467,7 +468,7 @@ void StyleSheet::DropStyleSet(ServoStyleSet* aStyleSet) {
   do {                                                                    \
     StyleSheet* current = this;                                           \
     do {                                                                  \
-      for (ServoStyleSet * set : current->mStyleSets) {                   \
+      for (ServoStyleSet* set : current->mStyleSets) {                    \
         set->function_ args_;                                             \
       }                                                                   \
       if (auto* docOrShadow = current->mDocumentOrShadowRoot) {           \
@@ -616,8 +617,8 @@ void StyleSheet::MaybeResolveReplacePromise() {
   }
 
   SetModificationDisallowed(false);
-  mReplacePromise->MaybeResolve(this);
-  mReplacePromise = nullptr;
+  RefPtr replacePromise = std::move(mReplacePromise);
+  replacePromise->MaybeResolve(this);
 }
 
 void StyleSheet::MaybeRejectReplacePromise() {
@@ -627,9 +628,9 @@ void StyleSheet::MaybeRejectReplacePromise() {
   }
 
   SetModificationDisallowed(false);
-  mReplacePromise->MaybeRejectWithNetworkError(
+  RefPtr replacePromise = std::move(mReplacePromise);
+  replacePromise->MaybeRejectWithNetworkError(
       "@import style sheet load failed");
-  mReplacePromise = nullptr;
 }
 
 // https://drafts.csswg.org/cssom/#dom-cssstylesheet-replace

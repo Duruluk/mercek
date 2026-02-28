@@ -197,7 +197,9 @@ class GeckoProfilerRuntime {
     return guard->put(scriptSource);
   }
 
-  js::ProfilerJSSources getProfilerScriptSources();
+  js::ProfilerJSSources getProfilerScriptSources(bool gatherSourceText);
+
+  size_t scriptSourcesCount() { return scriptSources_.readLock()->count(); }
 
   const uint32_t* addressOfEnabled() const { return &enabled_; }
 

@@ -5,12 +5,11 @@
 package org.mozilla.fenix.onboarding.redesign.view
 
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -21,7 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -67,51 +66,53 @@ fun MarketingDataOnboardingPageRedesign(
     onMarketingDataContinueClick: (allowMarketingDataCollection: Boolean) -> Unit,
 ) {
     Card(
-        modifier = Modifier.padding(bottom = 60.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(if (state.shouldShowElevation) 6.dp else 0.dp),
     ) {
         Column(
-            modifier = Modifier
-                .background(FirefoxTheme.colors.layer1)
-                .padding(horizontal = 36.dp, vertical = 24.dp)
-                .fillMaxHeight()
-                .verticalScroll(rememberScrollState()),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(modifier = Modifier.weight(TITLE_TOP_SPACER_WEIGHT))
 
-            Text(
-                text = state.title,
-                color = FirefoxTheme.colors.textPrimary,
-                textAlign = TextAlign.Start,
-                style = FirefoxTheme.typography.headline5,
-            )
-
-            Spacer(modifier = Modifier.height(40.dp))
-
-            Image(
-                painter = painterResource(id = state.imageRes),
-                contentDescription = null,
-                modifier = Modifier,
-            )
-
-            Spacer(modifier = Modifier.height(32.dp))
-
             var checkboxChecked by remember { mutableStateOf(true) }
 
-            state.marketingData?.let {
-                MarketingDataView(
-                    marketingData = it,
-                    checkboxChecked = checkboxChecked,
-                    onMarketingDataLearnMoreClick = onMarketingDataLearnMoreClick,
-                    onMarketingOptInToggle = { isChecked ->
-                        checkboxChecked = isChecked
-                        onMarketingOptInToggle(isChecked)
-                    },
+            Column(
+                modifier = Modifier
+                    .padding(horizontal = 20.dp)
+                    .weight(CONTENT_WEIGHT)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(36.dp),
+            ) {
+                Text(
+                    text = state.title,
+                    textAlign = TextAlign.Start,
+                    style = MaterialTheme.typography.headlineSmall,
                 )
-            }
 
-            Spacer(modifier = Modifier.weight(BODY_BUTTON_SPACER_WEIGHT))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    Image(
+                        modifier = Modifier.height(CONTENT_IMAGE_HEIGHT),
+                        painter = painterResource(id = state.imageRes),
+                        contentDescription = null,
+                    )
+                }
+
+                state.marketingData?.let {
+                    MarketingDataView(
+                        marketingData = it,
+                        checkboxChecked = checkboxChecked,
+                        onMarketingDataLearnMoreClick = onMarketingDataLearnMoreClick,
+                        onMarketingOptInToggle = { isChecked ->
+                            checkboxChecked = isChecked
+                            onMarketingOptInToggle(isChecked)
+                        },
+                    )
+                }
+            }
 
             FilledButton(
                 text = state.primaryButton.text,
@@ -156,25 +157,10 @@ private fun MarketingDataView(
                 onCheckedChange = {
                     onMarketingOptInToggle.invoke(!checkboxChecked)
                 },
-                colors = CheckboxDefaults.colors(
-                    checkedColor = FirefoxTheme.colors.formSelected,
-                    uncheckedColor = FirefoxTheme.colors.formDefault,
-                ),
             )
 
-            Text(
-                text = marketingData.bodyTwoText,
-                color = FirefoxTheme.colors.textPrimary,
-                style = FirefoxTheme.typography.body2,
-                textAlign = TextAlign.Start,
-            )
-        }
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        Box(modifier = Modifier.padding(start = 48.dp)) {
             LinkText(
-                text = marketingData.bodyOneText,
+                text = marketingData.bodyOneText.updateFirstPlaceholder(marketingData.bodyOneLinkText),
                 linkTextStates = listOf(
                     LinkTextState(
                         text = marketingData.bodyOneLinkText,
@@ -183,9 +169,11 @@ private fun MarketingDataView(
                     ),
                 ),
                 linkTextDecoration = TextDecoration.Underline,
+                style = FirefoxTheme.typography.body2,
+                textAlign = TextAlign.Start,
             )
         }
-   }
+    }
 }
 
 @FlexibleWindowLightDarkPreview
@@ -194,17 +182,17 @@ private fun MarketingDataOnboardingPagePreview() {
     FirefoxTheme {
         MarketingDataOnboardingPageRedesign(
             state = OnboardingPageState(
-                imageRes = R.drawable.ic_onboarding_marketing_redesign,
-                title = stringResource(id = R.string.onboarding_marketing_redesign_title),
+                imageRes = R.drawable.nova_onboarding_marketing,
+                title = stringResource(id = R.string.nova_onboarding_marketing_title),
                 description = "", // NB: not used in the redesign
                 primaryButton = Action(
-                    text = stringResource(id = R.string.onboarding_marketing_redesign_positive_button),
+                    text = stringResource(id = R.string.nova_onboarding_continue_button),
                     onClick = {},
                 ),
                 marketingData = OnboardingMarketingData(
-                    bodyOneText = stringResource(id = R.string.onboarding_marketing_redesign_learn_more),
-                    bodyOneLinkText = stringResource(id = R.string.onboarding_marketing_redesign_learn_more),
-                    bodyTwoText = stringResource(id = R.string.onboarding_marketing_redesign_opt_out_checkbox),
+                    bodyOneText = stringResource(id = R.string.nova_onboarding_marketing_body),
+                    bodyOneLinkText = stringResource(id = R.string.nova_onboarding_marketing_body_link_text),
+                    bodyTwoText = "", // NB: not used in the redesign
                 ),
             ),
             onMarketingDataLearnMoreClick = {},
@@ -213,3 +201,5 @@ private fun MarketingDataOnboardingPagePreview() {
         )
     }
 }
+
+private fun String.updateFirstPlaceholder(text: String) = replace($$"%1$s", text)

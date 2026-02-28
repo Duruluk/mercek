@@ -49,6 +49,7 @@ export let RemotePageAccessManager = {
         "security.enterprise_roots.auto-enabled",
         "security.certerror.hideAddException",
         "security.certerrors.felt-privacy-v1",
+        "browser.ipProtection.userEnabled",
       ],
       RPMGetIntPref: [
         "security.dialog_enable_delay",
@@ -56,12 +57,14 @@ export let RemotePageAccessManager = {
         "services.settings.last_update_seconds",
       ],
       RPMGetAppBuildID: ["*"],
-      RPMGetInnerMostURI: ["*"],
+      RPMGetHostForDisplay: ["*"],
+      RPMGetInnermostAsciiHost: ["*"],
       RPMIsWindowPrivate: ["*"],
     },
     "about:home": {
       RPMSendAsyncMessage: ["ActivityStream:ContentToMain"],
       RPMAddMessageListener: ["ActivityStream:MainToContent"],
+      RPMGetFormatURLPref: ["app.support.baseURL"],
     },
     "about:httpsonlyerror": {
       RPMGetFormatURLPref: ["app.support.baseURL"],
@@ -73,6 +76,18 @@ export let RemotePageAccessManager = {
     },
     "about:certificate": {
       RPMSendQuery: ["getCertificates"],
+    },
+    "about:keyboard": {
+      RPMAddMessageListener: ["CustomKeys:CapturedKey"],
+      RPMSendAsyncMessage: ["CustomKeys:CaptureKey"],
+      RPMSendQuery: [
+        "CustomKeys:ChangeKey",
+        "CustomKeys:ClearKey",
+        "CustomKeys:GetDefaultKey",
+        "CustomKeys:GetKeys",
+        "CustomKeys:ResetAll",
+        "CustomKeys:ResetKey",
+      ],
     },
     "about:neterror": {
       RPMSendAsyncMessage: [
@@ -87,7 +102,12 @@ export let RemotePageAccessManager = {
         "OpenTRRPreferences",
       ],
       RPMCheckAlternateHostAvailable: ["*"],
-      RPMRecordGleanEvent: ["securityDohNeterror", "securityUiTlserror"],
+      RPMRecordGleanEvent: [
+        "securityDohNeterror",
+        "securityUiTlserror",
+        "securityUiCerterror",
+        "securityUiNeterror",
+      ],
       RPMAddMessageListener: ["*"],
       RPMRemoveMessageListener: ["*"],
       RPMGetFormatURLPref: [
@@ -95,10 +115,15 @@ export let RemotePageAccessManager = {
         "network.trr_ui.skip_reason_learn_more_url",
       ],
       RPMGetBoolPref: [
+        "security.certerrors.mitm.priming.enabled",
+        "security.certerrors.permanentOverride",
+        "security.enterprise_roots.auto-enabled",
         "security.certerror.hideAddException",
         "security.certerrors.felt-privacy-v1",
+        "browser.ipProtection.userEnabled",
       ],
-      RPMGetInnerMostURI: ["*"],
+      RPMGetHostForDisplay: ["*"],
+      RPMGetInnermostAsciiHost: ["*"],
       RPMGetHttpResponseHeader: ["*"],
       RPMIsTRROnlyFailure: ["*"],
       RPMIsFirefox: ["*"],
@@ -109,11 +134,12 @@ export let RemotePageAccessManager = {
       RPMSetTRRDisabledLoadFlags: ["*"],
       RPMShowOSXLocalNetworkPermissionWarning: ["*"],
       RPMSendQuery: ["Browser:AddTRRExcludedDomain"],
-      RPMGetIntPref: ["network.trr.mode"],
+      RPMGetIntPref: ["network.trr.mode", "security.dialog_enable_delay"],
     },
     "about:newtab": {
       RPMSendAsyncMessage: ["ActivityStream:ContentToMain"],
       RPMAddMessageListener: ["ActivityStream:MainToContent"],
+      RPMGetFormatURLPref: ["app.support.baseURL"],
     },
     "about:privatebrowsing": {
       RPMSendAsyncMessage: [
@@ -201,6 +227,7 @@ export let RemotePageAccessManager = {
         "browser.contentblocking.report.proxy.enabled",
         "privacy.trackingprotection.cryptomining.enabled",
         "privacy.trackingprotection.fingerprinting.enabled",
+        "privacy.trackingprotection.harmfuladdon.enabled",
         "privacy.trackingprotection.enabled",
         "privacy.trackingprotection.socialtracking.enabled",
         "browser.contentblocking.report.show_mobile_app",

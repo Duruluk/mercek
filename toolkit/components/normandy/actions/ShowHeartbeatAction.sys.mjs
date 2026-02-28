@@ -14,6 +14,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   NormandyUtils: "resource://normandy/lib/NormandyUtils.sys.mjs",
   ProfilesDatastoreService:
     "moz-src:///toolkit/profile/ProfilesDatastoreService.sys.mjs",
+  SearchService: "moz-src:///toolkit/components/search/SearchService.sys.mjs",
   ShellService: "moz-src:///browser/components/shell/ShellService.sys.mjs",
   UpdateUtils: "resource://gre/modules/UpdateUtils.sys.mjs",
 });
@@ -144,7 +145,7 @@ export class ShowHeartbeatAction extends BaseAction {
    * ID, then the client ID is attached to the surveyId in the format
    * `${surveyId}::${userId}`.
    *
-   * @return {String} Survey ID, possibly with user UUID
+   * @return {string} Survey ID, possibly with user UUID
    */
   generateSurveyId(recipe) {
     const { includeTelemetryUUID, surveyId } = recipe.arguments;
@@ -156,8 +157,9 @@ export class ShowHeartbeatAction extends BaseAction {
 
   /**
    * Generate the appropriate post-answer URL for a recipe.
+   *
    * @param  recipe
-   * @return {String} URL with post-answer query params
+   * @return {string} URL with post-answer query params
    */
   async generatePostAnswerURL(recipe) {
     const { postAnswerUrl, message, includeTelemetryUUID } = recipe.arguments;
@@ -168,7 +170,7 @@ export class ShowHeartbeatAction extends BaseAction {
     }
 
     const userId = lazy.ClientEnvironment.userId;
-    const searchEngine = await Services.search.getDefault();
+    const searchEngine = await lazy.SearchService.getDefault();
     const searchEngineId = searchEngine.isConfigEngine ? searchEngine.id : null;
     const args = {
       fxVersion: Services.appinfo.version,
@@ -208,6 +210,7 @@ export class ShowHeartbeatAction extends BaseAction {
 
   /**
    * Get last shown time in milliseconds since epoch for a recipe.
+   *
    * @param {string | null} recipeId
    *        ID of the recipe to look up, or null for the max across recipes.
    * @returns {Promise<number | null>} The last shown date, if any.
@@ -230,6 +233,7 @@ export class ShowHeartbeatAction extends BaseAction {
 
   /**
    * Get last interaction time in milliseconds since epoch for a recipe.
+   *
    * @param {string | null} recipeId
    *        ID of the recipe to look up, or null for the max across recipes.
    * @returns {Promise<number | null>} The last interaction date, if any.
@@ -252,6 +256,7 @@ export class ShowHeartbeatAction extends BaseAction {
 
   /**
    * Set a last shown for a recipe.
+   *
    * @param {string} recipeId
    *        ID of the recipe to update.
    * @param {number} lastShown
@@ -272,6 +277,7 @@ export class ShowHeartbeatAction extends BaseAction {
 
   /**
    * Set a last interaction for a recipe.
+   *
    * @param {string} recipeId
    *        ID of the recipe to update.
    * @param {number} lastInteraction

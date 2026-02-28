@@ -19,6 +19,7 @@
 #include <string>
 #include <vector>
 
+#include "absl/functional/any_invocable.h"
 #include "absl/strings/string_view.h"
 #include "api/candidate.h"
 #include "api/packet_socket_factory.h"
@@ -26,11 +27,11 @@
 #include "p2p/base/transport_description.h"
 #include "rtc_base/async_packet_socket.h"
 #include "rtc_base/dscp.h"
+#include "rtc_base/net_helper.h"
 #include "rtc_base/network.h"
 #include "rtc_base/network/sent_packet.h"
 #include "rtc_base/socket.h"
 #include "rtc_base/socket_address.h"
-#include "rtc_base/third_party/sigslot/sigslot.h"
 
 namespace webrtc {
 
@@ -38,14 +39,6 @@ class Connection;
 class IceMessage;
 class StunMessage;
 class StunStats;
-
-enum ProtocolType {
-  PROTO_UDP,
-  PROTO_TCP,
-  PROTO_SSLTCP,  // Pseudo-TLS.
-  PROTO_TLS,
-  PROTO_LAST = PROTO_TLS
-};
 
 // Defines the interface for a port, which represents a local communication
 // mechanism that can be used to create connections to similar mechanisms of
@@ -55,7 +48,7 @@ class PortInterface {
   virtual ~PortInterface();
 
   virtual IceCandidateType Type() const = 0;
-  virtual const Network* Network() const = 0;
+  virtual const ::webrtc::Network* Network() const = 0;
 
   // Methods to set/get ICE role and tiebreaker values.
   virtual void SetIceRole(IceRole role) = 0;
@@ -103,14 +96,20 @@ class PortInterface {
   // Indicates that we received a successful STUN binding request from an
   // address that doesn't correspond to any current connection.  To turn this
   // into a real connection, call CreateConnection.
-  sigslot::signal6<PortInterface*,
-                   const SocketAddress&,
-                   ProtocolType,
-                   IceMessage*,
-                   const std::string&,
-                   bool>
-      SignalUnknownAddress;
+  virtual void SubscribeUnknownAddress(
+      absl::AnyInvocable<void(PortInterface*,
+                              const SocketAddress&,
+                              ProtocolType,
+                              IceMessage*,
+                              const std::string&,
+                              bool)> callback) = 0;
 
+  virtual void NotifyUnknownAddress(PortInterface* port,
+                                    const SocketAddress& address,
+                                    ProtocolType proto,
+                                    IceMessage* msg,
+                                    const std::string& rf,
+                                    bool port_muxed) = 0;
   // Sends a response message (normal or error) to the given request.  One of
   // these methods should be called as a response to SignalUnknownAddress.
   virtual void SendBindingErrorResponse(StunMessage* message,
@@ -124,18 +123,27 @@ class PortInterface {
       std::function<void(PortInterface*)> callback) = 0;
 
   // Signaled when Port discovers ice role conflict with the peer.
-  sigslot::signal1<PortInterface*> SignalRoleConflict;
+  virtual void SubscribeRoleConflict(absl::AnyInvocable<void()> callback) = 0;
+  virtual void NotifyRoleConflict() = 0;
 
   // Normally, packets arrive through a connection (or they result signaling of
   // unknown address).  Calling this method turns off delivery of packets
   // through their respective connection and instead delivers every packet
   // through this port.
   virtual void EnablePortPackets() = 0;
-  sigslot::signal4<PortInterface*, const char*, size_t, const SocketAddress&>
-      SignalReadPacket;
+  virtual void SubscribeReadPacket(
+      absl::AnyInvocable<
+          void(PortInterface*, const char*, size_t, const SocketAddress&)>
+          callback) = 0;
+  virtual void NotifyReadPacket(PortInterface* port_interface,
+                                const char*,
+                                size_t,
+                                const SocketAddress&) = 0;
 
   // Emitted each time a packet is sent on this port.
-  sigslot::signal1<const SentPacketInfo&> SignalSentPacket;
+  virtual void SubscribeSentPacket(
+      absl::AnyInvocable<void(const SentPacketInfo&)> callback) = 0;
+  virtual void NotifySentPacket(const SentPacketInfo& packet) = 0;
 
   virtual std::string ToString() const = 0;
 
@@ -197,13 +205,11 @@ class PortInterface {
                                     absl::string_view remote_ufrag) = 0;
 
   virtual int16_t network_cost() const = 0;
-
   // Connection and Port are entangled; functions exposed to Port only
   // should not be public.
   friend class Connection;
 };
 
 }  //  namespace webrtc
-
 
 #endif  // P2P_BASE_PORT_INTERFACE_H_

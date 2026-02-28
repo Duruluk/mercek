@@ -265,9 +265,11 @@ static std::shared_ptr<EglDisplay> GetAndInitSurfacelessDisplay(
 
 static auto EglDebugLayersEnabled() {
   EGLAttrib ret = LOCAL_EGL_FALSE;
+#ifdef XP_WIN
   if (StaticPrefs::gfx_direct3d11_enable_debug_layer_AtStartup()) {
     ret = LOCAL_EGL_TRUE;
   }
+#endif
   return ret;
 }
 
@@ -353,7 +355,7 @@ static bool IsAccelAngleSupported(nsACString* const out_failureId) {
 
 class AngleErrorReporting {
  public:
-  AngleErrorReporting() : mFailureId(nullptr) {
+  constexpr AngleErrorReporting() : mFailureId(nullptr) {
     // No static constructor
   }
 
@@ -388,7 +390,7 @@ class AngleErrorReporting {
   nsACString* mFailureId;
 };
 
-MOZ_RUNINIT AngleErrorReporting gAngleErrorReporter;
+constinit AngleErrorReporting gAngleErrorReporter;
 
 static std::shared_ptr<EglDisplay> GetAndInitDisplayForAccelANGLE(
     GLLibraryEGL& egl, nsACString* const out_failureId,

@@ -25,6 +25,16 @@ ChromeUtils.defineLazyGetter(lazy, "gFluentStrings", function () {
 });
 
 /**
+ * @typedef UrlbarSearchStringTokenData
+ * @property {Values<typeof lazy.UrlbarTokenizer.TYPE>} type
+ *   The type of the token.
+ * @property {string} value
+ *   The value of the token.
+ * @property {string} lowerCaseValue
+ *   The lower case version of the value.
+ */
+
+/**
  * This Map stores key-value pairs where each key is a restrict token
  * and each value is an array containing the localized keyword and the
  * english keyword.
@@ -38,7 +48,7 @@ ChromeUtils.defineLazyGetter(lazy, "gFluentStrings", function () {
 let tokenToKeywords = new Map();
 
 export var UrlbarTokenizer = {
-  TYPE: {
+  TYPE: Object.freeze({
     TEXT: 1,
     // `looksLikeOrigin()` returned a value for this token that was neither
     // `LOOKS_LIKE_ORIGIN.NONE` nor `LOOKS_LIKE_ORIGIN.OTHER`. It sure looks
@@ -56,7 +66,7 @@ export var UrlbarTokenizer = {
     // `looksLikeOrigin()` returned `LOOKS_LIKE_ORIGIN.OTHER` for this token. It
     // may or may not be an origin.
     POSSIBLE_ORIGIN_BUT_SEARCH_ALLOWED: 12,
-  },
+  }),
 
   // The special characters below can be typed into the urlbar to restrict
   // the search to a certain category, like history, bookmarks or open pages; or
@@ -64,7 +74,7 @@ export var UrlbarTokenizer = {
   // These restriction characters can be typed alone, or at word boundaries,
   // provided their meaning cannot be confused, for example # could be present
   // in a valid url, and thus it should not be interpreted as a restriction.
-  RESTRICT: {
+  RESTRICT: Object.freeze({
     HISTORY: "^",
     BOOKMARK: "*",
     TAG: "+",
@@ -73,10 +83,11 @@ export var UrlbarTokenizer = {
     TITLE: "#",
     URL: "$",
     ACTION: ">",
-  },
+  }),
 
   // The keys of characters in RESTRICT that will enter search mode.
   get SEARCH_MODE_RESTRICT() {
+    /** @type {Values<typeof this.RESTRICT>[]} */
     const keys = [
       this.RESTRICT.HISTORY,
       this.RESTRICT.BOOKMARK,
@@ -132,23 +143,22 @@ export var UrlbarTokenizer = {
   /**
    * Tokenizes the searchString from a UrlbarQueryContext.
    *
-   * @param {UrlbarQueryContext} queryContext
-   *        The query context object to tokenize
-   * @returns {UrlbarQueryContext} the same query context object with a new
-   *          tokens property.
+   * @param {object} context
+   * @param {string} context.searchString
+   * @param {string} [context.searchMode]
+   * @param {string} context.trimmedSearchString
+   * @returns {UrlbarSearchStringTokenData[]}
+   *  The tokens associated with the query.
    */
-  tokenize(queryContext) {
+  tokenize(context) {
     lazy.logger.debug("Tokenizing search string", {
-      searchString: queryContext.searchString,
+      searchString: context.searchString,
     });
-    if (!queryContext.trimmedSearchString) {
-      queryContext.tokens = [];
-      return queryContext;
+    if (!context.trimmedSearchString) {
+      return [];
     }
-    let unfiltered = splitString(queryContext);
-    let tokens = filterTokens(unfiltered);
-    queryContext.tokens = tokens;
-    return queryContext;
+    let unfiltered = splitString(context);
+    return filterTokens(unfiltered);
   },
 
   /**
@@ -167,6 +177,7 @@ export var UrlbarTokenizer = {
   },
 };
 
+/** @type {Map<string, Values<typeof UrlbarTokenizer.RESTRICT>>} */
 const CHAR_TO_TYPE_MAP = new Map(
   Object.entries(UrlbarTokenizer.RESTRICT).map(([type, char]) => [
     char,
@@ -177,8 +188,9 @@ const CHAR_TO_TYPE_MAP = new Map(
 /**
  * Given a queryContext object, splits its searchString into string tokens.
  *
- * @param {UrlbarQueryContext} queryContext
- *        The query context object to tokenize.
+ * @param {object} context
+ * @param {string} context.searchString
+ * @param {string} [context.searchMode]
  * @returns {string[]} An array of string tokens.
  */
 function splitString({ searchString, searchMode }) {
@@ -213,8 +225,9 @@ function splitString({ searchString, searchMode }) {
 
   const firstToken = tokens[0];
   const isFirstTokenAKeyword =
-    !Object.values(UrlbarTokenizer.RESTRICT).includes(firstToken) &&
-    lazy.PlacesUtils.keywords.isKeywordFromCache(firstToken);
+    !Object.values(UrlbarTokenizer.RESTRICT).includes(
+      /** @type {Values<typeof UrlbarTokenizer.RESTRICT>} */ (firstToken)
+    ) && lazy.PlacesUtils.keywords.isKeywordFromCache(firstToken);
 
   if (hasRestrictionToken || isFirstTokenAKeyword) {
     return tokens;
@@ -259,6 +272,7 @@ function filterTokens(tokens) {
     let tokenObj = {
       value: token,
       lowerCaseValue: token.toLocaleLowerCase(),
+      /** @type {Values<typeof UrlbarTokenizer.TYPE>} */
       type: UrlbarTokenizer.TYPE.TEXT,
     };
     // For privacy reasons, we don't want to send a data (or other kind of) URI

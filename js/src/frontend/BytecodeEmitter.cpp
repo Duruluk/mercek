@@ -1131,6 +1131,9 @@ restart:
 
     // These affect visible names in this code, or in other code.
     case ParseNodeKind::ImportDecl:
+#ifdef ENABLE_SOURCE_PHASE_IMPORTS
+    case ParseNodeKind::ImportSourceDecl:
+#endif
     case ParseNodeKind::ExportFromStmt:
     case ParseNodeKind::ExportDefaultStmt:
       MOZ_ASSERT(pn->is<BinaryNode>());
@@ -1144,6 +1147,9 @@ restart:
       return true;
 
     case ParseNodeKind::CallImportExpr:
+#ifdef ENABLE_SOURCE_PHASE_IMPORTS
+    case ParseNodeKind::CallImportSourceExpr:
+#endif
     case ParseNodeKind::CallImportSpec:
       MOZ_ASSERT(pn->is<BinaryNode>());
       *answer = true;
@@ -1435,12 +1441,12 @@ bool BytecodeEmitter::emitThisEnvironmentCallee() {
   size_t numHops = countThisEnvironmentHops();
 
   static_assert(
-      ENVCOORD_HOPS_LIMIT - 1 <= UINT8_MAX,
+      ENVCOORD_HOPS_LIMIT - 1 <= UINT16_MAX,
       "JSOp::EnvCallee operand size should match ENVCOORD_HOPS_LIMIT");
 
   MOZ_ASSERT(numHops < ENVCOORD_HOPS_LIMIT - 1);
 
-  return emit2(JSOp::EnvCallee, numHops);
+  return emitUint16Operand(JSOp::EnvCallee, numHops);
 }
 
 bool BytecodeEmitter::emitSuperBase() {
@@ -2206,7 +2212,7 @@ bool BytecodeEmitter::emitSetThis(BinaryNode* setThisNode) {
     lexicalLoc = NameLocation::FrameSlot(BindingKind::Let, loc.frameSlot());
   } else if (loc.kind() == NameLocation::Kind::EnvironmentCoordinate) {
     EnvironmentCoordinate coord = loc.environmentCoordinate();
-    uint8_t hops = AssertedCast<uint8_t>(coord.hops());
+    uint16_t hops = AssertedCast<uint16_t>(coord.hops());
     lexicalLoc = NameLocation::EnvironmentCoordinate(BindingKind::Let, hops,
                                                      coord.slot());
   } else {
@@ -9002,7 +9008,11 @@ bool BytecodeEmitter::emitOptionalTree(
                                 kind == ParseNodeKind::ImportMetaExpr;
 
       bool isCallExpression = kind == ParseNodeKind::SetThis ||
-                              kind == ParseNodeKind::CallImportExpr;
+                              kind == ParseNodeKind::CallImportExpr
+#  ifdef ENABLE_SOURCE_PHASE_IMPORTS
+                              || kind == ParseNodeKind::CallImportSourceExpr
+#  endif
+          ;
 
       MOZ_ASSERT(isMemberExpression || isCallExpression,
                  "Unknown ParseNodeKind for OptionalChain");
@@ -12913,6 +12923,12 @@ bool BytecodeEmitter::emitTree(
       MOZ_ASSERT(sc->isModuleContext());
       break;
 
+#ifdef ENABLE_SOURCE_PHASE_IMPORTS
+    case ParseNodeKind::ImportSourceDecl:
+      MOZ_ASSERT(sc->isModuleContext());
+      break;
+#endif
+
     case ParseNodeKind::ExportStmt: {
       MOZ_ASSERT(sc->isModuleContext());
       UnaryNode* node = &pn->as<UnaryNode>();
@@ -13086,6 +13102,25 @@ bool BytecodeEmitter::emitTree(
 
       break;
     }
+
+#ifdef ENABLE_SOURCE_PHASE_IMPORTS
+    case ParseNodeKind::CallImportSourceExpr: {
+      BinaryNode* spec = &pn->as<BinaryNode>().right()->as<BinaryNode>();
+
+      if (!emitTree(spec->left())) {
+        //          [stack] specifier
+        return false;
+      }
+
+      // import.source does not have an options parameter
+      MOZ_ASSERT(spec->right()->isKind(ParseNodeKind::PosHolder));
+
+      if (!emit1(JSOp::DynamicImportSource)) {
+        return false;
+      }
+      break;
+    }
+#endif
 
     case ParseNodeKind::SetThis:
       if (!emitSetThis(&pn->as<BinaryNode>())) {

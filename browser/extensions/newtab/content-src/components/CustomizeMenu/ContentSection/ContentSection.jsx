@@ -3,7 +3,8 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import React from "react";
-import { actionCreators as ac } from "common/Actions.mjs";
+import { batch } from "react-redux";
+import { actionCreators as ac, actionTypes as at } from "common/Actions.mjs";
 import { SectionsMgmtPanel } from "../SectionsMgmtPanel/SectionsMgmtPanel";
 import { WallpaperCategories } from "../../WallpaperCategories/WallpaperCategories";
 
@@ -18,17 +19,70 @@ export class ContentSection extends React.PureComponent {
   }
 
   inputUserEvent(eventSource, eventValue) {
-    this.props.dispatch(
-      ac.UserEvent({
-        event: "PREF_CHANGED",
-        source: eventSource,
-        value: { status: eventValue, menu_source: "CUSTOMIZE_MENU" },
-      })
-    );
+    batch(() => {
+      this.props.dispatch(
+        ac.UserEvent({
+          event: "PREF_CHANGED",
+          source: eventSource,
+          value: { status: eventValue, menu_source: "CUSTOMIZE_MENU" },
+        })
+      );
+
+      // Dispatch unified widget telemetry for widget toggles.
+      // Map the event source from the customize panel to the widget name
+      // for the unified telemetry event.
+      let widgetName;
+      switch (eventSource) {
+        case "WEATHER":
+          widgetName = "weather";
+          break;
+        case "WIDGET_LISTS":
+          widgetName = "lists";
+          break;
+        case "WIDGET_TIMER":
+          widgetName = "focus_timer";
+          break;
+      }
+
+      if (widgetName) {
+        const { widgetsMaximized, widgetsMayBeMaximized } =
+          this.props.enabledWidgets;
+
+        let widgetSize;
+        if (widgetName === "weather") {
+          if (
+            this.props.mayHaveWeatherForecast &&
+            this.props.weatherDisplay === "detailed"
+          ) {
+            widgetSize =
+              widgetsMayBeMaximized && !widgetsMaximized ? "small" : "medium";
+          } else {
+            widgetSize = "mini";
+          }
+        } else {
+          widgetSize =
+            widgetsMayBeMaximized && !widgetsMaximized ? "small" : "medium";
+        }
+
+        const data = {
+          widget_name: widgetName,
+          widget_source: "customize_panel",
+          enabled: eventValue,
+          widget_size: widgetSize,
+        };
+
+        this.props.dispatch(
+          ac.OnlyToMain({
+            type: at.WIDGETS_ENABLED,
+            data,
+          })
+        );
+      }
+    });
   }
 
   onPreferenceSelect(e) {
-    // eventSource: WEATHER | TOP_SITES | TOP_STORIES | WIDGET_LISTS | WIDGET_TIMER | TRENDING_SEARCH
+    // eventSource: WEATHER | TOP_SITES | TOP_STORIES | WIDGET_LISTS | WIDGET_TIMER
     const { preference, eventSource } = e.target.dataset;
     let value;
     if (e.target.nodeName === "SELECT") {
@@ -98,7 +152,6 @@ export class ContentSection extends React.PureComponent {
       pocketRegion,
       mayHaveInferredPersonalization,
       mayHaveWeather,
-      mayHaveTrendingSearch,
       mayHaveWidgets,
       mayHaveTimerWidget,
       mayHaveListsWidget,
@@ -108,12 +161,14 @@ export class ContentSection extends React.PureComponent {
       setPref,
       mayHaveTopicSections,
       exitEventFired,
+      onSubpanelToggle,
+      toggleSectionsMgmtPanel,
+      showSectionsMgmtPanel,
     } = this.props;
     const {
       topSitesEnabled,
       pocketEnabled,
       weatherEnabled,
-      trendingSearchEnabled,
       showInferredPersonalizationEnabled,
       topSitesRowsCount,
     } = enabledSections;
@@ -128,6 +183,7 @@ export class ContentSection extends React.PureComponent {
                 setPref={setPref}
                 activeWallpaper={activeWallpaper}
                 exitEventFired={exitEventFired}
+                onSubpanelToggle={onSubpanelToggle}
               />
             </div>
             {/* If widgets section is visible, hide this divider */}
@@ -150,7 +206,7 @@ export class ContentSection extends React.PureComponent {
                     pressed={weatherEnabled || null}
                     onToggle={this.onPreferenceSelect}
                     data-preference="showWeather"
-                    data-eventSource="WEATHER"
+                    data-event-source="WEATHER"
                     data-l10n-id="newtab-custom-widget-weather-toggle"
                   />
                 </div>
@@ -164,7 +220,7 @@ export class ContentSection extends React.PureComponent {
                     pressed={listsEnabled || null}
                     onToggle={this.onPreferenceSelect}
                     data-preference="widgets.lists.enabled"
-                    data-eventSource="WIDGET_LISTS"
+                    data-event-source="WIDGET_LISTS"
                     data-l10n-id="newtab-custom-widget-lists-toggle"
                   />
                 </div>
@@ -178,22 +234,8 @@ export class ContentSection extends React.PureComponent {
                     pressed={timerEnabled || null}
                     onToggle={this.onPreferenceSelect}
                     data-preference="widgets.focusTimer.enabled"
-                    data-eventSource="WIDGET_TIMER"
+                    data-event-source="WIDGET_TIMER"
                     data-l10n-id="newtab-custom-widget-timer-toggle"
-                  />
-                </div>
-              )}
-
-              {/* Trending Search */}
-              {mayHaveTrendingSearch && (
-                <div id="trending-search-section" className="section">
-                  <moz-toggle
-                    id="trending-search-toggle"
-                    pressed={trendingSearchEnabled || null}
-                    onToggle={this.onPreferenceSelect}
-                    data-preference="trendingSearch.enabled"
-                    data-eventSource="TRENDING_SEARCH"
-                    data-l10n-id="newtab-custom-widget-trending-search-toggle"
                   />
                 </div>
               )}
@@ -210,22 +252,8 @@ export class ContentSection extends React.PureComponent {
                 pressed={weatherEnabled || null}
                 onToggle={this.onPreferenceSelect}
                 data-preference="showWeather"
-                data-eventSource="WEATHER"
+                data-event-source="WEATHER"
                 data-l10n-id="newtab-custom-weather-toggle"
-              />
-            </div>
-          )}
-
-          {/* Note: If widgets are enabled, the trending search toggle will be moved under Widgets subsection */}
-          {!mayHaveWidgets && mayHaveTrendingSearch && (
-            <div id="trending-search-section" className="section">
-              <moz-toggle
-                id="trending-search-toggle"
-                pressed={trendingSearchEnabled || null}
-                onToggle={this.onPreferenceSelect}
-                data-preference="trendingSearch.enabled"
-                data-eventSource="TRENDING_SEARCH"
-                data-l10n-id="newtab-custom-trending-search-toggle"
               />
             </div>
           )}
@@ -236,7 +264,7 @@ export class ContentSection extends React.PureComponent {
               pressed={topSitesEnabled || null}
               onToggle={this.onPreferenceSelect}
               data-preference="feeds.topsites"
-              data-eventSource="TOP_SITES"
+              data-event-source="TOP_SITES"
               data-l10n-id="newtab-custom-shortcuts-toggle"
             >
               <div slot="nested">
@@ -290,7 +318,7 @@ export class ContentSection extends React.PureComponent {
                 onToggle={this.onPreferenceSelect}
                 aria-describedby="custom-pocket-subtitle"
                 data-preference="feeds.section.topstories"
-                data-eventSource="TOP_STORIES"
+                data-event-source="TOP_STORIES"
                 {...(mayHaveInferredPersonalization
                   ? {
                       "data-l10n-id":
@@ -317,7 +345,7 @@ export class ContentSection extends React.PureComponent {
                               type="checkbox"
                               onChange={this.onPreferenceSelect}
                               data-preference="discoverystream.sections.personalization.inferred.user.enabled"
-                              data-eventSource="INFERRED_PERSONALIZATION"
+                              data-event-source="INFERRED_PERSONALIZATION"
                             />
                             <label
                               className="customize-menu-checkbox-label"
@@ -330,6 +358,9 @@ export class ContentSection extends React.PureComponent {
                           <SectionsMgmtPanel
                             exitEventFired={exitEventFired}
                             pocketEnabled={pocketEnabled}
+                            onSubpanelToggle={onSubpanelToggle}
+                            togglePanel={toggleSectionsMgmtPanel}
+                            showPanel={showSectionsMgmtPanel}
                           />
                         )}
                       </div>

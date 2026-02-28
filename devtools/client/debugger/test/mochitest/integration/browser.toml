@@ -17,6 +17,7 @@ support-files = [
 ]
 prefs = [
  "dom.ipc.processPrelaunch.enabled=false", # Disable randomly spawning processes during tests. After enabling windowless service workers, a process spawning will trigger an update of the service workers list which can fail the test if it occurs during shutdown (unhandled promise rejection).
+ "javascript.options.asmjs=true", # Re-enable asm.js for 'browser_dbg-features-asm.js'
 ]
 
 ["browser_dbg-features-asm.js"]
@@ -24,22 +25,29 @@ prefs = [
 ["browser_dbg-features-breakable-lines.js"]
 
 ["browser_dbg-features-breakable-positions.js"]
-fail-if = ["a11y_checks"] # Bug 1849028 clicked element may not be focusable and/or labeled
+fail-if = [
+  "a11y_checks", # Bug 1849028 clicked element may not be focusable and/or labeled
+]
 
 ["browser_dbg-features-breakpoints.js"]
 
 ["browser_dbg-features-browser-toolbox-source-tree.js"]
 skip-if = [
-  "os == 'linux' && os_version == '24.04' && processor == 'x86_64' && display == 'x11' && asan", # Bug 1591064
-  "os == 'mac' && os_version == '14.70' && processor == 'x86_64'", # Bug 1781499
-  "os == 'win' && os_version == '11.26100' && processor == 'x86_64' && asan", # Bug 1591064
+  "os == 'linux' && os_version == '24.04' && arch == 'x86_64' && display == 'x11' && asan", # Bug 1591064
+  "os == 'mac' && os_version == '14.70' && arch == 'x86_64'", # Bug 1781499
+  "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && asan", # Bug 1591064
+  "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && asan", # Bug 1591064
 ]
 
 ["browser_dbg-features-source-text-content.js"]
-fail-if = ["a11y_checks"] # Bug 1849028 clicked element may not be focusable and/or labeled
+fail-if = [
+  "a11y_checks", # Bug 1849028 clicked element may not be focusable and/or labeled
+]
 
 ["browser_dbg-features-source-tree.js"]
-fail-if = ["a11y_checks"] # Bug 1849028 clicked element may not be focusable and/or labeled
+fail-if = [
+  "a11y_checks", # Bug 1849028 clicked element may not be focusable and/or labeled
+]
 
 ["browser_dbg-features-tabs.js"]
 

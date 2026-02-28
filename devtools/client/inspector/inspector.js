@@ -203,14 +203,14 @@ class Inspector extends EventEmitter {
    * Set any attributes or listeners that rely on the document being loaded or fronts
    * from the InspectorFront and Target here.
    *
-   * @param {Object} options
+   * @param {object} options
    * @param {NodeFront|undefined} options.defaultStartupNode: Optional node front that
    *        will be selected when the first root node is available.
    * @param {ElementIdentifier|undefined} options.defaultStartupNodeDomReference: Optional
    *        element identifier whose matching node front will be selected when the first
    *        root node is available.
    *        Will be ignored if defaultStartupNode is passed.
-   * @param {String|undefined} options.defaultStartupNodeSelectionReason: Optional string
+   * @param {string | undefined} options.defaultStartupNodeSelectionReason: Optional string
    *        that will be used as a reason for the node selection when either
    *        defaultStartupNode or defaultStartupNodeDomReference is passed
    * @returns {Inspector}
@@ -222,9 +222,11 @@ class Inspector extends EventEmitter {
     this.#fluentL10n = new FluentL10n();
     await this.#fluentL10n.init(["devtools/client/compatibility.ftl"]);
 
-    // Display the main inspector panel with: search input, markup view and breadcrumbs.
-    this.panelDoc.getElementById("inspector-main-content").style.visibility =
-      "visible";
+    // Add the class that will display the main inspector panel with: search input,
+    // markup view and breadcrumbs.
+    this.panelDoc
+      .getElementById("inspector-main-content")
+      .classList.add("initialized");
 
     // Setup the splitter before watching targets & resources.
     // The markup view will be initialized after we get the first root-node
@@ -254,7 +256,7 @@ class Inspector extends EventEmitter {
       onDestroyed: this.#onTargetDestroyed,
     });
 
-    const { TYPES } = this.toolbox.resourceCommand;
+    const { TYPES } = this.commands.resourceCommand;
     this.#watchedResources = [
       // To observe CSS change before opening changes view.
       TYPES.CSS_CHANGE,
@@ -272,7 +274,7 @@ class Inspector extends EventEmitter {
       this.#watchedResources.push(TYPES.ROOT_NODE);
     }
 
-    await this.toolbox.resourceCommand.watchResources(this.#watchedResources, {
+    await this.commands.resourceCommand.watchResources(this.#watchedResources, {
       onAvailable: this.onResourceAvailable,
     });
 
@@ -370,7 +372,7 @@ class Inspector extends EventEmitter {
 
       if (
         resource.resourceType ===
-          this.toolbox.resourceCommand.TYPES.ROOT_NODE &&
+          this.commands.resourceCommand.TYPES.ROOT_NODE &&
         // It might happen that the ROOT_NODE resource (which is a Front) is already
         // destroyed, and in such case we want to ignore it.
         !resource.isDestroyed() &&
@@ -383,14 +385,16 @@ class Inspector extends EventEmitter {
       // Only consider top level document, and ignore remote iframes top document
       if (
         resource.resourceType ===
-          this.toolbox.resourceCommand.TYPES.DOCUMENT_EVENT &&
+          this.commands.resourceCommand.TYPES.DOCUMENT_EVENT &&
         resource.name === "will-navigate" &&
         isTopLevelTarget
       ) {
         this.#onWillNavigate();
       }
 
-      if (resource.resourceType === this.toolbox.resourceCommand.TYPES.REFLOW) {
+      if (
+        resource.resourceType === this.commands.resourceCommand.TYPES.REFLOW
+      ) {
         this.emit("reflow");
         if (resource.targetFront === this.selection?.nodeFront?.targetFront) {
           // This event will be fired whenever a reflow is detected in the target front of the
@@ -885,7 +889,7 @@ class Inspector extends EventEmitter {
   /**
    * Check if the inspector should use the landscape mode.
    *
-   * @return {Boolean} true if the inspector should be in landscape mode.
+   * @return {boolean} true if the inspector should be in landscape mode.
    */
   #useLandscapeMode() {
     if (!this.panelDoc) {
@@ -1404,10 +1408,10 @@ class Inspector extends EventEmitter {
    * Create a side-panel tab controlled by an extension
    * using the devtools.panels.elements.createSidebarPane and sidebar object API
    *
-   * @param {String} id
+   * @param {string} id
    *        An unique id for the sidebar tab.
-   * @param {Object} options
-   * @param {String} options.title
+   * @param {object} options
+   * @param {string} options.title
    *        The tab title
    */
   addExtensionSidebar(id, { title }) {
@@ -1441,7 +1445,7 @@ class Inspector extends EventEmitter {
    * extension has been disable/uninstalled while the toolbox and inspector were
    * still open).
    *
-   * @param {String} id
+   * @param {string} id
    *        The id of the sidebar tab to destroy.
    */
   removeExtensionSidebar(id) {
@@ -1483,7 +1487,7 @@ class Inspector extends EventEmitter {
    * Method to check whether the document is a HTML document and
    * pickColorFromPage method is available or not.
    *
-   * @return {Boolean} true if the eyedropper highlighter is supported by the current
+   * @return {boolean} true if the eyedropper highlighter is supported by the current
    *         document.
    */
   async supportsEyeDropper() {
@@ -1612,7 +1616,8 @@ class Inspector extends EventEmitter {
 
   /**
    * Can a new HTML element be inserted into the currently selected element?
-   * @return {Boolean}
+   *
+   * @return {boolean}
    */
   canAddHTMLChild() {
     const selection = this.selection;
@@ -1625,7 +1630,7 @@ class Inspector extends EventEmitter {
       selection.isHTMLNode() &&
       selection.isElementNode() &&
       !selection.isPseudoElementNode() &&
-      !selection.isAnonymousNode() &&
+      !selection.isNativeAnonymousNode() &&
       !invalidTagNames.includes(selection.nodeFront.nodeName.toLowerCase())
     );
   }
@@ -1806,10 +1811,6 @@ class Inspector extends EventEmitter {
 
     this.#teardownToolbar();
 
-    this.prefObserver.on(
-      DEFAULT_COLOR_UNIT_PREF,
-      this.#handleDefaultColorUnitPrefChange
-    );
     this.prefObserver.destroy();
 
     this.breadcrumbs.destroy();
@@ -1823,7 +1824,7 @@ class Inspector extends EventEmitter {
       onSelected: this.#onTargetSelected,
       onDestroyed: this.#onTargetDestroyed,
     });
-    const { resourceCommand } = this.toolbox;
+    const { resourceCommand } = this.commands;
     resourceCommand.unwatchResources(this.#watchedResources, {
       onAvailable: this.onResourceAvailable,
     });
@@ -1907,6 +1908,7 @@ class Inspector extends EventEmitter {
 
   /**
    * Show the eyedropper on the page.
+   *
    * @return {Promise} resolves when the eyedropper is visible.
    */
   showEyeDropper() {
@@ -1926,6 +1928,7 @@ class Inspector extends EventEmitter {
 
   /**
    * Hide the eyedropper.
+   *
    * @return {Promise} resolves when the eyedropper is hidden.
    */
   hideEyeDropper() {
@@ -1988,6 +1991,22 @@ class Inspector extends EventEmitter {
       });
     }
     return Promise.resolve();
+  }
+
+  /**
+   * Returns true if the "Change pseudo class" (either via the ":hov" panel checkboxes,
+   * or the markup view context menu entries) can be performed for the currently selected node.
+   *
+   * @returns {boolean}
+   */
+  canTogglePseudoClassForSelectedNode() {
+    if (!this.selection) {
+      return false;
+    }
+
+    return (
+      this.selection.isElementNode() && !this.selection.isPseudoElementNode()
+    );
   }
 
   /**
@@ -2087,20 +2106,22 @@ class Inspector extends EventEmitter {
   }
 
   /**
-   * Called by toolbox.js on `Esc` keydown.
+   * Called by toolbox.js on `Esc` keydown to check if the inspector panel
+   * should prevent the split console from being toggled.
    *
-   * @param {AbortController} abortController
+   * @returns {boolean} true if the split console toggle should be prevented.
    */
-  onToolboxChromeEventHandlerEscapeKeyDown(abortController) {
-    // If the event tooltip is displayed, hide it and prevent the Esc event listener
-    // of the toolbox to occur (e.g. don't toggle split console)
+  shouldPreventSplitConsoleToggle() {
+    // If the event tooltip is displayed, hide it and prevent the split console
+    // from being toggled.
     if (
       this.markup.hasEventDetailsTooltip() &&
       this.markup.eventDetailsTooltip.isVisible()
     ) {
       this.markup.eventDetailsTooltip.hide();
-      abortController.abort();
+      return true;
     }
+    return false;
   }
 }
 

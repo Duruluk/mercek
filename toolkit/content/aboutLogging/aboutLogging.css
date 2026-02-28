@@ -9,7 +9,7 @@
    * Bug 1986645: We should ship these variables in Android and remove here. */
   --aboutlogging-text-color-deemphasized: var(--text-color-deemphasized, color-mix(in srgb, currentColor 69%, transparent));
   --aboutlogging-box-background: var(--background-color-box, light-dark(#fff, #23222b));
-  --aboutlogging-box-border-color: var(--in-content-box-border-color, color-mix(in srgb, currentColor 41%, transparent));
+  --aboutlogging-box-border-color: var(--border-color, color-mix(in srgb, currentColor 41%, transparent));
   --aboutlogging-border-radius-small: var(--border-radius-small, 4px);
 }
 
@@ -35,7 +35,7 @@
   color: var(--text-color);
   text-align: center;
   /* Bug 1986645: Border radius tokens are not shipped in Android, so we use a variable with fallback */
-  /* stylelint-disable-next-line  stylelint-plugin-mozilla/use-border-radius-tokens */
+  /* stylelint-disable-next-line  stylelint-plugin-mozilla/use-design-tokens */
   border-radius: var(--aboutlogging-border-radius-small);
   padding: var(--space-medium);
   opacity: 0;
@@ -123,7 +123,7 @@ input[type="text"] {
 }
 
 .info-box-label {
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 #error {
@@ -158,7 +158,7 @@ input[type="text"] {
   margin-bottom: 0.5em;
   border: 1px solid var(--aboutlogging-box-border-color);
   /* Bug 1986645: Border radius tokens are not shipped in Android, so we use a variable with fallback */
-  /* stylelint-disable-next-line  stylelint-plugin-mozilla/use-border-radius-tokens */
+  /* stylelint-disable-next-line  stylelint-plugin-mozilla/use-design-tokens */
   border-radius: var(--aboutlogging-border-radius-small);
   background-color: var(--aboutlogging-box-background);
 }
@@ -168,7 +168,7 @@ input[type="text"] {
 }
 
 .uploaded-profile-name {
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   margin-bottom: 0.25em;
 }
 

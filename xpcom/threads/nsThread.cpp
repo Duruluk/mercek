@@ -37,8 +37,11 @@
 #include "mozilla/StaticLocalPtr.h"
 #include "mozilla/StaticPrefs_threads.h"
 #include "mozilla/TaskController.h"
+#include "nsExceptionHandler.h"
+#include "nsFmtString.h"
 #include "nsXPCOMPrivate.h"
 #include "mozilla/ChaosMode.h"
+#include "prerror.h"
 #include "mozilla/glean/XpcomMetrics.h"
 #include "mozilla/TimeStamp.h"
 #include "mozilla/dom/DocGroup.h"
@@ -49,8 +52,6 @@
 #include "ThreadEventQueue.h"
 #include "ThreadEventTarget.h"
 #include "ThreadDelay.h"
-
-#include <limits>
 
 #ifdef XP_LINUX
 #  ifdef __GLIBC__
@@ -555,7 +556,7 @@ nsThread::nsThread(NotNull<SynchronizedEventQueue*> aQueue,
       mIsMainThread(aMainThread == MAIN_THREAD),
       mUseHangMonitor(aMainThread == MAIN_THREAD),
       mIsUiThread(aOptions.isUiThread),
-      mIsAPoolThreadFree(nullptr),
+      mIsAPoolThreadFreePtr(nullptr),
       mCanInvokeJS(false),
       mPerformanceCounterState(mNestedEventLoopDepth, mIsMainThread,
                                aOptions.longTaskLength) {
@@ -624,6 +625,15 @@ nsresult nsThread::Init(const nsACString& aName) {
     if (!(thread = PR_CreateThread(PR_USER_THREAD, ThreadFunc, initData.get(),
                                    PR_PRIORITY_NORMAL, PR_GLOBAL_THREAD,
                                    PR_JOINABLE_THREAD, mStackSize))) {
+      // Until bug 2017883 is fixed, these values may not be useful on
+      // Windows as NSPR does not propagate the OS error from thread
+      // creation.
+      PRErrorCode prError = PR_GetError();
+      PRInt32 osError = PR_GetOSError();
+      CrashReporter::RecordAnnotationNSCString(
+          CrashReporter::Annotation::ThreadLastCreateError,
+          nsFmtCString("{}: prError={:#x} osError={:#x}", aName, prError,
+                       osError));
       return NS_ERROR_OUT_OF_MEMORY;
     }
 
@@ -721,11 +731,16 @@ nsThread::UnregisterShutdownTask(nsITargetShutdownTask* aTask) {
   return mEventTarget->UnregisterShutdownTask(aTask);
 }
 
+nsIEventTarget::FeatureFlags nsThread::GetFeatures() {
+  return (mIsMainThread ? SUPPORTS_PRIORITIZATION : SUPPORTS_BASE) |
+         (SUPPORTS_SHUTDOWN_TASKS | SUPPORTS_SHUTDOWN_TASK_DISPATCH);
+}
+
 NS_IMETHODIMP
 nsThread::GetRunningEventDelay(TimeDuration* aDelay, TimeStamp* aStart) {
-  if (mIsAPoolThreadFree && *mIsAPoolThreadFree) {
-    // if there are unstarted threads in the pool, a new event to the
-    // pool would not be delayed at all (beyond thread start time)
+  if (mIsAPoolThreadFreePtr && *mIsAPoolThreadFreePtr) {
+    // If there are idle or unstarted threads in the pool, a new event to the
+    // pool would not be delayed at all (beyond thread wake / start time).
     *aDelay = TimeDuration();
     *aStart = TimeStamp();
   } else {
@@ -1525,8 +1540,7 @@ void PerformanceCounterState::MaybeReportAccumulatedTime(const nsCString& aName,
         static MarkerSchema MarkerTypeDisplay() {
           using MS = MarkerSchema;
           MS schema{MS::Location::MarkerChart, MS::Location::MarkerTable};
-          schema.AddKeyLabelFormat("category", "Type", MS::Format::String,
-                                   MS::PayloadFlags::Searchable);
+          schema.AddKeyLabelFormat("category", "Type", MS::Format::String);
           return schema;
         }
       };

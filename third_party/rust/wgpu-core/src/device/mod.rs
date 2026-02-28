@@ -61,7 +61,7 @@ impl<T: PartialEq> Eq for AttachmentData<T> {}
 pub(crate) struct RenderPassContext {
     pub attachments: AttachmentData<TextureFormat>,
     pub sample_count: u32,
-    pub multiview: Option<NonZeroU32>,
+    pub multiview_mask: Option<NonZeroU32>,
 }
 #[derive(Clone, Debug, Error)]
 #[non_exhaustive]
@@ -144,10 +144,10 @@ impl RenderPassContext {
                 res: res.error_ident(),
             });
         }
-        if self.multiview != other.multiview {
+        if self.multiview_mask != other.multiview_mask {
             return Err(RenderPassCompatibilityError::IncompatibleMultiview {
-                expected: self.multiview,
-                actual: other.multiview,
+                expected: self.multiview_mask,
+                actual: other.multiview_mask,
                 res: res.error_ident(),
             });
         }
@@ -379,29 +379,20 @@ impl WebGpuError for MissingDownlevelFlags {
     }
 }
 
-/// Create a validator for Naga [`Module`]s.
+/// Compute naga [`Capabilities`] corresponding to [`Features`] and [`DownlevelFlags`].
 ///
-/// Create a Naga [`Validator`] that ensures that each [`naga::Module`]
-/// presented to it is valid, and uses no features not included in
-/// `features` and `downlevel`.
-///
-/// The validator can only catch invalid modules and feature misuse
-/// reliably when the `flags` argument includes all the flags in
-/// [`ValidationFlags::default()`].
-///
-/// [`Validator`]: naga::valid::Validator
-/// [`Module`]: naga::Module
-/// [`ValidationFlags::default()`]: naga::valid::ValidationFlags::default
-pub fn create_validator(
+/// [`Capabilities`]: naga::valid::Capabilities
+/// [`Features`]: wgt::Features
+/// [`DownlevelFlags`]: wgt::DownlevelFlags
+pub fn features_to_naga_capabilities(
     features: wgt::Features,
     downlevel: wgt::DownlevelFlags,
-    flags: naga::valid::ValidationFlags,
-) -> naga::valid::Validator {
+) -> naga::valid::Capabilities {
     use naga::valid::Capabilities as Caps;
     let mut caps = Caps::empty();
     caps.set(
-        Caps::PUSH_CONSTANT,
-        features.contains(wgt::Features::PUSH_CONSTANTS),
+        Caps::IMMEDIATES,
+        features.contains(wgt::Features::IMMEDIATES),
     );
     caps.set(Caps::FLOAT64, features.contains(wgt::Features::SHADER_F64));
     caps.set(
@@ -417,21 +408,38 @@ pub fn create_validator(
         features.contains(wgt::Features::SHADER_PRIMITIVE_INDEX),
     );
     caps.set(
-        Caps::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING,
+        Caps::TEXTURE_AND_SAMPLER_BINDING_ARRAY,
+        features.contains(wgt::Features::TEXTURE_BINDING_ARRAY),
+    );
+    caps.set(
+        Caps::BUFFER_BINDING_ARRAY,
+        features.contains(wgt::Features::BUFFER_BINDING_ARRAY),
+    );
+    caps.set(
+        Caps::STORAGE_TEXTURE_BINDING_ARRAY,
+        features.contains(wgt::Features::TEXTURE_BINDING_ARRAY)
+            && features.contains(wgt::Features::STORAGE_RESOURCE_BINDING_ARRAY),
+    );
+    caps.set(
+        Caps::STORAGE_BUFFER_BINDING_ARRAY,
+        features.contains(wgt::Features::BUFFER_BINDING_ARRAY)
+            && features.contains(wgt::Features::STORAGE_RESOURCE_BINDING_ARRAY),
+    );
+    caps.set(
+        Caps::TEXTURE_AND_SAMPLER_BINDING_ARRAY_NON_UNIFORM_INDEXING,
         features
             .contains(wgt::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING),
     );
     caps.set(
-        Caps::STORAGE_TEXTURE_ARRAY_NON_UNIFORM_INDEXING,
+        Caps::BUFFER_BINDING_ARRAY_NON_UNIFORM_INDEXING,
+        features.contains(wgt::Features::UNIFORM_BUFFER_BINDING_ARRAYS),
+    );
+    caps.set(
+        Caps::STORAGE_TEXTURE_BINDING_ARRAY_NON_UNIFORM_INDEXING,
         features.contains(wgt::Features::STORAGE_TEXTURE_ARRAY_NON_UNIFORM_INDEXING),
     );
     caps.set(
-        Caps::UNIFORM_BUFFER_ARRAY_NON_UNIFORM_INDEXING,
-        features.contains(wgt::Features::UNIFORM_BUFFER_BINDING_ARRAYS),
-    );
-    // TODO: This needs a proper wgpu feature
-    caps.set(
-        Caps::SAMPLER_NON_UNIFORM_INDEXING,
+        Caps::STORAGE_BUFFER_BINDING_ARRAY_NON_UNIFORM_INDEXING,
         features
             .contains(wgt::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING),
     );
@@ -510,6 +518,52 @@ pub fn create_validator(
         Caps::TEXTURE_EXTERNAL,
         features.intersects(wgt::Features::EXTERNAL_TEXTURE),
     );
+    caps.set(
+        Caps::SHADER_BARYCENTRICS,
+        features.intersects(wgt::Features::SHADER_BARYCENTRICS),
+    );
+    caps.set(
+        Caps::MESH_SHADER,
+        features.intersects(wgt::Features::EXPERIMENTAL_MESH_SHADER),
+    );
+    caps.set(
+        Caps::MESH_SHADER_POINT_TOPOLOGY,
+        features.intersects(wgt::Features::EXPERIMENTAL_MESH_SHADER_POINTS),
+    );
+    caps.set(
+        Caps::COOPERATIVE_MATRIX,
+        features.intersects(wgt::Features::EXPERIMENTAL_COOPERATIVE_MATRIX),
+    );
+    caps.set(
+        Caps::PER_VERTEX,
+        features.intersects(wgt::Features::SHADER_PER_VERTEX),
+    );
+    caps.set(
+        Caps::DRAW_INDEX,
+        features.intersects(wgt::Features::SHADER_DRAW_INDEX),
+    );
 
+    caps
+}
+
+/// Create a validator for Naga [`Module`]s.
+///
+/// Create a Naga [`Validator`] that ensures that each [`naga::Module`]
+/// presented to it is valid, and uses no features not included in
+/// `features` and `downlevel`.
+///
+/// The validator can only catch invalid modules and feature misuse
+/// reliably when the `flags` argument includes all the flags in
+/// [`ValidationFlags::default()`].
+///
+/// [`Validator`]: naga::valid::Validator
+/// [`Module`]: naga::Module
+/// [`ValidationFlags::default()`]: naga::valid::ValidationFlags::default
+pub fn create_validator(
+    features: wgt::Features,
+    downlevel: wgt::DownlevelFlags,
+    flags: naga::valid::ValidationFlags,
+) -> naga::valid::Validator {
+    let caps = features_to_naga_capabilities(features, downlevel);
     naga::valid::Validator::new(flags, caps)
 }

@@ -19,7 +19,6 @@
 #include "MsaaRootAccessible.h"
 #include "MsaaXULMenuAccessible.h"
 #include "nsEventMap.h"
-#include "nsViewManager.h"
 #include "nsWinUtils.h"
 #include "Relation.h"
 #include "sdnAccessible.h"
@@ -42,7 +41,7 @@ static const GUID IID_MsaaAccessible = {
     0x4afc,
     {0xa3, 0x2c, 0xd6, 0xb5, 0xc0, 0x10, 0x04, 0x6b}};
 
-MOZ_RUNINIT MsaaIdGenerator MsaaAccessible::sIDGen;
+constinit MsaaIdGenerator MsaaAccessible::sIDGen;
 ITypeInfo* MsaaAccessible::gTypeInfo = nullptr;
 
 /* static */
@@ -766,7 +765,7 @@ MsaaAccessible::get_accRole(
     break;
 
   switch (geckoRole) {
-#include "RoleMap.h"
+#include "RoleMap.inc"
     default:
       MOZ_CRASH("Unknown role.");
   }
@@ -1200,7 +1199,7 @@ MsaaAccessible::accNavigate(
       return E_NOTIMPL;
 
       // MSAA relationship extensions to accNavigate
-#include "RelationTypeMap.h"
+#include "RelationTypeMap.inc"
 
     default:
       return E_INVALIDARG;

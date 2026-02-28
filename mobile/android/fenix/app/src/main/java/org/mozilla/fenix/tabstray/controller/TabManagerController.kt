@@ -4,6 +4,7 @@
 
 package org.mozilla.fenix.tabstray.controller
 
+import android.content.Context
 import androidx.annotation.VisibleForTesting
 import androidx.navigation.NavController
 import kotlinx.coroutines.CoroutineScope
@@ -16,6 +17,7 @@ import mozilla.components.browser.state.action.LastAccessAction
 import mozilla.components.browser.state.selector.findTab
 import mozilla.components.browser.state.selector.getNormalOrPrivateTabs
 import mozilla.components.browser.state.selector.normalTabs
+import mozilla.components.browser.state.selector.selectedTab
 import mozilla.components.browser.state.state.BrowserState
 import mozilla.components.browser.state.state.TabSessionState
 import mozilla.components.browser.state.store.BrowserStore
@@ -30,14 +32,11 @@ import mozilla.components.feature.tabs.TabsUseCases
 import mozilla.components.lib.state.DelicateAction
 import mozilla.components.service.fxa.manager.FxaAccountManager
 import mozilla.telemetry.glean.private.NoExtras
-import org.mozilla.fenix.BrowserDirection
 import org.mozilla.fenix.GleanMetrics.Collections
 import org.mozilla.fenix.GleanMetrics.Events
 import org.mozilla.fenix.GleanMetrics.TabsTray
-import org.mozilla.fenix.HomeActivity
 import org.mozilla.fenix.R
 import org.mozilla.fenix.browser.browsingmode.BrowsingMode
-import org.mozilla.fenix.browser.browsingmode.BrowsingModeManager
 import org.mozilla.fenix.collections.CollectionsDialog
 import org.mozilla.fenix.collections.show
 import org.mozilla.fenix.components.AppStore
@@ -46,20 +45,21 @@ import org.mozilla.fenix.components.accounts.FenixFxAEntryPoint
 import org.mozilla.fenix.components.appstate.AppAction
 import org.mozilla.fenix.components.usecases.FenixBrowserUseCases
 import org.mozilla.fenix.ext.DEFAULT_ACTIVE_DAYS
+import org.mozilla.fenix.ext.openToBrowser
 import org.mozilla.fenix.ext.potentialInactiveTabs
 import org.mozilla.fenix.home.HomeScreenViewModel.Companion.ALL_NORMAL_TABS
 import org.mozilla.fenix.home.HomeScreenViewModel.Companion.ALL_PRIVATE_TABS
-import org.mozilla.fenix.tabstray.Page
 import org.mozilla.fenix.tabstray.SyncedTabsController
-import org.mozilla.fenix.tabstray.TabsTrayAction
-import org.mozilla.fenix.tabstray.TabsTrayState
-import org.mozilla.fenix.tabstray.TabsTrayStore
 import org.mozilla.fenix.tabstray.browser.InactiveTabsController
 import org.mozilla.fenix.tabstray.browser.TabsTrayFabController
 import org.mozilla.fenix.tabstray.ext.getTabSessionState
 import org.mozilla.fenix.tabstray.ext.isActiveDownload
 import org.mozilla.fenix.tabstray.ext.isNormalTab
 import org.mozilla.fenix.tabstray.ext.isSelect
+import org.mozilla.fenix.tabstray.redux.action.TabsTrayAction
+import org.mozilla.fenix.tabstray.redux.state.Page
+import org.mozilla.fenix.tabstray.redux.state.TabsTrayState
+import org.mozilla.fenix.tabstray.redux.store.TabsTrayStore
 import org.mozilla.fenix.tabstray.ui.TabManagementFragmentDirections
 import org.mozilla.fenix.utils.Settings
 import java.util.concurrent.TimeUnit
@@ -170,6 +170,11 @@ interface TabManagerController : SyncedTabsController, InactiveTabsController, T
     )
 
     /**
+     * Handle the completion of the TabTray transition animation.
+     */
+    fun handleNavigationRequested()
+
+    /**
      * Exits multi select mode when the back button was pressed.
      *
      * @return true if the button press was consumed.
@@ -211,12 +216,11 @@ interface TabManagerController : SyncedTabsController, InactiveTabsController, T
  * Default implementation of [TabManagerController].
  *
  * @param accountManager [FxaAccountManager] used to determine signed in status.
- * @param activity [HomeActivity] used to perform top-level app actions.
+ * @param context [Context] used for showing dialogs.
  * @param appStore [AppStore] used to dispatch any [AppAction].
  * @param tabsTrayStore [TabsTrayStore] used to read/update the [TabsTrayState].
  * @param browserStore [BrowserStore] used to read/update the current [BrowserState].
  * @param settings [Settings] used to update any user preferences.
- * @param browsingModeManager [BrowsingModeManager] used to read/update the current [BrowsingMode].
  * @param navController [NavController] used to navigate away from the tab manager.
  * @param navigateToHomeAndDeleteSession Lambda used to return to the Homescreen and delete the current session.
  * @param profiler [Profiler] used to add profiler markers.
@@ -225,6 +229,7 @@ interface TabManagerController : SyncedTabsController, InactiveTabsController, T
  * @param bookmarksStorage Storage layer for retrieving and saving bookmarks.
  * @param closeSyncedTabsUseCases Use cases for closing synced tabs.
  * @param ioDispatcher [CoroutineContext] used for storage operations.
+ * @param mainDispatcher [CoroutineContext] used for UI operations.
  * @param collectionStorage Storage layer for interacting with collections.
  * @param showUndoSnackbarForTab Lambda used to display an undo snackbar when a normal or private tab is closed.
  * @param showUndoSnackbarForInactiveTab Lambda used to display an undo snackbar when an inactive tab is closed.
@@ -237,12 +242,11 @@ interface TabManagerController : SyncedTabsController, InactiveTabsController, T
 @Suppress("TooManyFunctions", "LongParameterList")
 class DefaultTabManagerController(
     private val accountManager: FxaAccountManager,
-    private val activity: HomeActivity,
+    private val context: Context,
     private val appStore: AppStore,
     private val tabsTrayStore: TabsTrayStore,
     private val browserStore: BrowserStore,
     private val settings: Settings,
-    private val browsingModeManager: BrowsingModeManager,
     private val navController: NavController,
     private val navigateToHomeAndDeleteSession: (String) -> Unit,
     private val profiler: Profiler?,
@@ -250,7 +254,8 @@ class DefaultTabManagerController(
     private val fenixBrowserUseCases: FenixBrowserUseCases,
     private val bookmarksStorage: BookmarksStorage,
     private val closeSyncedTabsUseCases: CloseTabsUseCases,
-    private val ioDispatcher: CoroutineContext,
+    private val ioDispatcher: CoroutineContext = Dispatchers.IO,
+    private val mainDispatcher: CoroutineContext = Dispatchers.Main,
     private val collectionStorage: TabCollectionStorage,
     private val showUndoSnackbarForTab: (Boolean) -> Unit,
     private val showUndoSnackbarForInactiveTab: (Int) -> Unit,
@@ -284,7 +289,7 @@ class DefaultTabManagerController(
      */
     private fun openNewTab(isPrivate: Boolean) {
         val startTime = profiler?.getProfilerTime()
-        browsingModeManager.mode = BrowsingMode.fromBoolean(isPrivate)
+        appStore.dispatch(AppAction.BrowsingModeManagerModeChanged(mode = BrowsingMode.fromBoolean(isPrivate)))
 
         if (settings.enableHomepageAsNewTab) {
             fenixBrowserUseCases.addNewHomepageTab(
@@ -320,7 +325,6 @@ class DefaultTabManagerController(
         if (navController.currentDestination?.id == R.id.browserFragment) {
             return
         } else if (!navController.popBackStack(R.id.browserFragment, false)) {
-            navController.popBackStack()
             navController.navigate(R.id.browserFragment)
         }
     }
@@ -329,7 +333,6 @@ class DefaultTabManagerController(
         if (navController.currentDestination?.id == R.id.homeFragment) {
             return
         } else if (!navController.popBackStack(R.id.homeFragment, false)) {
-            navController.popBackStack()
             navController.navigate(
                 TabManagementFragmentDirections.actionGlobalHome(),
             )
@@ -458,7 +461,7 @@ class DefaultTabManagerController(
                         position = null,
                     )
                 }
-                withContext(Dispatchers.Main) {
+                withContext(mainDispatcher) {
                     showBookmarkSnackbar(tabs.size, parentNode?.title)
                 }
             }.getOrElse {
@@ -508,7 +511,7 @@ class DefaultTabManagerController(
                 }
             },
             onNegativeButtonClick = {},
-        ).show(activity)
+        ).show(context)
     }
 
     override fun handleShareSelectedTabsClicked() {
@@ -542,17 +545,18 @@ class DefaultTabManagerController(
     override fun handleSyncedTabClicked(tab: Tab) {
         Events.syncedTabOpened.record(NoExtras())
 
-        activity.openToBrowserAndLoad(
+        navController.openToBrowser()
+
+        fenixBrowserUseCases.loadUrlOrSearch(
             searchTermOrURL = tab.active().url,
             newTab = true,
-            from = BrowserDirection.FromTabManager,
         )
     }
 
     override fun handleSyncedTabClosed(deviceId: String, tab: Tab) {
         CoroutineScope(ioDispatcher).launch {
             val operation = closeSyncedTabsUseCases.close(deviceId, tab.active().url)
-            withContext(Dispatchers.Main) {
+            withContext(mainDispatcher) {
                 showUndoSnackbarForSyncedTab(operation)
             }
         }
@@ -574,14 +578,15 @@ class DefaultTabManagerController(
             selected.isEmpty() && tabsTrayStore.state.mode.isSelect().not() -> {
                 TabsTray.openedExistingTab.record(TabsTray.OpenedExistingTabExtra(source ?: "unknown"))
                 tabsUseCases.selectTab(tab.id)
-                val mode = BrowsingMode.fromBoolean(tab.content.private)
-                browsingModeManager.mode = mode
+                appStore.dispatch(
+                    AppAction.BrowsingModeManagerModeChanged(
+                        mode = BrowsingMode.fromBoolean(
+                            tab.content.private,
+                        ),
+                    ),
+                )
 
-                if (tab.content.url == ABOUT_HOME_URL) {
-                    handleNavigateToHome()
-                } else {
-                    handleNavigateToBrowser()
-                }
+                handleNavigationRequested()
             }
 
             tab.id in selected.map { it.id } -> {
@@ -591,6 +596,18 @@ class DefaultTabManagerController(
             source != INACTIVE_TABS_FEATURE_NAME -> {
                 tabsTrayStore.dispatch(TabsTrayAction.AddSelectTab(tab))
             }
+        }
+    }
+
+     private fun selectedTabisHome(): Boolean {
+        return browserStore.state.selectedTab?.content?.url == ABOUT_HOME_URL
+    }
+
+    override fun handleNavigationRequested() {
+        if (selectedTabisHome()) {
+            handleNavigateToHome()
+        } else {
+            handleNavigateToBrowser()
         }
     }
 

@@ -6,6 +6,8 @@
 #include "gtest/gtest.h"
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/OriginAttributes.h"
+#include "mozilla/dom/CDATASection.h"
+#include "mozilla/dom/Comment.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/Text.h"
 #include "EditorDOMPoint.h"
@@ -15,6 +17,7 @@
 #include "nsIURI.h"
 #include "nsNetUtil.h"
 #include "nsString.h"
+#include "nsTextNode.h"
 
 namespace mozilla {
 
@@ -1264,6 +1267,1068 @@ TEST(HTMLEditUtilsTest, GetAncestorElement_ClosestContainerElement)
           << "GetInclusiveAncestorElement: " << testData
           << "(Got: " << ToString(RefPtr{result}) << ")";
     }
+  }
+}
+
+TEST(HTMLEditUtilsTest, IsContainerNode)
+{
+  const RefPtr<Document> doc = CreateHTMLDoc();
+  for (const char16_t* tagName :
+       {u"html", u"body", u"div", u"span", u"select", u"option", u"form"}) {
+    const RefPtr<nsAtom> tag = NS_Atomize(tagName);
+    MOZ_RELEASE_ASSERT(tag);
+    const RefPtr<Element> element = doc->CreateHTMLElement(tag);
+    MOZ_RELEASE_ASSERT(element);
+    EXPECT_EQ(true, HTMLEditUtils::IsContainerNode(*element))
+        << "IsContainerNode(<" << NS_ConvertUTF16toUTF8(tagName).get() << ">)";
+  }
+  for (const char16_t* tagName : {u"img", u"input", u"br", u"wbr"}) {
+    const RefPtr<nsAtom> tag = NS_Atomize(tagName);
+    MOZ_RELEASE_ASSERT(tag);
+    const RefPtr<Element> element = doc->CreateHTMLElement(tag);
+    MOZ_RELEASE_ASSERT(element);
+    EXPECT_EQ(false, HTMLEditUtils::IsContainerNode(*element))
+        << "IsContainerNode(<" << NS_ConvertUTF16toUTF8(tagName).get() << ">)";
+  }
+  {
+    const RefPtr<nsTextNode> text = doc->CreateEmptyTextNode();
+    MOZ_RELEASE_ASSERT(text);
+    EXPECT_EQ(false, HTMLEditUtils::IsContainerNode(*text))
+        << "IsContainerNode(Text)";
+  }
+  {
+    const RefPtr<Comment> comment =
+        doc->CreateComment(nsDependentString(u"abc"));
+    MOZ_RELEASE_ASSERT(comment);
+    EXPECT_EQ(false, HTMLEditUtils::IsContainerNode(*comment))
+        << "IsContainerNode(Comment)";
+  }
+}
+
+struct MOZ_STACK_CLASS IsEmptyNodeTest final {
+  const char16_t* mInnerHTML;
+  const char* mTargetSelector;
+  const HTMLEditUtils::EmptyCheckOptions mOptions;
+  const bool mExpectedValue;
+  const bool mExpectedSeenBR;
+
+  friend std::ostream& operator<<(std::ostream& aStream,
+                                  const IsEmptyNodeTest& aTest) {
+    return aStream << "Check \"" << aTest.mTargetSelector
+                   << "\" with options=" << ToString(aTest.mOptions).c_str()
+                   << " in \"" << NS_ConvertUTF16toUTF8(aTest.mInnerHTML).get()
+                   << "\"";
+  }
+};
+
+TEST(HTMLEditUtilsTest, IsEmptyNode)
+{
+  using EmptyCheckOption = HTMLEditUtils::EmptyCheckOption;
+  const RefPtr<Document> doc = CreateHTMLDoc();
+  const RefPtr<nsGenericHTMLElement> body = doc->GetBody();
+  MOZ_RELEASE_ASSERT(body);
+  for (const auto& testData : {
+           IsEmptyNodeTest{u"<div></div>", "div", {}, true, false},
+           IsEmptyNodeTest{u"<div></div>",
+                           "div",
+                           {EmptyCheckOption::TreatBlockAsVisible},
+                           true,
+                           false},
+           IsEmptyNodeTest{u"<div><br></div>", "div", {}, true, true},
+           IsEmptyNodeTest{u"<div><br></div>",
+                           "div",
+                           {EmptyCheckOption::TreatBlockAsVisible},
+                           true,
+                           true},
+           IsEmptyNodeTest{u"<div><br></div>",
+                           "div",
+                           {EmptyCheckOption::TreatSingleBRElementAsVisible},
+                           false,
+                           false},
+           IsEmptyNodeTest{u"<div><!--abc--></div>", "div", {}, true, false},
+           IsEmptyNodeTest{u"<div><!--abc--></div>",
+                           "div",
+                           {EmptyCheckOption::TreatCommentAsVisible},
+                           false,
+                           false},
+           IsEmptyNodeTest{u"<ul><li><br></li></ul>", "ul", {}, true, true},
+           IsEmptyNodeTest{u"<ul><li><br></li></ul>",
+                           "ul",
+                           {EmptyCheckOption::TreatListItemAsVisible},
+                           false,
+                           false},
+           IsEmptyNodeTest{
+               u"<table><td><br></td></table>", "table", {}, true, true},
+           IsEmptyNodeTest{u"<table><td><br></td></table>",
+                           "table",
+                           {EmptyCheckOption::TreatTableCellAsVisible},
+                           false,
+                           false},
+           IsEmptyNodeTest{u"<div>abc</div>", "div", {}, false, false},
+           IsEmptyNodeTest{
+               u"<div><span><br></span></div>", "div", {}, true, true},
+           IsEmptyNodeTest{
+               u"<div><div><br></div></div>", "div", {}, true, true},
+           IsEmptyNodeTest{u"<div><div><br></div></div>",
+                           "div",
+                           {EmptyCheckOption::TreatBlockAsVisible},
+                           false,
+                           false},
+           IsEmptyNodeTest{u"<dl><dt><br></dt></dl>", "dl", {}, true, true},
+           IsEmptyNodeTest{u"<dl><dt><br</dt></dl>",
+                           "dl",
+                           {EmptyCheckOption::TreatListItemAsVisible},
+                           false,
+                           false},
+           IsEmptyNodeTest{u"<dl><dd><br></dd></dl>", "dl", {}, true, true},
+           IsEmptyNodeTest{u"<dl><dd><br</dd></dl>",
+                           "dl",
+                           {EmptyCheckOption::TreatListItemAsVisible},
+                           false,
+                           false},
+           // form controls should be always not empty.
+           IsEmptyNodeTest{u"<input>", "input", {}, false, false},
+           IsEmptyNodeTest{u"<select></select>", "select", {}, false, false},
+           IsEmptyNodeTest{u"<button></button>", "button", {}, false, false},
+           IsEmptyNodeTest{
+               u"<textarea></textarea>", "textarea", {}, false, false},
+           IsEmptyNodeTest{u"<output></output>", "output", {}, false, false},
+           IsEmptyNodeTest{
+               u"<progress></progress>", "progress", {}, false, false},
+           IsEmptyNodeTest{u"<meter></meter>", "meter", {}, false, false},
+           // void elements should be always not empty.
+           IsEmptyNodeTest{u"<br>", "br", {}, false, false},
+           IsEmptyNodeTest{u"<wbr>", "wbr", {}, false, false},
+           IsEmptyNodeTest{u"<img>", "img", {}, false, false},
+           // white-spaces should not be treated as visible in block
+           IsEmptyNodeTest{u"<div> </div>", "div", {}, true, false},
+           IsEmptyNodeTest{u"<span> </span>", "span", {}, true, false},
+           IsEmptyNodeTest{u"a<span> </span>b", "span", {}, false, false},
+           // sublist's list items and table cells should be treated as visible.
+           IsEmptyNodeTest{u"<ul><li><ol><li><br></li></ol></li></ul>",
+                           "ul",
+                           {},
+                           false,
+                           false},
+           IsEmptyNodeTest{u"<ul><li><table><td><br></td></table></li></ul>",
+                           "ul",
+                           {},
+                           false,
+                           false},
+           IsEmptyNodeTest{
+               u"<table><td><table><td><br></td></table></td></table>",
+               "table",
+               {},
+               false,
+               false},
+           IsEmptyNodeTest{u"<table><td><ul><li><br></li></ul></td></table>",
+                           "table",
+                           {},
+                           false,
+                           false},
+       }) {
+    body->SetInnerHTMLTrusted(nsDependentString(testData.mInnerHTML),
+                              doc->NodePrincipal(), IgnoreErrors());
+    const Element* const target = body->QuerySelector(
+        nsDependentCString(testData.mTargetSelector), IgnoreErrors());
+    MOZ_RELEASE_ASSERT(target);
+    bool seenBR = false;
+    const bool ret =
+        HTMLEditUtils::IsEmptyNode(*target, testData.mOptions, &seenBR);
+    EXPECT_EQ(ret, testData.mExpectedValue)
+        << "IsEmptyNode(result): " << testData;
+    EXPECT_EQ(seenBR, testData.mExpectedSeenBR)
+        << "IsEmptyNode(seenBR): " << testData;
+  }
+}
+
+struct MOZ_STACK_CLASS GetLeafNodeTest final {
+  const char16_t* mInnerHTML;
+  const char* mContentSelector;
+  const HTMLEditUtils::LeafNodeOptions mOptions;
+  const char* mExpectedTargetSelector;
+  const char* mExpectedTargetContainerSelector = nullptr;
+  const uint32_t mExpectedTargetOffset = 0u;
+
+  nsIContent* GetExpectedTarget(nsINode& aNode) const {
+    if (mExpectedTargetSelector) {
+      return aNode.QuerySelector(nsDependentCString(mExpectedTargetSelector),
+                                 IgnoreErrors());
+    }
+    if (!mExpectedTargetContainerSelector) {
+      return nullptr;
+    }
+    Element* const container = aNode.QuerySelector(
+        nsDependentCString(mExpectedTargetContainerSelector), IgnoreErrors());
+    MOZ_RELEASE_ASSERT(container);
+    MOZ_RELEASE_ASSERT(!mExpectedTargetOffset ||
+                       mExpectedTargetOffset < container->Length());
+    return container->GetChildAt_Deprecated(mExpectedTargetOffset);
+  }
+
+  friend std::ostream& operator<<(std::ostream& aStream,
+                                  const GetLeafNodeTest& aTest) {
+    return aStream << "Scan from \"" << aTest.mContentSelector
+                   << "\" with options=" << ToString(aTest.mOptions).c_str()
+                   << " in \"" << NS_ConvertUTF16toUTF8(aTest.mInnerHTML).get()
+                   << "\"";
+  }
+};
+
+TEST(HTMLEditUtilsTest, GetLastLeafContent)
+{
+  using LeafNodeOption = HTMLEditUtils::LeafNodeOption;
+  const RefPtr<Document> doc = CreateHTMLDoc();
+  const RefPtr<nsGenericHTMLElement> body = doc->GetBody();
+  MOZ_RELEASE_ASSERT(body);
+  for (const auto& testData : {
+           GetLeafNodeTest{u"<div></div>", "div", {}, nullptr},
+           GetLeafNodeTest{u"<div><br></div>", "div", {}, "div > br"},
+           GetLeafNodeTest{u"<div>abc<br></div>", "div", {}, "div > br"},
+           GetLeafNodeTest{u"<div>abc</div>", "div", {}, nullptr, "div", 0u},
+
+           GetLeafNodeTest{
+               u"<div><div><br></div></div>", "div", {}, "div > div > br"},
+           GetLeafNodeTest{u"<div><div><br></div></div>",
+                           "div",
+                           {LeafNodeOption::TreatChildBlockAsLeafNode},
+                           "div > div"},
+           GetLeafNodeTest{u"<div><div><br></div><div><br></div></div>",
+                           "div",
+                           {},
+                           "div > div + div > br"},
+           GetLeafNodeTest{u"<div><div><br></div><div><br></div></div>",
+                           "div",
+                           {LeafNodeOption::TreatChildBlockAsLeafNode},
+                           "div > div + div"},
+
+           GetLeafNodeTest{u"<div><!--abc--></div>", "div", {}, nullptr},
+           GetLeafNodeTest{u"<div><!--abc--></div>",
+                           "div",
+                           {LeafNodeOption::TreatCommentAsLeafNode},
+                           nullptr,
+                           "div",
+                           0u},
+           GetLeafNodeTest{u"<div><br><!--abc--></div>", "div", {}, "div > br"},
+           GetLeafNodeTest{u"<div><br><!--abc--></div>",
+                           "div",
+                           {LeafNodeOption::TreatCommentAsLeafNode},
+                           nullptr,
+                           "div",
+                           1u},
+           GetLeafNodeTest{
+               u"<div><div><br></div><div><br></div><!--abc--></div>",
+               "div",
+               {},
+               "div > div + div > br"},
+           GetLeafNodeTest{
+               u"<div><div><br></div><div><br></div><!--abc--></div>",
+               "div",
+               {LeafNodeOption::TreatCommentAsLeafNode},
+               nullptr,
+               "div",
+               2u},
+
+           GetLeafNodeTest{
+               u"<div><span></span></div>", "div", {}, "div > span"},
+           GetLeafNodeTest{u"<div><span></span></div>",
+                           "div",
+                           {LeafNodeOption::IgnoreAnyEmptyInlineContainers},
+                           nullptr},
+           GetLeafNodeTest{
+               u"<div><br><span></span></div>", "div", {}, "div > span"},
+           GetLeafNodeTest{u"<div><br><span></span></div>",
+                           "div",
+                           {LeafNodeOption::IgnoreAnyEmptyInlineContainers},
+                           "div > br"},
+           GetLeafNodeTest{
+               u"<div><div><br></div><div><br></div><span></span></div>",
+               "div",
+               {},
+               "div > span"},
+           GetLeafNodeTest{
+               u"<div><div><br></div><div><br></div><span></span></div>",
+               "div",
+               {LeafNodeOption::IgnoreAnyEmptyInlineContainers},
+               "div > div + div > br"},
+
+           GetLeafNodeTest{u"<div><span><!-- abc --></span></div>",
+                           "div",
+                           {},
+                           "div > span"},
+           GetLeafNodeTest{u"<div><span><!-- abc --></span></div>",
+                           "div",
+                           {LeafNodeOption::TreatCommentAsLeafNode},
+                           nullptr,
+                           "div > span",
+                           0u},
+           GetLeafNodeTest{u"<div><span><!-- abc --></span></div>",
+                           "div",
+                           {LeafNodeOption::IgnoreAnyEmptyInlineContainers},
+                           nullptr},
+           GetLeafNodeTest{u"<div><span><!-- abc --></span></div>",
+                           "div",
+                           {LeafNodeOption::IgnoreAnyEmptyInlineContainers,
+                            LeafNodeOption::TreatCommentAsLeafNode},
+                           nullptr,
+                           "div > span",
+                           0u},
+
+           GetLeafNodeTest{u"<div><br><wbr></div>", "div", {}, "div > wbr"},
+           GetLeafNodeTest{u"<div><br><wbr></div>",
+                           "div",
+                           {LeafNodeOption::IgnoreAnyEmptyInlineContainers},
+                           "div > wbr"},
+           GetLeafNodeTest{u"<div><br><wbr></div>",
+                           "div",
+                           {LeafNodeOption::IgnoreInvisibleInlineVoidElements},
+                           "div > br"},
+
+           GetLeafNodeTest{
+               u"<div><span>abc</span> </div>", "div", {}, nullptr, "div", 1u},
+           GetLeafNodeTest{u"<div><span>abc</span> </div>",
+                           "div",
+                           {LeafNodeOption::IgnoreInvisibleText},
+                           nullptr,
+                           "div > span",
+                           0u},
+       }) {
+    body->SetInnerHTMLTrusted(nsDependentString(testData.mInnerHTML),
+                              doc->NodePrincipal(), IgnoreErrors());
+    const Element* const target = body->QuerySelector(
+        nsDependentCString(testData.mContentSelector), IgnoreErrors());
+    MOZ_RELEASE_ASSERT(target);
+    const nsIContent* result = HTMLEditUtils::GetLastLeafContent(
+        *target, testData.mOptions,
+        BlockInlineCheck::UseComputedDisplayOutsideStyle);
+    EXPECT_EQ(result, testData.GetExpectedTarget(*body))
+        << "GetLastLeafContent: " << testData
+        << "(Got: " << ToString(RefPtr{result}) << ")";
+  }
+}
+
+TEST(HTMLEditUtilsTest, GetFirstLeafContent)
+{
+  using LeafNodeOption = HTMLEditUtils::LeafNodeOption;
+  const RefPtr<Document> doc = CreateHTMLDoc();
+  const RefPtr<nsGenericHTMLElement> body = doc->GetBody();
+  MOZ_RELEASE_ASSERT(body);
+  for (const auto& testData : {
+           GetLeafNodeTest{u"<div></div>", "div", {}, nullptr},
+           GetLeafNodeTest{u"<div><br></div>", "div", {}, "div > br"},
+           GetLeafNodeTest{
+               u"<div>abc<br></div>", "div", {}, nullptr, "div", 0u},
+           GetLeafNodeTest{u"<div>abc</div>", "div", {}, nullptr, "div", 0u},
+           GetLeafNodeTest{
+               u"<div><div><br></div></div>", "div", {}, "div > div > br"},
+
+           GetLeafNodeTest{u"<div><div><br></div></div>",
+                           "div",
+                           {LeafNodeOption::TreatChildBlockAsLeafNode},
+                           "div > div"},
+           GetLeafNodeTest{u"<div><div><br></div><div><br></div></div>",
+                           "div",
+                           {},
+                           "div > div > br"},
+           GetLeafNodeTest{u"<div><div><br></div><div><br></div></div>",
+                           "div",
+                           {LeafNodeOption::TreatChildBlockAsLeafNode},
+                           "div > div"},
+
+           GetLeafNodeTest{u"<div><!--abc--></div>", "div", {}, nullptr},
+           GetLeafNodeTest{u"<div><!--abc--></div>",
+                           "div",
+                           {LeafNodeOption::TreatCommentAsLeafNode},
+                           nullptr,
+                           "div",
+                           0u},
+           GetLeafNodeTest{u"<div><!--abc--><br></div>", "div", {}, "div > br"},
+           GetLeafNodeTest{u"<div><!--abc--><br></div>",
+                           "div",
+                           {LeafNodeOption::TreatCommentAsLeafNode},
+                           nullptr,
+                           "div",
+                           0u},
+           GetLeafNodeTest{
+               u"<div><!--abc--><div><br></div><div><br></div></div>",
+               "div",
+               {},
+               "div > div > br"},
+           GetLeafNodeTest{
+               u"<div><!--abc--><div><br></div><div><br></div></div>",
+               "div",
+               {LeafNodeOption::TreatCommentAsLeafNode},
+               nullptr,
+               "div",
+               0u},
+
+           GetLeafNodeTest{
+               u"<div><span></span></div>", "div", {}, "div > span"},
+           GetLeafNodeTest{u"<div><span></span></div>",
+                           "div",
+                           {LeafNodeOption::IgnoreAnyEmptyInlineContainers},
+                           nullptr},
+           GetLeafNodeTest{u"<div><span></span><br></div>",
+                           "div",
+                           {LeafNodeOption::IgnoreAnyEmptyInlineContainers},
+                           "div > br"},
+           GetLeafNodeTest{
+               u"<div><span></span><div><br></div><div><br></div></div>",
+               "div",
+               {},
+               "div > span"},
+           GetLeafNodeTest{
+               u"<div><span></span><div><br></div><div><br></div></div>",
+               "div",
+               {LeafNodeOption::IgnoreAnyEmptyInlineContainers},
+               "div > div > br"},
+
+           GetLeafNodeTest{u"<div><span><!-- abc --></span></div>",
+                           "div",
+                           {},
+                           "div > span"},
+           GetLeafNodeTest{u"<div><span><!-- abc --></span></div>",
+                           "div",
+                           {LeafNodeOption::TreatCommentAsLeafNode},
+                           nullptr,
+                           "div > span",
+                           0u},
+           GetLeafNodeTest{u"<div><span><!-- abc --></span></div>",
+                           "div",
+                           {LeafNodeOption::IgnoreAnyEmptyInlineContainers},
+                           nullptr},
+           GetLeafNodeTest{u"<div><span><!-- abc --></span></div>",
+                           "div",
+                           {LeafNodeOption::IgnoreAnyEmptyInlineContainers,
+                            LeafNodeOption::TreatCommentAsLeafNode},
+                           nullptr,
+                           "div > span",
+                           0u},
+
+           GetLeafNodeTest{u"<div><wbr><br></div>", "div", {}, "div > wbr"},
+           GetLeafNodeTest{u"<div><wbr><br></div>",
+                           "div",
+                           {LeafNodeOption::IgnoreAnyEmptyInlineContainers},
+                           "div > wbr"},
+           GetLeafNodeTest{u"<div><wbr><br></div>",
+                           "div",
+                           {LeafNodeOption::IgnoreInvisibleInlineVoidElements},
+                           "div > br"},
+
+           GetLeafNodeTest{
+               u"<div> <span>abc</span></div>", "div", {}, nullptr, "div", 0u},
+           GetLeafNodeTest{u"<div> <span>abc</span></div>",
+                           "div",
+                           {LeafNodeOption::IgnoreInvisibleText},
+                           nullptr,
+                           "div > span",
+                           0u},
+       }) {
+    body->SetInnerHTMLTrusted(nsDependentString(testData.mInnerHTML),
+                              doc->NodePrincipal(), IgnoreErrors());
+    const Element* const target = body->QuerySelector(
+        nsDependentCString(testData.mContentSelector), IgnoreErrors());
+    MOZ_RELEASE_ASSERT(target);
+    const nsIContent* result = HTMLEditUtils::GetFirstLeafContent(
+        *target, testData.mOptions,
+        BlockInlineCheck::UseComputedDisplayOutsideStyle);
+    EXPECT_EQ(result, testData.GetExpectedTarget(*body))
+        << "GetFirstLeafContent: " << testData
+        << "(Got: " << ToString(RefPtr{result}) << ")";
+  }
+}
+
+TEST(HTMLEditUtilsTest, GetNextLeafContentOrNextBlockElement_Content)
+{
+  using LeafNodeOption = HTMLEditUtils::LeafNodeOption;
+  const RefPtr<Document> doc = CreateHTMLDoc();
+  const RefPtr<nsGenericHTMLElement> body = doc->GetBody();
+  MOZ_RELEASE_ASSERT(body);
+  for (const auto& testData : {
+           GetLeafNodeTest{u"<div><br></div><p><br></p>", "div", {}, "p"},
+           GetLeafNodeTest{
+               u"<div><br></div><!--abc--><p><br></p>", "div", {}, "p"},
+           GetLeafNodeTest{u"<div><br></div><!--abc--><p><br></p>",
+                           "div",
+                           {LeafNodeOption::TreatCommentAsLeafNode},
+                           nullptr,
+                           "body",
+                           1u},
+           GetLeafNodeTest{
+               u"<div><br></div><span><br></span>", "div", {}, "span > br"},
+           GetLeafNodeTest{u"<div><br></div><span><!--abc--><br></span>",
+                           "div",
+                           {},
+                           "span > br"},
+           GetLeafNodeTest{u"<div><br></div><span><!--abc--><br></span>",
+                           "div",
+                           {LeafNodeOption::TreatCommentAsLeafNode},
+                           nullptr,
+                           "span",
+                           0u},
+       }) {
+    body->SetInnerHTMLTrusted(nsDependentString(testData.mInnerHTML),
+                              doc->NodePrincipal(), IgnoreErrors());
+    const Element* const target = body->QuerySelector(
+        nsDependentCString(testData.mContentSelector), IgnoreErrors());
+    MOZ_RELEASE_ASSERT(target);
+    const nsIContent* result =
+        HTMLEditUtils::GetNextLeafContentOrNextBlockElement(
+            *target, testData.mOptions,
+            BlockInlineCheck::UseComputedDisplayOutsideStyle);
+    EXPECT_EQ(result, testData.GetExpectedTarget(*body->GetParentNode()))
+        << "GetNextLeafContentOrNextBlockElement: " << testData
+        << "(Got: " << ToString(RefPtr{result}) << ")";
+  }
+}
+
+// TODO: Test GetNextLeafContentOrNextBlockElement() which takes EditorDOMPoint
+
+TEST(HTMLEditUtilsTest, GetPreviousLeafContentOrPreviousBlockElement_Content)
+{
+  using LeafNodeOption = HTMLEditUtils::LeafNodeOption;
+  const RefPtr<Document> doc = CreateHTMLDoc();
+  const RefPtr<nsGenericHTMLElement> body = doc->GetBody();
+  MOZ_RELEASE_ASSERT(body);
+  for (const auto& testData : {
+           GetLeafNodeTest{u"<p><br></p><div><br></div>", "div", {}, "p"},
+           GetLeafNodeTest{
+               u"<p><br></p><!--abc--><div><br></div>", "div", {}, "p"},
+           GetLeafNodeTest{u"<p><br></p><!--abc--><div><br></div>",
+                           "div",
+                           {LeafNodeOption::TreatCommentAsLeafNode},
+                           nullptr,
+                           "body",
+                           1u},
+           GetLeafNodeTest{
+               u"<span><br></span><div><br></div>", "div", {}, "span > br"},
+           GetLeafNodeTest{u"<span><br><!--abc--></span><div><br></div>",
+                           "div",
+                           {},
+                           "span > br"},
+           GetLeafNodeTest{u"<span><br><!--abc--></span><div><br></div>",
+                           "div",
+                           {LeafNodeOption::TreatCommentAsLeafNode},
+                           nullptr,
+                           "span",
+                           1u},
+       }) {
+    body->SetInnerHTMLTrusted(nsDependentString(testData.mInnerHTML),
+                              doc->NodePrincipal(), IgnoreErrors());
+    const Element* const target = body->QuerySelector(
+        nsDependentCString(testData.mContentSelector), IgnoreErrors());
+    MOZ_RELEASE_ASSERT(target);
+    const nsIContent* result =
+        HTMLEditUtils::GetPreviousLeafContentOrPreviousBlockElement(
+            *target, testData.mOptions,
+            BlockInlineCheck::UseComputedDisplayOutsideStyle);
+    EXPECT_EQ(result, testData.GetExpectedTarget(*body->GetParentNode()))
+        << "GetPreviousLeafContentOrPreviousBlockElement: " << testData
+        << "(Got: " << ToString(RefPtr{result}) << ")";
+  }
+}
+
+// TODO: Test GetPreviousLeafContentOrPreviousBlockElement() which takes
+// EditorDOMPoint
+
+TEST(HTMLEditUtilsTest, GetNextLeafContent_Content)
+{
+  using LeafNodeOption = HTMLEditUtils::LeafNodeOption;
+  const RefPtr<Document> doc = CreateHTMLDoc();
+  const RefPtr<nsGenericHTMLElement> body = doc->GetBody();
+  MOZ_RELEASE_ASSERT(body);
+  for (const auto& testData : {
+           GetLeafNodeTest{u"<div><br></div><p><br></p>", "div", {}, "p > br"},
+           GetLeafNodeTest{
+               u"<div><br></div><!--abc--><p><br></p>", "div", {}, "p > br"},
+           GetLeafNodeTest{u"<div><br></div><!--abc--><p><br></p>",
+                           "div",
+                           {LeafNodeOption::TreatCommentAsLeafNode},
+                           nullptr,
+                           "body",
+                           1u},
+           GetLeafNodeTest{
+               u"<div><br></div><span><br></span>", "div", {}, "span > br"},
+           GetLeafNodeTest{u"<div><br></div><span><!--abc--><br></span>",
+                           "div",
+                           {},
+                           "span > br"},
+           GetLeafNodeTest{u"<div><br></div><span><!--abc--><br></span>",
+                           "div",
+                           {LeafNodeOption::TreatCommentAsLeafNode},
+                           nullptr,
+                           "span",
+                           0u},
+       }) {
+    body->SetInnerHTMLTrusted(nsDependentString(testData.mInnerHTML),
+                              doc->NodePrincipal(), IgnoreErrors());
+    const Element* const target = body->QuerySelector(
+        nsDependentCString(testData.mContentSelector), IgnoreErrors());
+    MOZ_RELEASE_ASSERT(target);
+    const nsIContent* result = HTMLEditUtils::GetNextLeafContent(
+        *target, testData.mOptions,
+        BlockInlineCheck::UseComputedDisplayOutsideStyle);
+    EXPECT_EQ(result, testData.GetExpectedTarget(*body->GetParentNode()))
+        << "GetNextLeafContent: " << testData
+        << "(Got: " << ToString(RefPtr{result}) << ")";
+  }
+}
+
+// TODO: Test GetNextLeafContent() which takes EditorDOMPoint
+
+TEST(HTMLEditUtilsTest, GetPreviousLeafContent_Content)
+{
+  using LeafNodeOption = HTMLEditUtils::LeafNodeOption;
+  const RefPtr<Document> doc = CreateHTMLDoc();
+  const RefPtr<nsGenericHTMLElement> body = doc->GetBody();
+  MOZ_RELEASE_ASSERT(body);
+  for (const auto& testData : {
+           GetLeafNodeTest{u"<p><br></p><div><br></div>", "div", {}, "p > br"},
+           GetLeafNodeTest{
+               u"<p><br></p><!--abc--><div><br></div>", "div", {}, "p > br"},
+           GetLeafNodeTest{u"<p><br></p><!--abc--><div><br></div>",
+                           "div",
+                           {LeafNodeOption::TreatCommentAsLeafNode},
+                           nullptr,
+                           "body",
+                           1u},
+           GetLeafNodeTest{
+               u"<span><br></span><div><br></div>", "div", {}, "span > br"},
+           GetLeafNodeTest{u"<span><br><!--abc--></span><div><br></div>",
+                           "div",
+                           {},
+                           "span > br"},
+           GetLeafNodeTest{u"<span><br><!--abc--></span><div><br></div>",
+                           "div",
+                           {LeafNodeOption::TreatCommentAsLeafNode},
+                           nullptr,
+                           "span",
+                           1u},
+       }) {
+    body->SetInnerHTMLTrusted(nsDependentString(testData.mInnerHTML),
+                              doc->NodePrincipal(), IgnoreErrors());
+    const Element* const target = body->QuerySelector(
+        nsDependentCString(testData.mContentSelector), IgnoreErrors());
+    MOZ_RELEASE_ASSERT(target);
+    const nsIContent* result = HTMLEditUtils::GetPreviousLeafContent(
+        *target, testData.mOptions,
+        BlockInlineCheck::UseComputedDisplayOutsideStyle);
+    EXPECT_EQ(result, testData.GetExpectedTarget(*body->GetParentNode()))
+        << "GetPreviousLeafContent: " << testData
+        << "(Got: " << ToString(RefPtr{result}) << ")";
+  }
+}
+
+// TODO: Test GetPreviousLeafContent() which takes EditorDOMPoint
+
+TEST(HTMLEditUtilsTest, GetPreviousSibling)
+{
+  using LeafNodeOption = HTMLEditUtils::LeafNodeOption;
+  const RefPtr<Document> doc = CreateHTMLDoc();
+  const RefPtr<nsGenericHTMLElement> body = doc->GetBody();
+  MOZ_RELEASE_ASSERT(body);
+  for (const auto& testData : {
+           GetLeafNodeTest{u"<div><p><br></p></div>", "div > p", {}, nullptr},
+           GetLeafNodeTest{u"<div><p><br></p><p><br></p></div>",
+                           "div > p + p",
+                           {},
+                           "div > p"},
+           GetLeafNodeTest{u"<div><p><br></p><!-- comment --><p><br></p></div>",
+                           "div p + p",
+                           {},
+                           "div > p"},
+           GetLeafNodeTest{u"<div><p><br></p><!-- comment --><p><br></p></div>",
+                           "div > p + p",
+                           {LeafNodeOption::TreatCommentAsLeafNode},
+                           nullptr,
+                           "div",
+                           1u},
+           GetLeafNodeTest{u"<div><p><br></p> <p><br></p></div>",
+                           "div > p + p",
+                           {},
+                           nullptr,
+                           "div",
+                           1u},
+           GetLeafNodeTest{u"<div><p><br></p> <p><br></p></div>",
+                           "div > p + p",
+                           {LeafNodeOption::IgnoreInvisibleText},
+                           "div > p"},
+           GetLeafNodeTest{
+               u"<div contenteditable><p><br></p><p "
+               u"contenteditable=\"false\"><br></p><p><br></p></div>",
+               "div > p + p + p",
+               {},
+               "div > p + p"},
+           GetLeafNodeTest{
+               u"<div contenteditable><p><br></p><p "
+               u"contenteditable=\"false\"><br></p><p><br></p></div>",
+               "div > p + p + p",
+               {LeafNodeOption::IgnoreNonEditableNode},
+               "div > p"},
+           GetLeafNodeTest{
+               u"<div><b>abc</b><s><!-- comment --></s><i>def</i></div>",
+               "div > i",
+               {},
+               "div > s"},
+           GetLeafNodeTest{
+               u"<div><b>abc</b><s><!-- comment --></s><i>def</i></div>",
+               "div > i",
+               {LeafNodeOption::IgnoreInvisibleEmptyInlineContainers},
+               "div > b"},
+           GetLeafNodeTest{
+               u"<div><b>abc</b><s><!-- comment --></s><i>def</i></div>",
+               "div > i",
+               {LeafNodeOption::IgnoreInvisibleEmptyInlineContainers,
+                LeafNodeOption::TreatCommentAsLeafNode},
+               "div > s"},
+       }) {
+    body->SetInnerHTMLTrusted(nsDependentString(testData.mInnerHTML),
+                              doc->NodePrincipal(), IgnoreErrors());
+    const Element* const target = body->QuerySelector(
+        nsDependentCString(testData.mContentSelector), IgnoreErrors());
+    MOZ_RELEASE_ASSERT(target);
+    const nsIContent* result = HTMLEditUtils::GetPreviousSibling(
+        *target, testData.mOptions,
+        BlockInlineCheck::UseComputedDisplayOutsideStyle);
+    EXPECT_EQ(result, testData.GetExpectedTarget(*body->GetParentNode()))
+        << "GetPreviousSibling: " << testData
+        << "(Got: " << ToString(RefPtr{result}) << ")";
+  }
+}
+
+TEST(HTMLEditUtilsTest, GetNextSibling)
+{
+  using LeafNodeOption = HTMLEditUtils::LeafNodeOption;
+  const RefPtr<Document> doc = CreateHTMLDoc();
+  const RefPtr<nsGenericHTMLElement> body = doc->GetBody();
+  MOZ_RELEASE_ASSERT(body);
+  for (const auto& testData : {
+           GetLeafNodeTest{u"<div><p><br></p></div>", "div > p", {}, nullptr},
+           GetLeafNodeTest{u"<div><p><br></p><p><br></p></div>",
+                           "div > p",
+                           {},
+                           "div > p + p"},
+           GetLeafNodeTest{u"<div><p><br></p><!-- comment --><p><br></p></div>",
+                           "div > p",
+                           {},
+                           "div > p + p"},
+           GetLeafNodeTest{u"<div><p><br></p><!-- comment --><p><br></p></div>",
+                           "div > p",
+                           {LeafNodeOption::TreatCommentAsLeafNode},
+                           nullptr,
+                           "div",
+                           1u},
+           GetLeafNodeTest{u"<div><p><br></p> <p><br></p></div>",
+                           "div > p",
+                           {},
+                           nullptr,
+                           "div",
+                           1u},
+           GetLeafNodeTest{u"<div><p><br></p> <p><br></p></div>",
+                           "div > p",
+                           {LeafNodeOption::IgnoreInvisibleText},
+                           "div > p + p"},
+           GetLeafNodeTest{
+               u"<div contenteditable><p><br></p><p "
+               u"contenteditable=\"false\"><br></p><p><br></p></div>",
+               "div p + p",
+               {},
+               "div > p + p + p"},
+           GetLeafNodeTest{
+               u"<div contenteditable><p><br></p><p "
+               u"contenteditable=\"false\"><br></p><p><br></p></div>",
+               "div p",
+               {LeafNodeOption::IgnoreNonEditableNode},
+               "div > p  + p + p"},
+           GetLeafNodeTest{
+               u"<div><b>abc</b><s><!-- comment --></s><i>def</i></div>",
+               "div > b",
+               {},
+               "div > s"},
+           GetLeafNodeTest{
+               u"<div><b>abc</b><s><!-- comment --></s><i>def</i></div>",
+               "div > b",
+               {LeafNodeOption::IgnoreInvisibleEmptyInlineContainers},
+               "div > i"},
+           GetLeafNodeTest{
+               u"<div><b>abc</b><s><!-- comment --></s><i>def</i></div>",
+               "div > b",
+               {LeafNodeOption::IgnoreInvisibleEmptyInlineContainers,
+                LeafNodeOption::TreatCommentAsLeafNode},
+               "div > s"},
+       }) {
+    body->SetInnerHTMLTrusted(nsDependentString(testData.mInnerHTML),
+                              doc->NodePrincipal(), IgnoreErrors());
+    const Element* const target = body->QuerySelector(
+        nsDependentCString(testData.mContentSelector), IgnoreErrors());
+    MOZ_RELEASE_ASSERT(target);
+    const nsIContent* result = HTMLEditUtils::GetNextSibling(
+        *target, testData.mOptions,
+        BlockInlineCheck::UseComputedDisplayOutsideStyle);
+    EXPECT_EQ(result, testData.GetExpectedTarget(*body->GetParentNode()))
+        << "GetNextSibling: " << testData
+        << "(Got: " << ToString(RefPtr{result}) << ")";
+  }
+}
+
+TEST(HTMLEditUtilsTest, GetFirstChild)
+{
+  using LeafNodeOption = HTMLEditUtils::LeafNodeOption;
+  const RefPtr<Document> doc = CreateHTMLDoc();
+  const RefPtr<nsGenericHTMLElement> body = doc->GetBody();
+  MOZ_RELEASE_ASSERT(body);
+  for (const auto& testData : {
+           GetLeafNodeTest{u"<div></div>", "div", {}, nullptr},
+           GetLeafNodeTest{u"<div><p><br></p></div>", "div", {}, "div > p"},
+           GetLeafNodeTest{
+               u"<div><!-- comment --><p><br></p></div>", "div", {}, "div > p"},
+           GetLeafNodeTest{u"<div><!-- comment --><p><br></p></div>",
+                           "div",
+                           {LeafNodeOption::TreatCommentAsLeafNode},
+                           nullptr,
+                           "div",
+                           0u},
+           GetLeafNodeTest{
+               u"<div> <p><br></p></div>", "div", {}, nullptr, "div", 0u},
+           GetLeafNodeTest{u"<div> <p><br></p></div>",
+                           "div",
+                           {LeafNodeOption::IgnoreInvisibleText},
+                           "div > p"},
+           GetLeafNodeTest{
+               u"<div contenteditable><p "
+               u"contenteditable=\"false\"><br></p><p><br></p></div>",
+               "div",
+               {},
+               "div > p"},
+           GetLeafNodeTest{
+               u"<div contenteditable><p "
+               u"contenteditable=\"false\"><br></p><p><br></p></div>",
+               "div",
+               {LeafNodeOption::IgnoreNonEditableNode},
+               "div > p + p"},
+           GetLeafNodeTest{u"<div><s><!-- comment --></s><i>def</i></div>",
+                           "div",
+                           {},
+                           "div > s"},
+           GetLeafNodeTest{
+               u"<div><s><!-- comment --></s><i>def</i></div>",
+               "div",
+               {LeafNodeOption::IgnoreInvisibleEmptyInlineContainers},
+               "div > i"},
+           GetLeafNodeTest{
+               u"<div><s><!-- comment --></s><i>def</i></div>",
+               "div",
+               {LeafNodeOption::IgnoreInvisibleEmptyInlineContainers,
+                LeafNodeOption::TreatCommentAsLeafNode},
+               "div > s"},
+       }) {
+    body->SetInnerHTMLTrusted(nsDependentString(testData.mInnerHTML),
+                              doc->NodePrincipal(), IgnoreErrors());
+    const Element* const target = body->QuerySelector(
+        nsDependentCString(testData.mContentSelector), IgnoreErrors());
+    MOZ_RELEASE_ASSERT(target);
+    const nsIContent* result = HTMLEditUtils::GetFirstChild(
+        *target, testData.mOptions,
+        BlockInlineCheck::UseComputedDisplayOutsideStyle);
+    EXPECT_EQ(result, testData.GetExpectedTarget(*body->GetParentNode()))
+        << "GetFirstChild: " << testData << "(Got: " << ToString(RefPtr{result})
+        << ")";
+  }
+}
+
+TEST(HTMLEditUtilsTest, GetLastChild)
+{
+  using LeafNodeOption = HTMLEditUtils::LeafNodeOption;
+  const RefPtr<Document> doc = CreateHTMLDoc();
+  const RefPtr<nsGenericHTMLElement> body = doc->GetBody();
+  MOZ_RELEASE_ASSERT(body);
+  for (const auto& testData : {
+           GetLeafNodeTest{u"<div></div>", "div", {}, nullptr},
+           GetLeafNodeTest{u"<div><p><br></p></div>", "div", {}, "div > p"},
+           GetLeafNodeTest{
+               u"<div><p><br></p><!-- comment --></div>", "div", {}, "div > p"},
+           GetLeafNodeTest{u"<div><p><br></p><!-- comment --></div>",
+                           "div",
+                           {LeafNodeOption::TreatCommentAsLeafNode},
+                           nullptr,
+                           "div",
+                           1u},
+           GetLeafNodeTest{
+               u"<div><p><br></p> </div>", "div", {}, nullptr, "div", 1u},
+           GetLeafNodeTest{u"<div><p><br></p> </div>",
+                           "div",
+                           {LeafNodeOption::IgnoreInvisibleText},
+                           "div > p"},
+           GetLeafNodeTest{u"<div contenteditable><p><br></p><p "
+                           u"contenteditable=\"false\"><br></p></div>",
+                           "div",
+                           {},
+                           "div > p + p"},
+           GetLeafNodeTest{u"<div contenteditable><p><br></p><p "
+                           u"contenteditable=\"false\"><br></p></div>",
+                           "div",
+                           {LeafNodeOption::IgnoreNonEditableNode},
+                           "div > p"},
+           GetLeafNodeTest{u"<div><i>def</i><s><!-- comment --></s></div>",
+                           "div",
+                           {},
+                           "div > s"},
+           GetLeafNodeTest{
+               u"<div><i>def</i><s><!-- comment --></s></div>",
+               "div",
+               {LeafNodeOption::IgnoreInvisibleEmptyInlineContainers},
+               "div > i"},
+           GetLeafNodeTest{
+               u"<div><i>def</i><s><!-- comment --></s></div>",
+               "div",
+               {LeafNodeOption::IgnoreInvisibleEmptyInlineContainers,
+                LeafNodeOption::TreatCommentAsLeafNode},
+               "div > s"},
+       }) {
+    body->SetInnerHTMLTrusted(nsDependentString(testData.mInnerHTML),
+                              doc->NodePrincipal(), IgnoreErrors());
+    const Element* const target = body->QuerySelector(
+        nsDependentCString(testData.mContentSelector), IgnoreErrors());
+    MOZ_RELEASE_ASSERT(target);
+    const nsIContent* result = HTMLEditUtils::GetLastChild(
+        *target, testData.mOptions,
+        BlockInlineCheck::UseComputedDisplayOutsideStyle);
+    EXPECT_EQ(result, testData.GetExpectedTarget(*body->GetParentNode()))
+        << "GetLastChild: " << testData << "(Got: " << ToString(RefPtr{result})
+        << ")";
+  }
+}
+
+TEST(HTMLEditUtilsTest, GetInclusiveDeepestFirstChildWhichHasOneChild)
+{
+  using LeafNodeOption = HTMLEditUtils::LeafNodeOption;
+  const RefPtr<Document> doc = CreateHTMLDoc();
+  const RefPtr<nsGenericHTMLElement> body = doc->GetBody();
+  MOZ_RELEASE_ASSERT(body);
+  for (const auto& testData : {
+           GetLeafNodeTest{u"<div></div>", "div", {}, "div"},
+           GetLeafNodeTest{u"<div><br></div>", "div", {}, "div"},
+           GetLeafNodeTest{
+               u"<div><div><br></div></div>", "div", {}, "div > div"},
+           GetLeafNodeTest{
+               u"<div><!-- comment --><br></div>", "div", {}, "div"},
+           GetLeafNodeTest{u"<div><!-- comment --><br></div>",
+                           "div",
+                           {LeafNodeOption::TreatCommentAsLeafNode},
+                           "div"},
+           GetLeafNodeTest{u"<div><div><!-- comment --><br></div></div>",
+                           "div",
+                           {},
+                           "div > div"},
+           GetLeafNodeTest{u"<div><div><!-- comment --><br></div></div>",
+                           "div",
+                           {LeafNodeOption::TreatCommentAsLeafNode},
+                           "div > div"},
+           GetLeafNodeTest{u"<div><!-- comment --><div><br></div></div>",
+                           "div",
+                           {},
+                           "div > div"},
+           GetLeafNodeTest{u"<div><!-- comment --><div><br></div></div>",
+                           "div",
+                           {LeafNodeOption::TreatCommentAsLeafNode},
+                           "div"},
+           GetLeafNodeTest{u"<div> <br></div>", "div", {}, "div"},
+           GetLeafNodeTest{u"<div> <br></div>",
+                           "div",
+                           {LeafNodeOption::IgnoreInvisibleText},
+                           "div"},
+           GetLeafNodeTest{
+               u"<div><div> <br></div></div>", "div", {}, "div > div"},
+           GetLeafNodeTest{u"<div><div> <br></div></div>",
+                           "div",
+                           {LeafNodeOption::IgnoreInvisibleText},
+                           "div > div"},
+           GetLeafNodeTest{u"<div> <div><br></div></div>", "div", {}, "div"},
+           GetLeafNodeTest{u"<div> <div><br></div></div>",
+                           "div",
+                           {LeafNodeOption::IgnoreInvisibleText},
+                           "div > div"},
+       }) {
+    body->SetInnerHTMLTrusted(nsDependentString(testData.mInnerHTML),
+                              doc->NodePrincipal(), IgnoreErrors());
+    const Element* const target = body->QuerySelector(
+        nsDependentCString(testData.mContentSelector), IgnoreErrors());
+    MOZ_RELEASE_ASSERT(target);
+    const nsIContent* result =
+        HTMLEditUtils::GetInclusiveDeepestFirstChildWhichHasOneChild(
+            *target, testData.mOptions,
+            BlockInlineCheck::UseComputedDisplayOutsideStyle, nsGkAtoms::div,
+            nsGkAtoms::blockquote, nsGkAtoms::ul, nsGkAtoms::ol, nsGkAtoms::dl);
+    EXPECT_EQ(result, testData.GetExpectedTarget(*body->GetParentNode()))
+        << "GetInclusiveDeepestFirstChildWhichHasOneChild: " << testData
+        << "(Got: " << ToString(RefPtr{result}) << ")";
+  }
+}
+
+struct MOZ_STACK_CLASS LineBreakBeforeBlockBoundaryTest final {
+  const char16_t* const mInnerHTML;
+  const char* const mContainer;
+  const Maybe<uint32_t>
+      mContainerIndex;  // Set if need to use CharacterData in mContainer.
+  const uint32_t mOffset;
+  const bool mExpectedResult;  // true if the method return a line break
+
+  friend std::ostream& operator<<(
+      std::ostream& aStream, const LineBreakBeforeBlockBoundaryTest& aTest) {
+    aStream << "Scan from { container: " << aTest.mContainer;
+    if (aTest.mContainerIndex) {
+      aStream << "'s " << aTest.mContainerIndex.value() + 1 << "th child";
+    }
+    return aStream << ", offset: " << aTest.mOffset << " } in "
+                   << NS_ConvertUTF16toUTF8(aTest.mInnerHTML).get() << "\"";
+  }
+};
+
+TEST(HTMLEditUtilsTest, GetLineBreakBeforeBlockBoundaryIfPointIsBetweenThem)
+{
+  const RefPtr<Document> doc = CreateHTMLDoc();
+  const RefPtr<nsGenericHTMLElement> body = doc->GetBody();
+  MOZ_RELEASE_ASSERT(body);
+  for (const auto& testData : {
+           LineBreakBeforeBlockBoundaryTest{u"<div contenteditable>abc</div>",
+                                            "div", Some(0), 3, false},
+           LineBreakBeforeBlockBoundaryTest{u"<div contenteditable>abc</div>",
+                                            "div", Nothing{}, 1, false},
+           LineBreakBeforeBlockBoundaryTest{u"<div contenteditable><br></div>",
+                                            "div", Nothing{}, 0, false},
+           LineBreakBeforeBlockBoundaryTest{u"<div contenteditable><br></div>",
+                                            "div", Nothing{}, 1, true},
+           LineBreakBeforeBlockBoundaryTest{
+               u"<div contenteditable><br>  </div>", "div", Some(1), 2, true},
+           LineBreakBeforeBlockBoundaryTest{
+               u"<div contenteditable><br><!-- X --></div>", "div", Nothing{},
+               2, true},
+           LineBreakBeforeBlockBoundaryTest{
+               u"<div contenteditable><br><br></div>", "div", Nothing{}, 1,
+               false},
+           LineBreakBeforeBlockBoundaryTest{
+               u"<div contenteditable><br><p>abc</p></div>", "div", Nothing{},
+               1, true},
+       }) {
+    body->SetInnerHTMLTrusted(nsDependentString(testData.mInnerHTML),
+                              doc->NodePrincipal(), IgnoreErrors());
+    const Element* const containerElement = body->QuerySelector(
+        nsDependentCString(testData.mContainer), IgnoreErrors());
+    MOZ_ASSERT(containerElement);
+    const Element* const editingHost =
+        body->QuerySelector("[contenteditable]"_ns, IgnoreErrors());
+    MOZ_ASSERT(editingHost);
+    const nsIContent* const container =
+        testData.mContainerIndex
+            ? containerElement->GetChildAt_Deprecated(*testData.mContainerIndex)
+            : containerElement;
+    MOZ_RELEASE_ASSERT(container);
+    const Maybe<EditorRawLineBreak> result =
+        HTMLEditUtils::GetLineBreakBeforeBlockBoundaryIfPointIsBetweenThem<
+            EditorRawLineBreak>(EditorRawDOMPoint(container, testData.mOffset),
+                                *editingHost);
+    EXPECT_EQ(result.isSome(), testData.mExpectedResult)
+        << "GetLineBreakBeforeBlockBoundaryIfPointIsBetweenThem: " << testData;
   }
 }
 

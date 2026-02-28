@@ -2762,7 +2762,7 @@ void PeerConnectionImpl::RecordSignalingTelemetry() const {
               }
             }
           }
-          return nsFmtCString{FMT_STRING("{}"), fmt::join(payload_names, ", ")};
+          return nsFmtCString{"{}", fmt::join(payload_names, ", ")};
         })((sending ? aTransceiver.mSendTrack : aTransceiver.mRecvTrack)
                .GetNegotiatedDetails());
     const char* direction = ([&]() {
@@ -3075,6 +3075,15 @@ void PeerConnectionImpl::DoSetDescriptionSuccessPostProcessing(
         if (aRemote) {
           for (const auto& transceiver : mTransceivers) {
             transceiver->Receiver()->UpdateStreams(&changes);
+          }
+        }
+
+        if (aSdpType == dom::RTCSdpType::Answer) {
+          dom::RTCIceRole role = mJsepSession->IsIceControlling()
+                                     ? dom::RTCIceRole::Controlling
+                                     : dom::RTCIceRole::Controlled;
+          for (const auto& dtlsTransport : GetActiveTransports()) {
+            dtlsTransport->IceTransport()->SetRole(role);
           }
         }
 

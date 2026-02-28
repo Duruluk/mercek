@@ -50,9 +50,9 @@ export class UrlbarProviderAliasEngines extends UrlbarProvider {
   /**
    * Starts querying.
    *
-   * @param {object} queryContext The query context object
-   * @param {Function} addCallback Callback invoked by the provider to add a new
-   *        result.
+   * @param {UrlbarQueryContext} queryContext
+   * @param {(provider: UrlbarProvider, result: UrlbarResult) => void} addCallback
+   *   Callback invoked by the provider to add a new result.
    */
   async startQuery(queryContext, addCallback) {
     let instance = this.queryInstance;
@@ -65,17 +65,21 @@ export class UrlbarProviderAliasEngines extends UrlbarProvider {
     if (!engine || instance != this.queryInstance) {
       return;
     }
-    let query = UrlbarUtils.substringAfter(queryContext.searchString, alias);
+    let query = UrlbarUtils.substringAfter(
+      queryContext.searchString,
+      alias
+    ).trimStart();
     let result = new lazy.UrlbarResult({
       type: UrlbarUtils.RESULT_TYPE.SEARCH,
       source: UrlbarUtils.RESULT_SOURCE.SEARCH,
       heuristic: true,
-      ...lazy.UrlbarResult.payloadAndSimpleHighlights(queryContext.tokens, {
+      payload: {
         engine: engine.name,
         keyword: alias,
-        query: query.trimStart(),
+        query,
+        title: query,
         icon,
-      }),
+      },
     });
     addCallback(this, result);
   }

@@ -12,6 +12,9 @@
 #define MODULES_VIDEO_CAPTURE_LINUX_PIPEWIRE_SESSION_H_
 
 #include <pipewire/pipewire.h>
+#include <spa/pod/pod.h>
+#include <spa/utils/dict.h>
+#include <spa/utils/hook.h>
 
 #include <cstdint>
 #include <deque>
@@ -71,8 +74,8 @@ class PipeWireNode {
                           const spa_pod* param);
   static bool ParseFormat(const spa_pod* param, VideoCaptureCapability* cap);
 
-  pw_proxy* proxy_;
-  spa_hook node_listener_;
+  struct pw_proxy* proxy_;
+  struct spa_hook node_listener_;
   PipeWireSession* session_;
   uint32_t id_;
   std::string display_name_;
@@ -161,6 +164,7 @@ class PipeWireSession : public webrtc::RefCountedNonVirtual<PipeWireSession> {
   VideoCaptureOptions::Status status_
       RTC_GUARDED_BY(device_info_lock_);
 
+  std::unique_ptr<PipeWireInitializer> pw_initializer_;
   struct pw_thread_loop* pw_main_loop_ = nullptr;
   struct pw_context* pw_context_ = nullptr;
   struct pw_core* pw_core_ = nullptr;

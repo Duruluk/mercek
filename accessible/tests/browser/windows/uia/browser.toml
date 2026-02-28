@@ -1,15 +1,16 @@
 [DEFAULT]
 subsuite = "a11y"
 skip-if = [
-  "os != 'win'",
-  "headless",
   "artifact",
+  "headless",
+  "os != 'win'",
 ]
 support-files = [
   "head.js",
   "!/accessible/tests/mochitest/moz.png",
 ]
 prefs = [
+  "accessibility.ariaNotify.enabled=true",
   # The browser test harness clears the clipboard after each test. Copying to
   # the clipboard activates Windows accessibility suppression by default.
   # Disable this so that accessibility isn't suppressed for our tests.
@@ -32,6 +33,8 @@ prefs = [
 
 ["browser_liveRegions.js"]
 
+["browser_notificationEvent.js"]
+
 ["browser_relationProps.js"]
 
 ["browser_selectionPatterns.js"]
@@ -39,6 +42,5 @@ prefs = [
 ["browser_simplePatterns.js"]
 
 ["browser_textPatterns.js"]
-skip-if = ["os == 'win' && os_version == '11.26100' && arch == 'x86_64' && opt && verify-standalone"]
 
 ["browser_tree.js"]

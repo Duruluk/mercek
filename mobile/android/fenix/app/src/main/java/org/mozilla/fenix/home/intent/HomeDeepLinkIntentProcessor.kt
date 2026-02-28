@@ -20,6 +20,8 @@ import org.mozilla.fenix.GlobalDirections
 import org.mozilla.fenix.HomeActivity
 import org.mozilla.fenix.NavGraphDirections
 import org.mozilla.fenix.browser.browsingmode.BrowsingMode
+import org.mozilla.fenix.components.AppStore
+import org.mozilla.fenix.components.appstate.AppAction
 import org.mozilla.fenix.ext.alreadyOnDestination
 import org.mozilla.fenix.ext.openSetDefaultBrowserOption
 import org.mozilla.fenix.utils.maybeShowAddSearchWidgetPrompt
@@ -27,10 +29,14 @@ import org.mozilla.fenix.utils.Settings as AppSettings
 
 private const val EXTRA_COMPOSABLE_TOOLBAR = "EXTRA_COMPOSABLE_TOOLBAR"
 
+// Intent extra to enable or disable TabTray animation setting for testing
+private const val EXTRA_TAB_TRAY_ANIMATION = "EXTRA_TAB_TRAY_ANIMATION"
+
 /**
  * Deep links in the form of `fenix://host` open different parts of the app.
  */
 class HomeDeepLinkIntentProcessor(
+    private val appStore: AppStore,
     private val activity: HomeActivity,
     private val showAddSearchWidgetPrompt: (Activity) -> Unit = ::maybeShowAddSearchWidgetPrompt,
 ) : HomeIntentProcessor {
@@ -46,7 +52,7 @@ class HomeDeepLinkIntentProcessor(
         }
     }
 
-    @Suppress("ComplexMethod")
+    @Suppress("CyclomaticComplexMethod")
     private fun handleDeepLink(
         deepLink: Uri,
         extras: Bundle?,
@@ -102,9 +108,16 @@ class HomeDeepLinkIntentProcessor(
                     )
                     settings.shouldUseComposableToolbar = composableToolbarPreference
                 }
+                if (extras?.containsKey(EXTRA_TAB_TRAY_ANIMATION) == true) {
+                    val tabTrayAnimationPreference = extras.getBoolean(
+                        EXTRA_TAB_TRAY_ANIMATION,
+                        settings.tabManagerOpeningAnimationEnabled,
+                    )
+                    settings.tabManagerOpeningAnimationEnabled = tabTrayAnimationPreference
+                }
             }
             "enable_private_browsing" -> {
-                activity.browsingModeManager.mode = BrowsingMode.Private
+                appStore.dispatch(AppAction.BrowsingModeManagerModeChanged(mode = BrowsingMode.Private))
             }
             "make_default_browser" -> {
                 activity.openSetDefaultBrowserOption(
@@ -119,6 +132,7 @@ class HomeDeepLinkIntentProcessor(
                     return
                 }
 
+                @Suppress("DEPRECATION")
                 activity.openToBrowserAndLoad(
                     url,
                     newTab = true,

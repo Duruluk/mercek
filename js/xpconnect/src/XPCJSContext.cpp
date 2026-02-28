@@ -6,7 +6,6 @@
 
 /* Per JSContext object */
 
-#include "mozilla/MemoryReporting.h"
 #include "mozilla/UniquePtr.h"
 
 #include "xpcprivate.h"
@@ -868,8 +867,8 @@ static void LoadStartupJSPrefs(XPCJSContext* xpccx) {
   //
   // 'Live' prefs are handled by ReloadPrefsCallback below.
 
-  // Note: JS::Prefs are set earlier in startup, in InitializeJS in
-  // XPCOMInit.cpp.
+  // Note: JS::Prefs are set earlier in startup, in InitJSEngine in
+  // nsXPConnect.cpp.
 
   JSContext* cx = xpccx->Context();
 
@@ -1537,7 +1536,10 @@ void XPCJSContext::AfterProcessTask(uint32_t aNewRecursionDepth) {
 
   // Poke the memory telemetry reporter
   if (AppShutdown::GetCurrentShutdownPhase() == ShutdownPhase::NotInShutdown) {
-    MemoryTelemetry::Get().Poke();
+    RefPtr<MemoryTelemetry> telemetry = MemoryTelemetry::Get();
+    if (telemetry) {
+      telemetry->Poke();
+    }
   }
 
   // This exception might have been set if we called an XPCWrappedJS that threw,

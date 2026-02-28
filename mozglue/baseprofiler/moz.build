@@ -45,6 +45,10 @@ if CONFIG["MOZ_GECKO_PROFILER"]:
         SOURCES += [
             "core/shared-libraries-win32.cc",
         ]
+    else:
+        SOURCES += [
+            "core/shared-libraries-noop.cc",
+        ]
 
     LOCAL_INCLUDES += [
         "/mozglue/baseprofiler/core/",
@@ -62,16 +66,11 @@ GeneratedFile(
     inputs=["build/profiling_categories.yaml"],
 )
 
-EXPORTS += [
-    "!public/ProfilingCategoryList.h",
-    "public/BaseProfiler.h",
-    "public/BaseProfilingCategory.h",
-    "public/SharedLibraries.h",
-]
-
 EXPORTS.mozilla += [
+    "!public/ProfilingCategoryList.h",
     "public/BaseAndGeckoProfilerDetail.h",
     "public/BaseProfileJSONWriter.h",
+    "public/BaseProfiler.h",
     "public/BaseProfilerCounts.h",
     "public/BaseProfilerDetail.h",
     "public/BaseProfilerLabels.h",
@@ -82,6 +81,7 @@ EXPORTS.mozilla += [
     "public/BaseProfilerRAIIMacro.h",
     "public/BaseProfilerState.h",
     "public/BaseProfilerUtils.h",
+    "public/BaseProfilingCategory.h",
     "public/FailureLatch.h",
     "public/Flow.h",
     "public/leb128iterator.h",
@@ -100,6 +100,7 @@ EXPORTS.mozilla += [
     "public/ProfilerBufferSize.h",
     "public/ProgressLogger.h",
     "public/ProportionValue.h",
+    "public/SharedLibraries.h",
 ]
 
 UNIFIED_SOURCES += [

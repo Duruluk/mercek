@@ -237,3 +237,54 @@ add_task(async function test_js_sources_external_scripts() {
     info("Successfully verified external JS file collection");
   });
 });
+
+/**
+ * Test that unavailable JS sources are omitted from jsSources rather than
+ * included with a placeholder value. When the "jssources" feature is not
+ * enabled, all sources have unavailable data and should not appear in jsSources.
+ */
+add_task(async function test_js_sources_unavailable_are_omitted() {
+  Assert.ok(
+    !Services.profiler.IsActive(),
+    "The profiler is not currently active"
+  );
+
+  const url = BASE_URL + "simple.html";
+  await BrowserTestUtils.withNewTab(url, async contentBrowser => {
+    // Start profiler with js feature but WITHOUT jssources. All source data
+    // will be unavailable.
+    await ProfilerTestUtils.startProfiler({ features: ["js"] });
+
+    await SpecialPowers.spawn(contentBrowser, [], () => {
+      content.window.eval(`
+        function testSourceFunction() {
+          console.log("This is a test function");
+          return 42;
+        }
+        testSourceFunction();
+      `);
+    });
+
+    Services.profiler.Pause();
+    const profileData =
+      await Services.profiler.getProfileDataAsGzippedArrayBuffer();
+    await Services.profiler.StopProfiler();
+
+    Assert.ok(
+      !!profileData.additionalInformation,
+      "Should have additional information"
+    );
+
+    const sources = profileData.additionalInformation.jsSources;
+    Assert.ok(!!sources, "Additional info should contain jsSources");
+    Assert.equal(typeof sources, "object", "jsSources should be an object");
+
+    // Without the jssources feature, all source data is unavailable and must be
+    // omitted entirely.
+    Assert.equal(
+      Object.keys(sources).length,
+      0,
+      "jsSources should be empty when the jssources feature is not enabled"
+    );
+  });
+});

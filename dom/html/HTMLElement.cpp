@@ -13,6 +13,7 @@
 #include "mozilla/dom/FormData.h"
 #include "mozilla/dom/FromParser.h"
 #include "mozilla/dom/HTMLElementBinding.h"
+#include "mozilla/dom/LifecycleCallbackArgs.h"
 #include "nsContentUtils.h"
 #include "nsGenericHTMLElement.h"
 #include "nsILayoutHistoryState.h"
@@ -363,7 +364,7 @@ void HTMLElement::SetFormInternal(HTMLFormElement* aForm, bool aBindToTree) {
 HTMLFormElement* HTMLElement::GetFormInternal() const {
   ElementInternals* internals = GetElementInternals();
   MOZ_ASSERT(internals);
-  return internals->GetForm();
+  return internals->GetFormInternal();
 }
 
 void HTMLElement::SetFieldSetInternal(HTMLFieldSetElement* aFieldset) {

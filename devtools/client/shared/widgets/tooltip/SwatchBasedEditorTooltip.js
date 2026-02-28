@@ -26,9 +26,9 @@ loader.lazyRequireGetter(
  *        toolbox document
  */
 
-class SwatchBasedEditorTooltip {
+class SwatchBasedEditorTooltip extends EventEmitter {
   constructor(document) {
-    EventEmitter.decorate(this);
+    super();
 
     // This one will consume outside clicks as it makes more sense to let the user
     // close the tooltip by clicking out
@@ -78,7 +78,7 @@ class SwatchBasedEditorTooltip {
   /**
    * Reports if the tooltip is currently shown
    *
-   * @return {Boolean} True if the tooltip is displayed.
+   * @return {boolean} True if the tooltip is displayed.
    */
   isVisible() {
     return this.tooltip.isVisible();
@@ -87,7 +87,7 @@ class SwatchBasedEditorTooltip {
   /**
    * Reports if the tooltip is currently editing the targeted value
    *
-   * @return {Boolean} True if the tooltip is editing.
+   * @return {boolean} True if the tooltip is editing.
    */
   isEditing() {
     return this.isVisible();

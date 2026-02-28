@@ -69,3 +69,12 @@ add_task(async function () {
   await checkCertInNameSpace(certFromFile("NameConstraints.dcissallowed"));
   await checkCertNotInNameSpace(certFromFile("NameConstraints.dcissblocked"));
 });
+
+add_task(async function () {
+  // Test that a wildcard SAN (*.example.com) is rejected when an intermediate
+  // has an excluded name constraint for bar.example.com, since the wildcard
+  // could match the excluded name.
+  loadCertWithTrust("ca-no-constraints", "CTu,,");
+  loadCertWithTrust("int-bar-example-com-excluded", ",,");
+  await checkCertNotInNameSpace(certFromFile("ee-wildcard-example-com"));
+});

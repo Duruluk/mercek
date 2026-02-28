@@ -2,21 +2,13 @@
 
 import io.gitlab.arturbosch.detekt.Detekt
 import io.gitlab.arturbosch.detekt.DetektCreateBaselineTask
-import org.gradle.internal.logging.text.StyledTextOutput.Style
-import org.gradle.internal.logging.text.StyledTextOutputFactory
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+
 import static org.gradle.api.tasks.testing.TestResult.ResultType
 
 buildscript {
     repositories {
-        gradle.mozconfig.substs.GRADLE_MAVEN_REPOSITORIES.each { repository ->
-            maven {
-                url = repository
-                if (gradle.mozconfig.substs.ALLOW_INSECURE_GRADLE_REPOSITORIES) {
-                    allowInsecureProtocol = true
-                }
-            }
-        }
+        gradle.configureMavenRepositories(delegate)
     }
 
     dependencies {
@@ -25,6 +17,7 @@ buildscript {
 }
 
 plugins {
+    alias(libs.plugins.dependency.analysis)
     alias(libs.plugins.detekt)
     alias(libs.plugins.kotlin.android) apply false
     alias(libs.plugins.kotlin.compose) apply false
@@ -32,21 +25,6 @@ plugins {
 }
 
 allprojects {
-    repositories {
-        gradle.mozconfig.substs.GRADLE_MAVEN_REPOSITORIES.each { repository ->
-            maven {
-                url = repository
-                if (gradle.mozconfig.substs.ALLOW_INSECURE_GRADLE_REPOSITORIES) {
-                    allowInsecureProtocol = true
-                }
-            }
-        }
-
-        maven {
-            url = "${gradle.mozconfig.topobjdir}/gradle/maven"
-        }
-    }
-
     ext {
         gleanVersion = libs.versions.glean.get()
     }
@@ -277,6 +255,10 @@ subprojects {
             logging.removeStandardErrorListener(listener)
         }
     }
+
+    tasks.withType(AbstractTestTask).configureEach {
+        failOnNoDiscoveredTests = false
+    }
 }
 
 if (findProject(":geckoview") == null) {
@@ -387,7 +369,6 @@ tasks.register("ktlint", JavaExec) {
     args "samples/**/*.kt"
     args "!**/build/**/*.kt"
     args "buildSrc/**/*.kt"
-    args "--baseline=ktlint-baseline.xml"
     args "--reporter=json,output=build/reports/ktlint/ktlint.json"
     args "--reporter=plain"
 }
@@ -402,10 +383,25 @@ tasks.register("ktlintFormat", JavaExec) {
     args "samples/**/*.kt"
     args "!**/build/**/*.kt"
     args "buildSrc/**/*.kt"
-    args "--baseline=ktlint-baseline.xml"
     args "--reporter=json,output=build/reports/ktlint/ktlintFormat.json"
     args "--reporter=plain"
     jvmArgs("--add-opens", "java.base/java.lang=ALL-UNNAMED")
+}
+
+tasks.register("lint") {
+    group = "verification"
+    description = "Runs lint on all android-components subprojects."
+
+    // We use `dependsOn` over string task names to ensure this is all lazy
+    // until the `lint` task is actually selected. This aggregates over all
+    // components listed in the buildconfig instead of relying on what is
+    // currently configured by Gradle and avoiding configuration-on-demand
+    // issues. Each component is required to implement a `lint` task though it
+    // can be empty.
+    dependsOn {
+        def allComponents = rootProject.ext.buildConfig.projects
+        allComponents.collect { ":${it.key}:lint" }
+    }
 }
 
 tasks.register("listRepositories") {

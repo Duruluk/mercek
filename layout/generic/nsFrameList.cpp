@@ -459,8 +459,8 @@ const char* ChildListName(FrameChildListID aListID) {
       return "ColGroupList";
     case FrameChildListID::Absolute:
       return "AbsoluteList";
-    case FrameChildListID::Fixed:
-      return "FixedList";
+    case FrameChildListID::PushedAbsolute:
+      return "PushedAbsoluteList";
     case FrameChildListID::Overflow:
       return "OverflowList";
     case FrameChildListID::OverflowContainers:
@@ -475,8 +475,6 @@ const char* ChildListName(FrameChildListID aListID) {
       return "MarkerList";
     case FrameChildListID::PushedFloats:
       return "PushedFloatsList";
-    case FrameChildListID::Backdrop:
-      return "BackdropList";
     case FrameChildListID::NoReflowPrincipal:
       return "NoReflowPrincipalList";
   }

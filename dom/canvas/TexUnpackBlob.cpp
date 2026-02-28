@@ -395,7 +395,17 @@ bool TexUnpackBlob::ConvertIfNeeded(
 
   if (!rowLength || !rowCount) return true;
 
-  if (srcStride <= 0 || dstStride <= 0) {
+  auto minSrcStride =
+      CheckedInt<size_t>(
+          WebGLTexelConversions::TexelBytesForFormat(srcFormat)) *
+      rowLength;
+  auto minDstStride =
+      CheckedInt<size_t>(
+          WebGLTexelConversions::TexelBytesForFormat(dstFormat)) *
+      rowLength;
+  if (srcStride <= 0 || dstStride <= 0 || !minSrcStride.isValid() ||
+      !minDstStride.isValid() || size_t(srcStride) < minSrcStride.value() ||
+      size_t(dstStride) < minDstStride.value()) {
     webgl->ErrorInvalidOperation("Invalid stride.");
     return false;
   }
@@ -559,7 +569,7 @@ bool TexUnpackBytes::TexOrSubImage(bool isSubImage, bool needsRespec,
     const auto& unpacking = unpackingRes.inspect();
     const auto stride = unpacking.metrics.bytesPerRowStride;
     // clang-format off
-    if (!ConvertIfNeeded(webgl, unpacking.state.rowLength,
+    if (!ConvertIfNeeded(webgl, unpacking.metrics.usedPixelsPerRow,
                          unpacking.metrics.totalRows,
                          format, uploadPtr, AutoAssertCast(stride),
                          format, AutoAssertCast(stride), &uploadPtr, &tempBuffer)) {
@@ -1147,8 +1157,8 @@ bool TexUnpackSurface::TexOrSubImage(bool isSubImage, bool needsRespec,
       surf = mDesc.sourceSurf->GetDataSurface();
     }
     if (!surf) {
-      gfxCriticalError() << "TexUnpackSurface failed to create wrapping "
-                            "DataSourceSurface for Shmem.";
+      gfxCriticalNote << "TexUnpackSurface failed to create wrapping "
+                         "DataSourceSurface.";
       return false;
     }
   } else if (mDesc.sourceSurf) {
@@ -1161,6 +1171,12 @@ bool TexUnpackSurface::TexOrSubImage(bool isSubImage, bool needsRespec,
   }
 
   ////
+
+  const auto surfSize = surf->GetSize();
+  if (uint32_t(surfSize.width) < size.x || uint32_t(surfSize.height) < size.y) {
+    gfxCriticalError() << "Source surface size too small for upload.";
+    return false;
+  }
 
   WebGLTexelFormat srcFormat;
   uint8_t srcBPP;
@@ -1186,7 +1202,7 @@ bool TexUnpackSurface::TexOrSubImage(bool isSubImage, bool needsRespec,
 
   const auto dstFormat = FormatForPackingInfo(dstPI);
   const size_t dstBpp = BytesPerPixel(dstPI);
-  const size_t dstUsedBytesPerRow = dstBpp * surf->GetSize().width;
+  const size_t dstUsedBytesPerRow = dstBpp * surfSize.width;
   size_t dstStride = dstFormat == srcFormat ? srcStride  // Try To match
                                             : dstUsedBytesPerRow;
 
@@ -1217,7 +1233,7 @@ bool TexUnpackSurface::TexOrSubImage(bool isSubImage, bool needsRespec,
   const uint8_t* dstBegin = srcBegin;
   UniqueBuffer tempBuffer;
   // clang-format off
-  if (!ConvertIfNeeded(webgl, surf->GetSize().width, surf->GetSize().height,
+  if (!ConvertIfNeeded(webgl, surfSize.width, surfSize.height,
                        srcFormat, srcBegin, AutoAssertCast(srcStride),
                        dstFormat, AutoAssertCast(dstUnpacking.metrics.bytesPerRowStride), &dstBegin,
                        &tempBuffer)) {

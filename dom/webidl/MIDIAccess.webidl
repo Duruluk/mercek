@@ -7,8 +7,7 @@
  * https://webaudio.github.io/web-midi-api/
  */
 
-[SecureContext, Pref="dom.webmidi.enabled",
- Exposed=Window]
+[SecureContext, Pref="dom.webmidi.enabled", Exposed=Window]
 interface MIDIAccess : EventTarget {
   readonly attribute MIDIInputMap  inputs;
   readonly attribute MIDIOutputMap outputs;

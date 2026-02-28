@@ -398,6 +398,18 @@ impl ScaleOffset {
             1.0,
         )
     }
+
+    pub fn is_identity(&self) -> bool {
+        self.scale.x == 1.0 &&
+        self.scale.y == 1.0 &&
+        self.offset.x == 0.0 &&
+        self.offset.y == 0.0
+    }
+
+    pub fn is_reflection(&self) -> bool {
+        self.scale.x < 0.0 ||
+        self.scale.y < 0.0
+    }
 }
 
 // TODO: Implement these in euclid!
@@ -412,7 +424,6 @@ pub trait MatrixHelpers<Src, Dst> {
     fn exceeds_2d_scale(&self, limit: f64) -> bool;
     fn inverse_project(&self, target: &Point2D<f32, Dst>) -> Option<Point2D<f32, Src>>;
     fn inverse_rect_footprint(&self, rect: &Box2D<f32, Dst>) -> Option<Box2D<f32, Src>>;
-    fn transform_kind(&self) -> TransformedRectKind;
     fn is_simple_translation(&self) -> bool;
     fn is_simple_2d_translation(&self) -> bool;
     fn is_2d_scale_translation(&self) -> bool;
@@ -499,14 +510,6 @@ impl<Src, Dst> MatrixHelpers<Src, Dst> for Transform3D<f32, Src, Dst> {
         ]))
     }
 
-    fn transform_kind(&self) -> TransformedRectKind {
-        if self.preserves_2d_axis_alignment() {
-            TransformedRectKind::AxisAligned
-        } else {
-            TransformedRectKind::Complex
-        }
-    }
-
     fn is_simple_translation(&self) -> bool {
         if (self.m11 - 1.0).abs() > NEARLY_ZERO ||
             (self.m22 - 1.0).abs() > NEARLY_ZERO ||
@@ -577,6 +580,22 @@ where
 impl<U> PointHelpers<U> for Point2D<f32, U> {
     fn snap(&self) -> Self {
         Point2D::new(
+            self.x.round(),
+            self.y.round(),
+        )
+    }
+}
+
+pub trait VectorHelpers<U>
+where
+    Self: Sized,
+{
+    fn snap(&self) -> Self;
+}
+
+impl<U> VectorHelpers<U> for Vector2D<f32, U> {
+    fn snap(&self) -> Self {
+        Vector2D::new(
             self.x.round(),
             self.y.round(),
         )

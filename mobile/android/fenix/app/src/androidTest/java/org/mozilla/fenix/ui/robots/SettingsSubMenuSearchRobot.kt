@@ -37,12 +37,14 @@ import androidx.test.espresso.matcher.ViewMatchers.withId
 import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiSelector
+import mozilla.components.browser.state.state.selectedOrDefaultSearchEngine
 import org.hamcrest.CoreMatchers
 import org.hamcrest.Matchers.allOf
 import org.hamcrest.Matchers.endsWith
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.mozilla.fenix.R
+import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.helpers.Constants.RETRY_COUNT
 import org.mozilla.fenix.helpers.Constants.TAG
 import org.mozilla.fenix.helpers.DataGenerationHelper.getAvailableSearchEngines
@@ -53,6 +55,7 @@ import org.mozilla.fenix.helpers.MatcherHelper.itemWithResIdAndText
 import org.mozilla.fenix.helpers.MatcherHelper.itemWithResIdContainingText
 import org.mozilla.fenix.helpers.MatcherHelper.itemWithText
 import org.mozilla.fenix.helpers.TestAssetHelper.waitingTimeShort
+import org.mozilla.fenix.helpers.TestHelper.appContext
 import org.mozilla.fenix.helpers.TestHelper.hasCousin
 import org.mozilla.fenix.helpers.TestHelper.mDevice
 import org.mozilla.fenix.helpers.TestHelper.packageName
@@ -141,7 +144,9 @@ class SettingsSubMenuSearchRobot {
     }
 
     fun verifyManageShortcutsList(testRule: ComposeTestRule) {
-        val availableShortcutsEngines = getRegionSearchEnginesList() + getAvailableSearchEngines()
+        val defaultEngineId = appContext.components.core.store.state.search.selectedOrDefaultSearchEngine?.id
+        val availableShortcutsEngines = (getRegionSearchEnginesList() + getAvailableSearchEngines())
+            .filter { it.id != defaultEngineId }
 
         availableShortcutsEngines.forEach {
             Log.i(TAG, "verifyManageShortcutsList: Trying to verify that the ${it.name} alternative search engine is displayed")
@@ -514,22 +519,22 @@ class SettingsSubMenuSearchRobot {
             return SettingsSubMenuSearchRobot.Transition()
         }
 
-        fun clickCustomSearchStringLearnMoreLink(interact: BrowserRobot.() -> Unit): BrowserRobot.Transition {
+        fun clickCustomSearchStringLearnMoreLink(composeTestRule: ComposeTestRule, interact: BrowserRobot.() -> Unit): BrowserRobot.Transition {
             Log.i(TAG, "clickCustomSearchStringLearnMoreLink: Trying to click the \"Search string URL\" learn more link")
             onView(withId(R.id.custom_search_engines_learn_more)).click()
             Log.i(TAG, "clickCustomSearchStringLearnMoreLink: Clicked the \"Search string URL\" learn more link")
 
-            BrowserRobot().interact()
-            return BrowserRobot.Transition()
+            BrowserRobot(composeTestRule).interact()
+            return BrowserRobot.Transition(composeTestRule)
         }
 
-        fun clickCustomSearchSuggestionsLearnMoreLink(interact: BrowserRobot.() -> Unit): BrowserRobot.Transition {
+        fun clickCustomSearchSuggestionsLearnMoreLink(composeTestRule: ComposeTestRule, interact: BrowserRobot.() -> Unit): BrowserRobot.Transition {
             Log.i(TAG, "clickCustomSearchSuggestionsLearnMoreLink: Trying to click the \"Search suggestions API\" learn more link")
             onView(withId(R.id.custom_search_suggestions_learn_more)).click()
             Log.i(TAG, "clickCustomSearchSuggestionsLearnMoreLink: Clicked the \"Search suggestions API\" learn more link")
 
-            BrowserRobot().interact()
-            return BrowserRobot.Transition()
+            BrowserRobot(composeTestRule).interact()
+            return BrowserRobot.Transition(composeTestRule)
         }
     }
 }

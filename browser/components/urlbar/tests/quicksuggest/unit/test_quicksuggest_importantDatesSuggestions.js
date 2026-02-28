@@ -139,7 +139,7 @@ add_setup(async function () {
     locale: "en-US",
   });
 
-  await Services.search.init();
+  await SearchService.init();
 
   SystemDate = Cu.getGlobalForObject(QuickSuggestTestUtils).Date;
 });
@@ -334,8 +334,6 @@ add_task(async function testTwoSuggestions() {
     descriptionL10n: {
       id: "urlbar-result-dates-countdown",
       args: { daysUntilStart: 4, name: "Event 1" },
-      cacheable: true,
-      excludeArgsFromCacheKey: true,
     },
   });
 
@@ -353,7 +351,6 @@ add_task(async function testTwoSuggestions() {
       title: "Top Pick Suggestion 1",
       url: "https://foo.com/",
       telemetryType: "other_suggestions",
-      displayUrl: "foo.com",
       description: "A suggestion that just so happens to have the same keyword",
       isManageable: true,
       isSponsored: false,
@@ -502,13 +499,25 @@ async function checkDatesResults(query, expected) {
         expected,
       })
   );
+
+  let queryContext = createContext(query, {
+    providers: [UrlbarProviderQuickSuggest.name],
+    isPrivate: false,
+  });
   await check_results({
-    context: createContext(query, {
-      providers: [UrlbarProviderQuickSuggest.name],
-      isPrivate: false,
-    }),
+    context: queryContext,
     matches: expected ? [expected].flat() : [],
   });
+
+  if (expected?.payload) {
+    info("Check the highligts");
+    let { value, highlights } =
+      queryContext.results[0].getDisplayableValueAndHighlights("title", {
+        tokens: queryContext.tokens,
+      });
+    Assert.equal(expected.payload.title, value);
+    Assert.deepEqual([[0, expected.payload.title.length]], highlights);
+  }
 }
 
 function makeExpectedResult({
@@ -529,13 +538,11 @@ function makeExpectedResult({
     isRichSuggestion,
     payload: {
       title: date,
-      engine: Services.search.defaultEngine.name,
+      engine: SearchService.defaultEngine.name,
       query: name,
       lowerCaseSuggestion: name.toLocaleLowerCase(),
       description,
-      descriptionL10n: descriptionL10n
-        ? { cacheable: true, excludeArgsFromCacheKey: true, ...descriptionL10n }
-        : undefined,
+      descriptionL10n,
       isSponsored,
       telemetryType: "important_dates",
       source: "rust",

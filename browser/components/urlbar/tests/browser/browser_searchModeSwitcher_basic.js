@@ -14,15 +14,25 @@ add_setup(async function setup() {
 });
 
 add_task(async function open_settings() {
-  await UrlbarTestUtils.openSearchModeSwitcher(window);
+  const popup = await UrlbarTestUtils.openSearchModeSwitcher(window);
 
   let settingsLoaded = BrowserTestUtils.browserLoaded(
     window,
     false,
     "about:preferences#search"
   );
-  EventUtils.synthesizeKey("KEY_ArrowUp");
-  EventUtils.synthesizeKey("KEY_Enter");
+  if (
+    AppConstants.platform == "macosx" &&
+    Services.prefs.getBoolPref("widget.macos.native-anchored-menus", false)
+  ) {
+    // Native menus do not support synthesizing key events
+    popup.activateItem(
+      popup.querySelector(".searchmode-switcher-popup-search-settings-button")
+    );
+  } else {
+    EventUtils.synthesizeKey("KEY_ArrowUp");
+    EventUtils.synthesizeKey("KEY_Enter");
+  }
   await settingsLoaded;
 
   Assert.ok(true, "Opened settings page");
@@ -46,14 +56,24 @@ add_task(async function open_settings_with_there_is_already_opened_settings() {
 
   info("Open new window");
   let newWin = await BrowserTestUtils.openNewBrowserWindow();
-  await UrlbarTestUtils.openSearchModeSwitcher(newWin);
+  const popup = await UrlbarTestUtils.openSearchModeSwitcher(newWin);
 
   info(
     "Choose open settings item and wait until the window having perference page will get focus"
   );
   let onFocus = BrowserTestUtils.waitForEvent(window, "focus", true);
-  EventUtils.synthesizeKey("KEY_ArrowUp", {}, newWin);
-  EventUtils.synthesizeKey("KEY_Enter", {}, newWin);
+  if (
+    AppConstants.platform == "macosx" &&
+    Services.prefs.getBoolPref("widget.macos.native-anchored-menus", false)
+  ) {
+    // Native menus do not support synthesizing key events
+    popup.activateItem(
+      popup.querySelector(".searchmode-switcher-popup-search-settings-button")
+    );
+  } else {
+    EventUtils.synthesizeKey("KEY_ArrowUp", {}, newWin);
+    EventUtils.synthesizeKey("KEY_Enter", {}, newWin);
+  }
   await onFocus;
   Assert.ok(true, "The window that has perference page got focus");
 
@@ -100,10 +120,17 @@ add_task(async function disabled_unified_button() {
 
   Assert.equal(
     BrowserTestUtils.isVisible(
-      gURLBar.querySelector(".searchmode-switcher-chicklet")
+      gURLBar.querySelector(".searchmode-switcher-title")
     ),
     false,
-    "Chicklet associated with Unified Search Button should not be visible."
+    "Title label associated with Unified Search Button should not be visible."
+  );
+  Assert.equal(
+    BrowserTestUtils.isVisible(
+      gURLBar.querySelector(".searchmode-switcher-close")
+    ),
+    false,
+    "Close button associated with Unified Search Button should not be visible."
   );
 
   await UrlbarTestUtils.exitSearchMode(window);
@@ -175,9 +202,17 @@ add_task(async function select_with_single_click() {
   await new Promise(r => setTimeout(r, 500));
 
   let target = popup.querySelector("menuitem[label=Bing]");
-  EventUtils.synthesizeMouseAtCenter(target, { type: "mousemove" });
   let popupHidden = UrlbarTestUtils.searchModeSwitcherPopupClosed(window);
-  EventUtils.synthesizeMouseAtCenter(target, { type: "mouseup" });
+  if (
+    AppConstants.platform == "macosx" &&
+    Services.prefs.getBoolPref("widget.macos.native-anchored-menus", false)
+  ) {
+    // Native menus do not support synthesizing mouse events
+    popup.activateItem(target);
+  } else {
+    EventUtils.synthesizeMouseAtCenter(target, { type: "mousemove" });
+    EventUtils.synthesizeMouseAtCenter(target, { type: "mouseup" });
+  }
   await popupHidden;
 
   await UrlbarTestUtils.assertSearchMode(window, {
@@ -201,7 +236,7 @@ function updateEngine(fun) {
 }
 
 add_task(async function new_window() {
-  let oldEngine = Services.search.getEngineByName("Bing");
+  let oldEngine = SearchService.getEngineByName("Bing");
   await updateEngine(() => {
     oldEngine.hidden = true;
   });
@@ -225,7 +260,7 @@ add_task(async function new_window() {
   await popupHidden;
   newWin.gURLBar.querySelector(".searchmode-switcher-close").click();
 
-  await Services.search.restoreDefaultEngines();
+  await SearchService.restoreDefaultEngines();
   await BrowserTestUtils.closeWindow(newWin);
 });
 
@@ -260,13 +295,23 @@ add_task(async function detect_searchmode_changes() {
 });
 
 async function setDefaultEngine(name) {
-  let engine = (await Services.search.getEngines()).find(e => e.name == name);
+  let engine = (await SearchService.getEngines()).find(e => e.name == name);
   Assert.ok(engine);
-  await Services.search.setDefault(
-    engine,
-    Ci.nsISearchService.CHANGE_REASON_UNKNOWN
-  );
+  await SearchService.setDefault(engine, SearchService.CHANGE_REASON.UNKNOWN);
 }
+
+add_task(async function test_icon_new_window() {
+  let newWin = await BrowserTestUtils.openNewBrowserWindow();
+  let expectedIcon = await SearchService.defaultEngine.getIconURL();
+
+  Assert.equal(
+    UrlbarTestUtils.getSearchModeSwitcherIcon(newWin),
+    expectedIcon,
+    "The search mode switcher should already have the engine favicon."
+  );
+
+  await BrowserTestUtils.closeWindow(newWin);
+});
 
 add_task(async function test_search_icon_change() {
   await SpecialPowers.pushPrefEnv({
@@ -274,13 +319,12 @@ add_task(async function test_search_icon_change() {
   });
 
   let newWin = await BrowserTestUtils.openNewBrowserWindow();
-  const searchGlassIconUrl = UrlbarUtils.ICON.SEARCH_GLASS;
+  const globeIconUrl = UrlbarUtils.ICON.GLOBE;
 
   Assert.equal(
-    getSeachModeSwitcherIcon(newWin),
-    searchGlassIconUrl,
-    "The search mode switcher should have the search glass icon url since \
-     we are not in search mode."
+    UrlbarTestUtils.getSearchModeSwitcherIcon(newWin),
+    globeIconUrl,
+    "The search mode switcher should have the globe icon url since keyword.enabled is false"
   );
 
   let popup = UrlbarTestUtils.searchModeSwitcherPopup(newWin);
@@ -296,12 +340,11 @@ add_task(async function test_search_icon_change() {
   popup.querySelector(`menuitem[label=${engineName}]`).click();
   await popupHidden;
 
-  const bingSearchEngineIconUrl = await Services.search
-    .getEngineByName(engineName)
-    .getIconURL();
+  const bingSearchEngineIconUrl =
+    await SearchService.getEngineByName(engineName).getIconURL();
 
   Assert.equal(
-    getSeachModeSwitcherIcon(newWin),
+    UrlbarTestUtils.getSearchModeSwitcherIcon(newWin),
     bingSearchEngineIconUrl,
     "The search mode switcher should have the bing icon url since we are in \
      search mode"
@@ -317,15 +360,14 @@ add_task(async function test_search_icon_change() {
   await UrlbarTestUtils.assertSearchMode(newWin, null);
 
   let searchModeSwitcherIconUrl = await BrowserTestUtils.waitForCondition(
-    () => getSeachModeSwitcherIcon(newWin),
+    () => UrlbarTestUtils.getSearchModeSwitcherIcon(newWin),
     "Waiting for the search mode switcher icon to update after exiting search mode."
   );
 
   Assert.equal(
     searchModeSwitcherIconUrl,
-    searchGlassIconUrl,
-    "The search mode switcher should have the search glass icon url since \
-     keyword.enabled is false"
+    globeIconUrl,
+    "The search mode switcher should have the globe icon url since keyword.enabled is false"
   );
 
   await BrowserTestUtils.closeWindow(newWin);
@@ -421,6 +463,16 @@ add_task(async function open_engine_page_directly() {
   ];
 
   for (let { action, input, expected } of TEST_DATA) {
+    if (
+      action != "click" &&
+      AppConstants.platform == "macosx" &&
+      Services.prefs.getBoolPref("widget.macos.native-anchored-menus", false)
+    ) {
+      // Native menus do not support synthesizing key events
+      info(`Skipping test for ${JSON.stringify({ action, input, expected })}`);
+      continue;
+    }
+
     info(`Test for ${JSON.stringify({ action, input, expected })}`);
 
     info("Open a window");
@@ -453,23 +505,18 @@ add_task(async function open_engine_page_directly() {
     );
 
     if (action == "click") {
-      EventUtils.synthesizeMouseAtCenter(
-        popup.querySelector("menuitem[label=MozSearch]"),
-        {
-          shiftKey: true,
-        },
-        newWin
-      );
+      popup.activateItem(popup.querySelector("menuitem[label=MozSearch]"), {
+        shiftKey: true,
+      });
     } else {
       await UrlbarTestUtils.selectMenuItem(popup, "menuitem[label=MozSearch]");
       EventUtils.synthesizeKey("KEY_Enter", { shiftKey: true }, newWin);
     }
 
     await popupHidden;
+    await UrlbarTestUtils.assertSearchMode(newWin, null);
     await pageLoaded;
     Assert.ok(true, "The popup was hidden and expected page was loaded");
-
-    await UrlbarTestUtils.assertSearchMode(newWin, null);
 
     // Cleanup.
     await PlacesUtils.history.clear();
@@ -713,9 +760,7 @@ add_task(async function test_search_service_fail() {
     .stub(UrlbarSearchUtils, "init")
     .rejects(new Error("Initialization failed"));
 
-  Services.search.wrappedJSObject.forceInitializationStatusForTests(
-    "not initialized"
-  );
+  SearchService.forceInitializationStatusForTests("not initialized");
 
   // Force updateSearchIcon to be triggered
   await SpecialPowers.pushPrefEnv({
@@ -723,14 +768,14 @@ add_task(async function test_search_service_fail() {
   });
 
   let searchModeSwitcherIconUrl = await BrowserTestUtils.waitForCondition(
-    () => getSeachModeSwitcherIcon(newWin),
+    () => UrlbarTestUtils.getSearchModeSwitcherIcon(newWin),
     "Waiting for the search mode switcher icon to update after exiting search mode."
   );
 
   Assert.equal(
     searchModeSwitcherIconUrl,
-    UrlbarUtils.ICON.SEARCH_GLASS,
-    "The search mode switcher should have the search glass icon url since the search service init failed."
+    UrlbarUtils.ICON.GLOBE,
+    "The search mode switcher should have the globe icon url since the search service init failed."
   );
 
   info("Open search mode switcher");
@@ -753,7 +798,7 @@ add_task(async function test_search_service_fail() {
 
   stub.restore();
 
-  Services.search.wrappedJSObject.forceInitializationStatusForTests("success");
+  SearchService.forceInitializationStatusForTests("success");
 
   await BrowserTestUtils.closeWindow(newWin);
   await SpecialPowers.popPrefEnv();
@@ -777,7 +822,7 @@ add_task(async function test_search_mode_switcher_engine_no_icon() {
   await popupHidden;
 
   Assert.equal(
-    getSeachModeSwitcherIcon(window),
+    UrlbarTestUtils.getSearchModeSwitcherIcon(window),
     UrlbarUtils.ICON.SEARCH_GLASS,
     "The search mode switcher should display the default search glass icon when the engine has no icon."
   );
@@ -806,14 +851,14 @@ add_task(async function test_search_mode_switcher_private_engine_icon() {
     { skipUnload: true }
   );
 
-  const defaultPrivateEngine = Services.search.getEngineByName(testEngineName);
+  const defaultPrivateEngine = SearchService.getEngineByName(testEngineName);
   const defaultPrivateEngineIcon = `moz-extension://${searchExtension.uuid}/private.png`;
-  const defaultEngine = await Services.search.getDefault();
+  const defaultEngine = await SearchService.getDefault();
   const defaultEngineIcon = await defaultEngine.getIconURL();
 
-  Services.search.setDefaultPrivate(
+  SearchService.setDefaultPrivate(
     defaultPrivateEngine,
-    Ci.nsISearchService.CHANGE_REASON_UNKNOWN
+    SearchService.CHANGE_REASON.UNKNOWN
   );
 
   Assert.notEqual(
@@ -822,18 +867,18 @@ add_task(async function test_search_mode_switcher_private_engine_icon() {
     "Default engine is not private engine."
   );
   Assert.equal(
-    (await Services.search.getDefault()).id,
+    (await SearchService.getDefault()).id,
     defaultEngine.id,
     "Default engine is still correct."
   );
   Assert.equal(
-    (await Services.search.getDefaultPrivate()).id,
+    (await SearchService.getDefaultPrivate()).id,
     defaultPrivateEngine.id,
     "Default private engine is correct."
   );
 
   Assert.equal(
-    getSeachModeSwitcherIcon(window),
+    UrlbarTestUtils.getSearchModeSwitcherIcon(window),
     defaultEngineIcon,
     "Is the icon of the default engine."
   );
@@ -850,20 +895,21 @@ add_task(async function test_search_mode_switcher_private_engine_icon() {
   });
 
   Assert.equal(
-    getSeachModeSwitcherIcon(privateWin),
+    UrlbarTestUtils.getSearchModeSwitcherIcon(privateWin),
     defaultPrivateEngineIcon,
     "Is the icon of the default private engine."
   );
 
   info("Changing the default private engine.");
-  Services.search.setDefaultPrivate(
+  SearchService.setDefaultPrivate(
     defaultEngine,
-    Ci.nsISearchService.CHANGE_REASON_UNKNOWN
+    SearchService.CHANGE_REASON.UNKNOWN
   );
 
   info("Waiting for the icon to be updated.");
   await TestUtils.waitForCondition(
-    () => getSeachModeSwitcherIcon(privateWin) == defaultEngineIcon
+    () =>
+      UrlbarTestUtils.getSearchModeSwitcherIcon(privateWin) == defaultEngineIcon
   );
   Assert.ok(true, "The icon was updated.");
 
@@ -872,8 +918,10 @@ add_task(async function test_search_mode_switcher_private_engine_icon() {
   await SpecialPowers.popPrefEnv();
 });
 
-add_task(async function open_with_option() {
-  info("Open the urlbar and searchmode switcher popup with arrow+option key");
+add_task(async function open_with_alt_option_with_open_view() {
+  info(
+    "Open the urlbar and searchmode switcher popup with Arrow Down + Alt/Option keys while the results view is open"
+  );
   await UrlbarTestUtils.promiseAutocompleteResultPopup({
     window,
     value: "",
@@ -887,17 +935,24 @@ add_task(async function open_with_option() {
   await promiseMenuOpen;
 
   let popupHidden = UrlbarTestUtils.searchModeSwitcherPopupClosed(window);
-  EventUtils.synthesizeKey("KEY_Escape");
+  const popup = UrlbarTestUtils.searchModeSwitcherPopup(window);
+  popup.hidePopup();
   await popupHidden;
 });
 
-function getSeachModeSwitcherIcon(window) {
-  let searchModeSwitcherButton = window.gURLBar.querySelector(
-    ".searchmode-switcher-icon"
+add_task(async function open_with_alt_option_with_closed_view() {
+  info(
+    "Open the urlbar and searchmode switcher popup with Arrow Up + Alt/Option keys while the results view is closed"
   );
+  let promiseMenuOpen = BrowserTestUtils.waitForPopupEvent(
+    UrlbarTestUtils.searchModeSwitcherPopup(window),
+    "shown"
+  );
+  EventUtils.synthesizeKey("KEY_ArrowUp", { altKey: true });
+  await promiseMenuOpen;
 
-  // match and capture the URL inside `url("...")`
-  let re = /url\("([^"]+)"\)/;
-  let { listStyleImage } = window.getComputedStyle(searchModeSwitcherButton);
-  return listStyleImage.match(re)?.[1] ?? null;
-}
+  let popupHidden = UrlbarTestUtils.searchModeSwitcherPopupClosed(window);
+  const popup = UrlbarTestUtils.searchModeSwitcherPopup(window);
+  popup.hidePopup();
+  await popupHidden;
+});

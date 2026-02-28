@@ -8,8 +8,6 @@
 
 #include "mozilla/PrintedSheetFrame.h"
 
-#include <tuple>
-
 #include "mozilla/PresShell.h"
 #include "mozilla/StaticPrefs_print.h"
 #include "nsCSSFrameConstructor.h"
@@ -152,10 +150,13 @@ void PrintedSheetFrame::Reflow(nsPresContext* aPresContext,
     // scaled to fit their sheet. Hence why we get the page's own dimensions to
     // use as its "available space"/"container size" here.
     const nsSize physPageSize = pageFrame->ComputePageSize();
-    const LogicalSize pageSize(wm, physPageSize);
+    LogicalSize availSize(wm, physPageSize);
+    if (aReflowInput.mFlags.mIsInFragmentainerMeasuringReflow) {
+      availSize.BSize(wm) = aReflowInput.AvailableBSize();
+    }
 
     ReflowInput pageReflowInput(aPresContext, aReflowInput, pageFrame,
-                                pageSize);
+                                availSize);
 
     // For layout purposes, we position *all* our nsPageFrame children at our
     // origin. Then, if we have multiple pages-per-sheet, we'll shrink & shift

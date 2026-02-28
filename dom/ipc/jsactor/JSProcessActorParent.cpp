@@ -8,6 +8,8 @@
 
 #include "mozilla/dom/InProcessChild.h"
 #include "mozilla/dom/InProcessParent.h"
+#include "mozilla/dom/JSIPCValue.h"
+#include "mozilla/dom/JSIPCValueUtils.h"
 #include "mozilla/dom/JSProcessActorBinding.h"
 
 namespace mozilla::dom {
@@ -29,14 +31,15 @@ void JSProcessActorParent::Init(const nsACString& aName,
                                 nsIDOMProcessParent* aManager) {
   MOZ_ASSERT(!mManager, "Cannot Init() a JSProcessActorParent twice!");
   mManager = aManager;
-  JSActor::Init(aName);
+  JSActor::Init(aName, /* aSendTyped= */ false);
 }
 
 JSProcessActorParent::~JSProcessActorParent() { MOZ_ASSERT(!mManager); }
 
-void JSProcessActorParent::SendRawMessage(
-    const JSActorMessageMeta& aMeta, UniquePtr<ipc::StructuredCloneData> aData,
-    UniquePtr<ipc::StructuredCloneData> aStack, ErrorResult& aRv) {
+void JSProcessActorParent::SendRawMessage(const JSActorMessageMeta& aMeta,
+                                          JSIPCValue&& aData,
+                                          ipc::StructuredCloneData* aStack,
+                                          ErrorResult& aRv) {
   if (NS_WARN_IF(!CanSend() || !mManager || !mManager->GetCanSend())) {
     aRv.ThrowInvalidStateError(
         nsPrintfCString("Actor '%s' cannot send message '%s' during shutdown.",
@@ -55,28 +58,7 @@ void JSProcessActorParent::SendRawMessage(
     return;
   }
 
-  // Cross-process case - send data over ContentParent to other side.
-  UniquePtr<ClonedMessageData> msgData;
-  if (aData) {
-    msgData = MakeUnique<ClonedMessageData>();
-    if (NS_WARN_IF(!aData->BuildClonedMessageData(*msgData))) {
-      aRv.ThrowDataCloneError(
-          nsPrintfCString("Actor '%s' cannot send message '%s': cannot clone.",
-                          PromiseFlatCString(aMeta.actorName()).get(),
-                          NS_ConvertUTF16toUTF8(aMeta.messageName()).get()));
-      return;
-    }
-  }
-
-  UniquePtr<ClonedMessageData> stackData;
-  if (aStack) {
-    stackData = MakeUnique<ClonedMessageData>();
-    if (!aStack->BuildClonedMessageData(*stackData)) {
-      stackData.reset();
-    }
-  }
-
-  if (NS_WARN_IF(!contentParent->SendRawMessage(aMeta, msgData, stackData))) {
+  if (NS_WARN_IF(!contentParent->SendRawMessage(aMeta, aData, aStack))) {
     aRv.ThrowOperationError(
         nsPrintfCString("JSProcessActorParent send error in actor '%s'",
                         PromiseFlatCString(aMeta.actorName()).get()));

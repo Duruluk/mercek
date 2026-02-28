@@ -9,14 +9,17 @@
 [scriptable, uuid(91917c98-a8f3-4c98-8f10-4afb872f54c7)]
 interface nsIHapticFeedback : nsISupports {
 
-    const long ShortPress = 0;
-    const long LongPress  = 1;
+    cenum HapticFeedbackType : 8 {
+        ShortPress = 0,
+        LongPress = 1,
+        TextHandleMove = 2,
+    };
 
   /**
      * Perform haptic feedback
      *
-     * @param isLongPress
-     *        indicate whether feedback is for a long press (vs. short press)
+     * @param effect
+     *        The type of the effect (ShortPress, LongPress, or TextHandleMove)
      */
-    void performSimpleAction(in long isLongPress);
+    void performSimpleAction(in nsIHapticFeedback_HapticFeedbackType effect);
 };

@@ -100,7 +100,7 @@ class Selection;
 
 enum class DisplayListArenaObjectId {
 #define DISPLAY_LIST_ARENA_OBJECT(name_) name_,
-#include "nsDisplayListArenaTypes.h"
+#include "nsDisplayListArenaTypes.inc"
 #undef DISPLAY_LIST_ARENA_OBJECT
   COUNT
 };
@@ -184,15 +184,23 @@ LazyLogModule& GetLoggerByProcess();
  *    is on the stack.
  */
 struct ActiveScrolledRoot {
-  static already_AddRefed<ActiveScrolledRoot> CreateASRForFrame(
+  // TODO: Just have one function with an extra ASRKind parameter
+  static already_AddRefed<ActiveScrolledRoot> GetOrCreateASRForFrame(
       const ActiveScrolledRoot* aParent,
-      ScrollContainerFrame* aScrollContainerFrame, bool aIsRetained);
+      ScrollContainerFrame* aScrollContainerFrame,
+      nsTArray<RefPtr<ActiveScrolledRoot>>& aActiveScrolledRoots);
+  static already_AddRefed<ActiveScrolledRoot> GetOrCreateASRForStickyFrame(
+      const ActiveScrolledRoot* aParent, nsIFrame* aStickyFrame,
+      nsTArray<RefPtr<ActiveScrolledRoot>>& aActiveScrolledRoots);
 
   static const ActiveScrolledRoot* PickAncestor(
       const ActiveScrolledRoot* aOne, const ActiveScrolledRoot* aTwo) {
     MOZ_ASSERT(IsAncestor(aOne, aTwo) || IsAncestor(aTwo, aOne));
     return Depth(aOne) <= Depth(aTwo) ? aOne : aTwo;
   }
+
+  static const ActiveScrolledRoot* LowestCommonAncestor(
+      const ActiveScrolledRoot* aOne, const ActiveScrolledRoot* aTwo);
 
   static const ActiveScrolledRoot* PickDescendant(
       const ActiveScrolledRoot* aOne, const ActiveScrolledRoot* aTwo) {
@@ -215,28 +223,61 @@ struct ActiveScrolledRoot {
    * corresponding to the ASR.
    */
   layers::ScrollableLayerGuid::ViewID GetViewId() const {
+    MOZ_ASSERT(mKind == ASRKind::Scroll);
     if (!mViewId.isSome()) {
       mViewId = Some(ComputeViewId());
     }
     return *mViewId;
   }
 
+  ScrollContainerFrame* ScrollFrame() const {
+    MOZ_ASSERT(mKind == ASRKind::Scroll);
+    return ScrollFrameOrNull();
+  }
+
+  ScrollContainerFrame* ScrollFrameOrNull() const;
+
+  // Return the nearest ASR that is of ASR kind scroll.
+  const ActiveScrolledRoot* GetNearestScrollASR() const;
+
+  // Return the scrollable layer view id of the nearest scroll ASR, otherwise
+  // return the null scroll id.
+  layers::ScrollableLayerGuid::ViewID GetNearestScrollASRViewId() const;
+
+  // Return the ASR of kind ASRKind::Sticky corresponding to a sticky frame.
+  // Returns null if |aStickyFrame| is not a sticky frame, or if
+  // CreateASRForStickyFrame has not yet been called for it or its first
+  // continuation.
+  static const ActiveScrolledRoot* GetStickyASRFromFrame(
+      nsIFrame* aStickyFrame);
+
+  enum class ASRKind { Scroll, Sticky };
+
   RefPtr<const ActiveScrolledRoot> mParent;
-  ScrollContainerFrame* mScrollContainerFrame = nullptr;
+  nsIFrame* mFrame = nullptr;
+  // This gets updated by both functions that can create this struct.
+  ASRKind mKind = ASRKind::Scroll;
 
   NS_INLINE_DECL_REFCOUNTING(ActiveScrolledRoot)
 
+  void AssertDepthInvariant() const;
+
  private:
-  ActiveScrolledRoot() : mDepth(0), mRetained(false) {}
+  ActiveScrolledRoot() : mDepth(0) {}
 
   ~ActiveScrolledRoot();
 
   static void DetachASR(ActiveScrolledRoot* aASR) {
     aASR->mParent = nullptr;
-    aASR->mScrollContainerFrame = nullptr;
+    aASR->mFrame = nullptr;
     NS_RELEASE(aASR);
   }
   NS_DECLARE_FRAME_PROPERTY_WITH_DTOR(ActiveScrolledRootCache,
+                                      ActiveScrolledRoot, DetachASR)
+  // We need a distinct frame property for storing the sticky ASR,
+  // because a single frame could be both a scroll frame and position:sticky
+  // and thus have two associated ASRs.
+  NS_DECLARE_FRAME_PROPERTY_WITH_DTOR(StickyActiveScrolledRootCache,
                                       ActiveScrolledRoot, DetachASR)
 
   static uint32_t Depth(const ActiveScrolledRoot* aActiveScrolledRoot) {
@@ -251,7 +292,6 @@ struct ActiveScrolledRoot {
   mutable Maybe<layers::ScrollableLayerGuid::ViewID> mViewId;
 
   uint32_t mDepth;
-  bool mRetained;
 };
 
 enum class nsDisplayListBuilderMode : uint8_t {
@@ -619,11 +659,12 @@ class nsDisplayListBuilder {
     mAllowMergingAndFlattening = aAllow;
   }
 
-  void SetCompositorHitTestInfo(const gfx::CompositorHitTestInfo& aInfo) {
+  void SetInheritedCompositorHitTestInfo(
+      const gfx::CompositorHitTestInfo& aInfo) {
     mCompositorHitTestInfo = aInfo;
   }
 
-  const gfx::CompositorHitTestInfo& GetCompositorHitTestInfo() const {
+  const gfx::CompositorHitTestInfo& GetInheritedCompositorHitTestInfo() const {
     return mCompositorHitTestInfo;
   }
 
@@ -920,7 +961,7 @@ class nsDisplayListBuilder {
   static_assert(size_t(DisplayItemType::TYPE_##name_) ==     \
                     size_t(DisplayListArenaObjectId::name_), \
                 "");
-#include "nsDisplayItemTypesList.h"
+#include "nsDisplayItemTypesList.inc"
     static_assert(size_t(DisplayItemType::TYPE_MAX) ==
                       size_t(DisplayListArenaObjectId::CLIPCHAIN),
                   "");
@@ -941,12 +982,14 @@ class nsDisplayListBuilder {
   }
 
   /**
-   * Allocate a new ActiveScrolledRoot in the arena. Will be cleaned up
-   * automatically when the arena goes away.
+   * Get an existing or allocate a new ActiveScrolledRoot in the arena. Will be
+   * cleaned up automatically when the arena goes away.
    */
-  ActiveScrolledRoot* AllocateActiveScrolledRoot(
+  ActiveScrolledRoot* GetOrCreateActiveScrolledRoot(
       const ActiveScrolledRoot* aParent,
       ScrollContainerFrame* aScrollContainerFrame);
+  ActiveScrolledRoot* GetOrCreateActiveScrolledRootForSticky(
+      const ActiveScrolledRoot* aParent, nsIFrame* aStickyFrame);
 
   /**
    * Allocate a new DisplayItemClipChain object in the arena. Will be cleaned
@@ -1046,10 +1089,10 @@ class nsDisplayListBuilder {
     nsDisplayListBuilder* mBuilder;
     const nsIFrame* mPrevFrame;
     const nsIFrame* mPrevReferenceFrame;
-    nsPoint mPrevOffset;
-    Maybe<nsPoint> mPrevAdditionalOffset;
     nsRect mPrevVisibleRect;
     nsRect mPrevDirtyRect;
+    nsPoint mPrevOffset;
+    Maybe<nsPoint> mPrevAdditionalOffset;
     gfx::CompositorHitTestInfo mPrevCompositorHitTestInfo;
     bool mPrevAncestorHasApzAwareEventHandler;
     bool mPrevBuildingInvisibleItems;
@@ -1144,12 +1187,10 @@ class nsDisplayListBuilder {
           mSavedActiveScrolledRoot(aBuilder->mCurrentActiveScrolledRoot),
           mContentClipASR(aBuilder->ClipState().GetContentClipASR()),
           mDescendantsStartIndex(aBuilder->mActiveScrolledRoots.Length()),
-          mUsed(false),
           mOldScrollParentId(aBuilder->mCurrentScrollParentId),
           mOldForceLayer(aBuilder->mForceLayerForScrollParent),
           mOldContainsNonMinimalDisplayPort(
-              mBuilder->mContainsNonMinimalDisplayPort),
-          mCanBeScrollParent(false) {}
+              mBuilder->mContainsNonMinimalDisplayPort) {}
 
     void SetCurrentScrollParentId(ViewID aScrollId) {
       // Update the old scroll parent id.
@@ -1199,7 +1240,7 @@ class nsDisplayListBuilder {
 
     void EnterScrollFrame(ScrollContainerFrame* aScrollContainerFrame) {
       MOZ_ASSERT(!mUsed);
-      ActiveScrolledRoot* asr = mBuilder->AllocateActiveScrolledRoot(
+      ActiveScrolledRoot* asr = mBuilder->GetOrCreateActiveScrolledRoot(
           mBuilder->mCurrentActiveScrolledRoot, aScrollContainerFrame);
       mBuilder->mCurrentActiveScrolledRoot = asr;
       mUsed = true;
@@ -1232,11 +1273,11 @@ class nsDisplayListBuilder {
      * EnterScrollFrame / InsertScrollFrame is called per instance of this
      * class.
      */
-    bool mUsed;
     ViewID mOldScrollParentId;
+    bool mUsed = false;
     bool mOldForceLayer;
     bool mOldContainsNonMinimalDisplayPort;
-    bool mCanBeScrollParent;
+    bool mCanBeScrollParent = false;
   };
 
   /**
@@ -1661,6 +1702,10 @@ class nsDisplayListBuilder {
 
   bool ShouldRebuildDisplayListDueToPrefChange();
 
+  bool ShouldActivateAllScrollFrames() const {
+    return mShouldActivateAllScrollFrames;
+  }
+
   /**
    * Represents a region composed of frame/rect pairs.
    * WeakFrames are used to track whether a rect still belongs to the region.
@@ -1781,6 +1826,11 @@ class nsDisplayListBuilder {
 
   void SetIsDestroying() { mIsDestroying = true; }
   bool IsDestroying() const { return mIsDestroying; }
+
+  nsTHashMap<nsPtrHashKey<const nsIFrame>, bool>&
+  AsyncScrollsWithAnchorHashmap() {
+    return mAsyncScrollsWithAnchor;
+  }
 
  private:
   bool MarkOutOfFlowFrameForDisplay(nsIFrame* aDirtyFrame, nsIFrame* aFrame,
@@ -1929,6 +1979,12 @@ class nsDisplayListBuilder {
 
   Preserves3DContext mPreserves3DCtx;
 
+  // For frames which are anchored, and compensate for scroll (according to the
+  // spec definition), whether the frame should async scroll with the anchor. It
+  // might be disabled for things that are limitations of our current
+  // implementation (one-axis only, transforms).
+  nsTHashMap<nsPtrHashKey<const nsIFrame>, bool> mAsyncScrollsWithAnchor;
+
   uint8_t mBuildingPageNum = 0;
 
   nsDisplayListBuilderMode mMode;
@@ -1990,6 +2046,9 @@ class nsDisplayListBuilder {
   // over that page, we set this flag to avoid building potentially duplicate
   // display items.
   bool mAvoidBuildingDuplicateOofs = false;
+
+  // Cached copy so we don't have to get the root presshell repeatedly.
+  bool mShouldActivateAllScrollFrames = false;
 
   Maybe<layers::ScrollDirection> mCurrentScrollbarDirection;
 };
@@ -2243,15 +2302,19 @@ class nsDisplayItem {
    * Pairing this with the Frame() pointer gives a key that
    * uniquely identifies this display item in the display item tree.
    */
-  uint32_t GetPerFrameKey() const {
+  static uint32_t GetPerFrameKey(uint8_t aPageNum, uint16_t aPerFrameIndex,
+                                 DisplayItemType aType) {
     // The top 8 bits are the page index
     // The middle 16 bits of the per frame key uniquely identify the display
     // item when there are more than one item of the same type for a frame.
     // The low 8 bits are the display item type.
-    return (static_cast<uint32_t>(mPageNum)
-            << (TYPE_BITS + (sizeof(mPerFrameIndex) * 8))) |
-           (static_cast<uint32_t>(mPerFrameIndex) << TYPE_BITS) |
-           static_cast<uint32_t>(mType);
+    return (static_cast<uint32_t>(aPageNum)
+            << (TYPE_BITS + (sizeof(aPerFrameIndex) * 8))) |
+           (static_cast<uint32_t>(aPerFrameIndex) << TYPE_BITS) |
+           static_cast<uint32_t>(aType);
+  }
+  uint32_t GetPerFrameKey() const {
+    return GetPerFrameKey(mPageNum, mPerFrameIndex, mType);
   }
 
   /**
@@ -2705,16 +2768,6 @@ class nsDisplayItem {
   virtual bool NeedsGeometryUpdates() const { return false; }
 
   /**
-   * When this item is rendered using fallback rendering, whether it should use
-   * blob rendering (i.e. a recording DrawTarget), as opposed to a pixel-backed
-   * DrawTarget.
-   * Some items, such as those calling into the native themed widget machinery,
-   * are more efficiently painted without blob recording. Those should return
-   * false here.
-   */
-  virtual bool ShouldUseBlobRenderingForFallback() const { return true; }
-
-  /**
    * If this has a child list where the children are in the same coordinate
    * system as this item (i.e., they have the same reference frame),
    * return the list.
@@ -2805,6 +2858,7 @@ class nsDisplayItem {
   const ActiveScrolledRoot* GetActiveScrolledRoot() const {
     return mActiveScrolledRoot;
   }
+  const ActiveScrolledRoot* GetNearestScrollASR() const;
 
   virtual void SetClipChain(const DisplayItemClipChain* aClipChain,
                             bool aStore);
@@ -3088,13 +3142,8 @@ struct LinkedListIterator {
     return *this;
   }
 
-  bool operator==(const LinkedListIterator<T>& aOther) const {
-    return mNode == aOther.mNode;
-  }
-
-  bool operator!=(const LinkedListIterator<T>& aOther) const {
-    return mNode != aOther.mNode;
-  }
+  bool operator==(const LinkedListIterator<T>&) const = default;
+  bool operator!=(const LinkedListIterator<T>&) const = default;
 
   const T operator*() const {
     MOZ_ASSERT(mNode);
@@ -3323,7 +3372,7 @@ class nsDisplayList {
     for (nsDisplayItem* item : TakeItems()) {
       items.AppendElement(Item(item));
     }
-    items.StableSort(aComparator);
+    items.template StableSort<SortBoundsCheck::Disable>(aComparator);
 
     for (Item& item : items) {
       AppendToTop(item);
@@ -4437,10 +4486,6 @@ class nsDisplayThemedBackground : public nsPaintedDisplayItem {
       layers::RenderRootStateManager* aManager,
       nsDisplayListBuilder* aDisplayListBuilder) override;
 
-  bool ShouldUseBlobRenderingForFallback() const override {
-    return !XRE_IsParentProcess();
-  }
-
   /**
    * GetBounds() returns the background painting area.
    */
@@ -4766,12 +4811,6 @@ class nsDisplayOutline final : public nsPaintedDisplayItem {
   MOZ_COUNTED_DTOR_FINAL(nsDisplayOutline)
 
   NS_DISPLAY_DECL_NAME("Outline", TYPE_OUTLINE)
-
-  bool ShouldUseBlobRenderingForFallback() const override {
-    MOZ_ASSERT(IsThemedOutline(),
-               "The only fallback path we have is for themed outlines");
-    return !XRE_IsParentProcess();
-  }
 
   bool CreateWebRenderCommands(
       wr::DisplayListBuilder& aBuilder, wr::IpcResourceUpdateQueue& aResources,
@@ -5614,6 +5653,7 @@ class nsDisplayOwnLayer : public nsDisplayWrapList {
   bool IsZoomingLayer() const;
   bool IsFixedPositionLayer() const;
   bool IsStickyPositionLayer() const;
+  static bool HasDynamicToolbar(nsIFrame* aFrame);
   bool HasDynamicToolbar() const;
   virtual bool ShouldGetFixedAnimationId() { return false; }
 
@@ -5696,15 +5736,12 @@ class nsDisplayStickyPosition final : public nsDisplayOwnLayer {
                           nsDisplayList* aList,
                           const ActiveScrolledRoot* aActiveScrolledRoot,
                           ContainerASRType aContainerASRType,
-                          const ActiveScrolledRoot* aContainerASR,
-                          bool aClippedToDisplayPort);
+                          const ActiveScrolledRoot* aContainerASR);
   nsDisplayStickyPosition(nsDisplayListBuilder* aBuilder,
                           const nsDisplayStickyPosition& aOther)
       : nsDisplayOwnLayer(aBuilder, aOther),
         mContainerASR(aOther.mContainerASR),
-        mClippedToDisplayPort(aOther.mClippedToDisplayPort),
-        mShouldFlatten(false),
-        mWrStickyAnimationId(0) {
+        mShouldFlatten(false) {
     MOZ_COUNT_CTOR(nsDisplayStickyPosition);
   }
 
@@ -5713,7 +5750,6 @@ class nsDisplayStickyPosition final : public nsDisplayOwnLayer {
   const DisplayItemClip& GetClip() const override {
     return DisplayItemClip::NoClip();
   }
-  bool IsClippedToDisplayPort() const { return mClippedToDisplayPort; }
 
   NS_DISPLAY_DECL_NAME("StickyPosition", TYPE_STICKY_POSITION)
   void Paint(nsDisplayListBuilder* aBuilder, gfxContext* aCtx) override {
@@ -5744,6 +5780,7 @@ class nsDisplayStickyPosition final : public nsDisplayOwnLayer {
     return mShouldFlatten;
   }
 
+  static bool ShouldGetStickyAnimationId(nsIFrame* aStickyFrame);
   bool ShouldGetStickyAnimationId() const;
 
  private:
@@ -5761,27 +5798,9 @@ class nsDisplayStickyPosition final : public nsDisplayOwnLayer {
   // has no fixed descendants. This may be the same as the ASR returned by
   // GetActiveScrolledRoot(), or it may be a descendant of that.
   RefPtr<const ActiveScrolledRoot> mContainerASR;
-  // This flag tracks if this sticky item is just clipped to the enclosing
-  // scrollframe's displayport, or if there are additional clips in play. In
-  // the former case, we can skip setting the displayport clip as the scrolled-
-  // clip of the corresponding layer. This allows sticky items to remain
-  // unclipped when the enclosing scrollframe is scrolled past the displayport.
-  // i.e. when the rest of the scrollframe checkerboards, the sticky item will
-  // not. This makes sense to do because the sticky item has abnormal scrolling
-  // behavior and may still be visible even if the rest of the scrollframe is
-  // checkerboarded. Note that the sticky item will still be subject to the
-  // scrollport clip.
-  bool mClippedToDisplayPort;
 
   // True if this item should be flattened away.
   bool mShouldFlatten;
-
-  // Used for APZ to animate the sticky element in the compositor
-  // for purposes such as dynamic toolbar movement and (in the future)
-  // overscroll-related adjustment. Unlike nsDisplayOwnLayer::mWrAnimationId,
-  // this does not create a WebRender ReferenceFrame, which is important
-  // because sticky elements do not establish Gecko reference frames either.
-  uint64_t mWrStickyAnimationId;
 };
 
 class nsDisplayViewTransitionCapture final : public nsDisplayOwnLayer {
@@ -6091,12 +6110,13 @@ class nsDisplayMasksAndClipPaths final : public nsDisplayEffectsBase {
                              nsDisplayList* aList,
                              const ActiveScrolledRoot* aActiveScrolledRoot,
                              ContainerASRType aContainerASRType,
-                             bool aWrapsBackdropFilter);
+                             bool aWrapsBackdropFilter, bool aForceIsolation);
   nsDisplayMasksAndClipPaths(nsDisplayListBuilder* aBuilder,
                              const nsDisplayMasksAndClipPaths& aOther)
       : nsDisplayEffectsBase(aBuilder, aOther),
         mDestRects(aOther.mDestRects.Clone()),
-        mWrapsBackdropFilter(aOther.mWrapsBackdropFilter) {
+        mWrapsBackdropFilter(aOther.mWrapsBackdropFilter),
+        mForceIsolation(aOther.mForceIsolation) {
     MOZ_COUNT_CTOR(nsDisplayMasksAndClipPaths);
   }
 
@@ -6161,7 +6181,8 @@ class nsDisplayMasksAndClipPaths final : public nsDisplayEffectsBase {
   NS_DISPLAY_ALLOW_CLONING()
 
   nsTArray<nsRect> mDestRects;
-  bool mWrapsBackdropFilter;
+  bool mWrapsBackdropFilter : 1;
+  bool mForceIsolation : 1;
 };
 
 class nsDisplayBackdropFilters final : public nsDisplayWrapList {

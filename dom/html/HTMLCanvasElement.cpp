@@ -928,16 +928,9 @@ nsresult HTMLCanvasElement::ExtractData(JSContext* aCx,
 
   if (extractionBehaviour != CanvasUtils::ImageExtraction::Placeholder) {
     auto size = GetWidthHeight();
-    CanvasContextType type = GetCurrentContextType();
-    CanvasFeatureUsage featureUsage = CanvasFeatureUsage::None;
-    if (type == CanvasContextType::Canvas2D) {
-      if (auto ctx =
-              static_cast<CanvasRenderingContext2D*>(GetCurrentContext())) {
-        featureUsage = ctx->FeatureUsage();
-      }
-    }
-
-    CanvasUsage usage(size, type, featureUsage);
+    auto usage = CanvasUsage::CreateUsage(false, GetCurrentContextType(),
+                                          CanvasExtractionAPI::ToDataURL, size,
+                                          GetCurrentContext());
     OwnerDoc()->RecordCanvasUsage(usage);
   }
 
@@ -1097,6 +1090,13 @@ void HTMLCanvasElement::ToBlob(JSContext* aCx, BlobCallback& aCallback,
       global, &aCallback, recheckCanRead ? mOffscreenDisplay.get() : nullptr,
       recheckCanRead ? &aSubjectPrincipal : nullptr);
 
+  auto usage = CanvasUsage::CreateUsage(false, GetCurrentContextType(),
+                                        CanvasExtractionAPI::ToBlob,
+                                        GetWidthHeight(), GetCurrentContext());
+  if (extractionBehaviour != CanvasUtils::ImageExtraction::Placeholder) {
+    OwnerDoc()->RecordCanvasUsage(usage);
+  }
+
   CanvasRenderingContextHelper::ToBlob(aCx, callback, aType, aParams,
                                        extractionBehaviour, aRv);
 }
@@ -1117,10 +1117,8 @@ OffscreenCanvas* HTMLCanvasElement::TransferControlToOffscreen(
   }
 
   LayersBackend backend = LayersBackend::LAYERS_NONE;
-  nsIWidget* docWidget = nsContentUtils::WidgetForDocument(OwnerDoc());
-  if (docWidget) {
-    WindowRenderer* renderer = docWidget->GetWindowRenderer();
-    if (renderer) {
+  if (nsIWidget* docWidget = nsContentUtils::WidgetForDocument(OwnerDoc())) {
+    if (WindowRenderer* renderer = docWidget->GetWindowRenderer()) {
       backend = renderer->GetCompositorBackendType();
     }
   }
@@ -1425,30 +1423,23 @@ nsresult HTMLCanvasElement::RegisterFrameCaptureListener(
   }
 
   if (!mRequestedFrameRefreshObserver) {
-    Document* doc = OwnerDoc();
-    if (!doc) {
-      return NS_ERROR_FAILURE;
-    }
-
-    PresShell* shell = nsContentUtils::FindPresShellForDocument(doc);
-    if (!shell) {
+    PresShell* shell = nsContentUtils::FindPresShellForDocument(OwnerDoc());
+    if (NS_WARN_IF(!shell)) {
       return NS_ERROR_FAILURE;
     }
 
     nsPresContext* context = shell->GetPresContext();
-    if (!context) {
+    if (NS_WARN_IF(!context)) {
       return NS_ERROR_FAILURE;
     }
 
     context = context->GetRootPresContext();
-    if (!context) {
+    if (NS_WARN_IF(!context)) {
       return NS_ERROR_FAILURE;
     }
 
     nsRefreshDriver* driver = context->RefreshDriver();
-    if (!driver) {
-      return NS_ERROR_FAILURE;
-    }
+    MOZ_ASSERT(driver);
 
     mRequestedFrameRefreshObserver =
         new RequestedFrameRefreshObserver(this, driver, aReturnPlaceholderData);

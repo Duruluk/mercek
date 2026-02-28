@@ -375,9 +375,8 @@ class nsCocoaWindow final : public nsIWidget {
   int32_t RoundsWidgetCoordinatesTo() override;
 
   // Mac specific methods
-  void WillPaintWindow();
-  bool PaintWindow(LayoutDeviceIntRegion aRegion);
-  bool PaintWindowInDrawTarget(mozilla::gfx::DrawTarget* aDT,
+  void PaintWindow();
+  void PaintWindowInDrawTarget(mozilla::gfx::DrawTarget* aDT,
                                const LayoutDeviceIntRegion& aRegion,
                                const mozilla::gfx::IntSize& aSurfaceSize);
 
@@ -423,8 +422,7 @@ class nsCocoaWindow final : public nsIWidget {
   nsresult SetTitle(const nsAString& aTitle) override;
 
   void Invalidate(const LayoutDeviceIntRect& aRect) override;
-  nsresult DispatchEvent(mozilla::WidgetGUIEvent* aEvent,
-                         nsEventStatus& aStatus) override;
+  nsEventStatus DispatchEvent(mozilla::WidgetGUIEvent* aEvent) override;
   void CaptureRollupEvents(bool aDoCapture) override;
   [[nodiscard]] nsresult GetAttention(int32_t aCycleCount) override;
   bool HasPendingInputEvent() override;
@@ -465,7 +463,7 @@ class nsCocoaWindow final : public nsIWidget {
   bool HasModalDescendants() const { return mNumModalDescendants > 0; }
   bool IsModal() const { return mModal; }
 
-  NSWindow* GetCocoaWindow() { return mWindow; }
+  NSWindow* GetCocoaWindow() { return [[mWindow retain] autorelease]; }
 
   void SetMenuBar(RefPtr<nsMenuBarX>&& aMenuBar);
   nsMenuBarX* GetMenuBar();
@@ -490,10 +488,6 @@ class nsCocoaWindow final : public nsIWidget {
   void CocoaSendToplevelActivateEvents();
   void CocoaSendToplevelDeactivateEvents();
 
-  nsIWidgetListener* GetPaintListener() const {
-    return mAttachedWidgetListener ? mAttachedWidgetListener : mWidgetListener;
-  }
-
   enum class TransitionType {
     Windowed,
     Fullscreen,
@@ -503,6 +497,7 @@ class nsCocoaWindow final : public nsIWidget {
     Zoom,
   };
   void FinishCurrentTransitionIfMatching(const TransitionType& aTransition);
+  bool IsInTransition() { return mTransitionCurrent.isSome(); }
 
   // Called when something has happened that might cause us to update our
   // fullscreen state. Returns true if we updated state. We'll call this
@@ -528,8 +523,7 @@ class nsCocoaWindow final : public nsIWidget {
   void UpdateFullscreenState(bool aFullScreen, bool aNativeMode);
   nsresult DoMakeFullScreen(bool aFullScreen, bool aUseSystemTransition);
 
-  BaseWindow* mWindow;                // our cocoa window [STRONG]
-  BaseWindow* mClosedRetainedWindow;  // a second strong reference to our
+  BaseWindow* mWindow;  // our cocoa window [STRONG]
   // window upon closing it, held through our destructor. This is useful
   // to ensure that macOS run loops which reference the window will still
   // have something to point to even if they don't use proper retain and
@@ -615,7 +609,6 @@ class nsCocoaWindow final : public nsIWidget {
   // Windowed.
   mozilla::Maybe<TransitionType> mUpdateFullscreenOnResize;
 
-  bool IsInTransition() { return mTransitionCurrent.isSome(); }
   void QueueTransition(const TransitionType& aTransition);
   void ProcessTransitions();
 

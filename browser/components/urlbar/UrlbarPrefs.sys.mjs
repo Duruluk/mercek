@@ -10,11 +10,13 @@
 
 import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 
+import { TelemetryReportingPolicy } from "resource://gre/modules/TelemetryReportingPolicy.sys.mjs";
+
 const lazy = XPCOMUtils.declareLazy({
-  NimbusFeatures: "resource://nimbus/ExperimentAPI.sys.mjs",
-  UrlbarUtils: "moz-src:///browser/components/urlbar/UrlbarUtils.sys.mjs",
   CustomizableUI:
     "moz-src:///browser/components/customizableui/CustomizableUI.sys.mjs",
+  NimbusFeatures: "resource://nimbus/ExperimentAPI.sys.mjs",
+  UrlbarUtils: "moz-src:///browser/components/urlbar/UrlbarUtils.sys.mjs",
 });
 
 const PREF_URLBAR_BRANCH = "browser.urlbar.";
@@ -40,12 +42,24 @@ const PREF_URLBAR_DEFAULTS = /** @type {PreferenceDefinition[]} */ ([
   // Feature gate pref for addon suggestions in the urlbar.
   ["addons.featureGate", false],
 
+  // The minimum prefix length of an addons keyword the user must type to
+  // trigger the suggestion.
+  ["addons.minKeywordLength", 0],
+
   // The number of times the user has clicked the "Show less frequently" command
   // for addon suggestions.
   ["addons.showLessFrequentlyCount", 0],
 
   // Feature gate pref for AMP suggestions in the urlbar.
   ["amp.featureGate", false],
+
+  // The minimum prefix length of an AMP keyword the user must type to trigger
+  // the suggestion.
+  ["amp.minKeywordLength", 0],
+
+  // The number of times the user has clicked the "Show less frequently" command
+  // for AMP suggestions.
+  ["amp.showLessFrequentlyCount", 0],
 
   // "Autofill" is the name of the feature that automatically completes domains
   // and URLs that the user has visited as the user is typing them in the urlbar
@@ -201,11 +215,25 @@ const PREF_URLBAR_DEFAULTS = /** @type {PreferenceDefinition[]} */ ([
   // Feature gate pref for mdn suggestions in the urlbar.
   ["mdn.featureGate", true],
 
+  // The minimum prefix length of a mdn keyword the user must type to trigger
+  // the suggestion.
+  ["mdn.minKeywordLength", 0],
+
+  // If defined and non-zero, this is the maximum number of times the user
+  // will be able to click the "Show less frequently" command for mdn
+  // suggestions. If undefined or zero, the user will be able to click the
+  // command without any limit.
+  ["mdn.showLessFrequentlyCap", 0],
+
+  // The number of times the user has clicked the "Show less frequently" command
+  // for mdn suggestions.
+  ["mdn.showLessFrequentlyCount", 0],
+
   // Comma-separated list of client variants to send to Merino
   ["merino.clientVariants", ""],
 
   // The Merino endpoint URL, not including parameters.
-  ["merino.endpointURL", "https://merino.services.mozilla.com/api/v1/suggest"],
+  ["merino.endpointURL", ""],
 
   // OHTTP config URL for Merino requests.
   ["merino.ohttpConfigURL", ""],
@@ -219,8 +247,15 @@ const PREF_URLBAR_DEFAULTS = /** @type {PreferenceDefinition[]} */ ([
   // Timeout for Merino fetches (ms).
   ["merino.timeoutMs", 200],
 
+  // Merino endpoint prefs to be used for weather widgets
+  ["merino.weather.reportEndpointURL", ""],
+  ["merino.weather.hourlyEndpointURL", ""],
+
   // Set default NER threshold value of 0.5
   ["nerThreshold", [0.5, "float"]],
+
+  // Feature gate pref for Nova UI.
+  ["nova.featureGate", false],
 
   // Whether addresses and search results typed into the address bar
   // should be opened in new tabs by default.
@@ -258,6 +293,10 @@ const PREF_URLBAR_DEFAULTS = /** @type {PreferenceDefinition[]} */ ([
   // pick.
   ["quicksuggest.ampTopPickCharThreshold", 5],
 
+  // Whether or not use the Nova icon size for AMP suggestion.
+  // Otherwise, use standard rich-suggestion size.
+  ["quicksuggest.ampTopPickUseNovaIconSize", false],
+
   // Whether the Firefox Suggest data collection opt-in result is enabled.
   ["quicksuggest.contextualOptIn", false],
 
@@ -291,11 +330,6 @@ const PREF_URLBAR_DEFAULTS = /** @type {PreferenceDefinition[]} */ ([
   // Days until dismiss the Firefox Suggest contextual opt-in result after first
   // impression.
   ["quicksuggest.contextualOptIn.impressionDaysLimit", 5],
-
-  // TODO: Remove this pref, which is the old opt-in pref for online Firefox
-  // Suggest. We need to keep it for now because some live Nimbus experiments
-  // use a targeting filter that depends on it.
-  ["quicksuggest.dataCollection.enabled", false],
 
   // Comma-separated list of Suggest dynamic suggestion types to enable.
   ["quicksuggest.dynamicSuggestionTypes", ""],
@@ -452,6 +486,18 @@ const PREF_URLBAR_DEFAULTS = /** @type {PreferenceDefinition[]} */ ([
   // If true, top sites may include sponsored ones.
   ["sponsoredTopSites", false],
 
+  // Feature gate pref for realtime sports suggestions in the urlbar.
+  ["sports.featureGate", false],
+
+  // The minimum prefix length of sports keyword the user must type to trigger
+  // the suggestion. 0 means the min length should be taken from Nimbus or
+  // remote settings.
+  ["sports.minKeywordLength", 0],
+
+  // The number of times the user has clicked the "Show less frequently" command
+  // for sports suggestions.
+  ["sports.showLessFrequentlyCount", 0],
+
   // If `browser.urlbar.addons.featureGate` is true, this controls whether
   // addon suggestions are turned on.
   ["suggest.addons", true],
@@ -517,6 +563,9 @@ const PREF_URLBAR_DEFAULTS = /** @type {PreferenceDefinition[]} */ ([
   // Whether results will include search suggestions.
   ["suggest.searches", false],
 
+  // Whether results will include realtime sports suggestions.
+  ["suggest.sports", true],
+
   // Whether results will include top sites and the view will open on focus.
   ["suggest.topsites", true],
 
@@ -553,10 +602,6 @@ const PREF_URLBAR_DEFAULTS = /** @type {PreferenceDefinition[]} */ ([
   // When using switch to tabs, if set to true this will move the tab into the
   // active window.
   ["switchTabs.adoptIntoActiveWindow", false],
-
-  // Controls whether searching for open tabs returns tabs from any container
-  // or only from the current container.
-  ["switchTabs.searchAllContainers", true],
 
   // The minimum number of characters needed to match a tab group name.
   ["tabGroups.minSearchLength", 1],
@@ -664,15 +709,20 @@ const PREF_URLBAR_DEFAULTS = /** @type {PreferenceDefinition[]} */ ([
 // the array so that we can preserve blame.
 const PREF_URLBAR_DEFAULTS_MAP = new Map(PREF_URLBAR_DEFAULTS);
 
-const PREF_OTHER_DEFAULTS = new Map([
+const PREF_OTHER_DEFAULTS = /** @type {PreferenceDefinition[]} */ ([
   ["browser.fixup.dns_first_for_single_words", false],
   ["browser.ml.enable", false],
+  ["browser.search.openintab", false],
   ["browser.search.suggest.enabled", true],
   ["browser.search.suggest.enabled.private", false],
+  ["browser.search.widget.new", false],
   ["keyword.enabled", true],
   ["security.insecure_connection_text.enabled", true],
+  [TelemetryReportingPolicy.TOU_ACCEPTED_DATE_PREF, 0],
   ["ui.popup.disable_autohide", false],
 ]);
+
+const PREF_OTHER_DEFAULTS_MAP = new Map(PREF_OTHER_DEFAULTS);
 
 // Default values for Nimbus urlbar variables that do not have fallback prefs.
 // Variables with fallback prefs do not need to be defined here because their
@@ -705,7 +755,7 @@ const PREF_TYPES = new Map([
 ]);
 
 /**
- * Builds the standard result groups and returns the root group.  Result
+ * Builds the default result groups and returns the root group.  Result
  * groups determine the composition of results in the muxer, i.e., how they're
  * grouped and sorted.  Each group is an object that looks like this:
  *
@@ -742,7 +792,7 @@ const PREF_TYPES = new Map([
  * @param {boolean} options.showSearchSuggestionsFirst
  *   If true, the suggestions group will come before the general group.
  */
-function makeResultGroups({ showSearchSuggestionsFirst }) {
+function makeDefaultResultGroups({ showSearchSuggestionsFirst }) {
   /**
    * @type {ResultGroup}
    */
@@ -855,6 +905,99 @@ function makeResultGroups({ showSearchSuggestionsFirst }) {
   return rootGroup;
 }
 
+function makeSmartBarGroups() {
+  /**
+   * @type {ResultGroup}
+   */
+  return {
+    children: [
+      // heuristic
+      {
+        maxResultCount: 1,
+        children: [
+          { group: lazy.UrlbarUtils.RESULT_GROUP.HEURISTIC_TEST },
+          { group: lazy.UrlbarUtils.RESULT_GROUP.HEURISTIC_AUTOFILL },
+          { group: lazy.UrlbarUtils.RESULT_GROUP.HEURISTIC_HISTORY_URL },
+          { group: lazy.UrlbarUtils.RESULT_GROUP.HEURISTIC_AI_CHAT },
+          { group: lazy.UrlbarUtils.RESULT_GROUP.HEURISTIC_FALLBACK },
+        ],
+      },
+      // main
+      {
+        flexChildren: true,
+        children: [
+          // search suggestions
+          {
+            flex: 2,
+            children: [
+              {
+                availableSpan: 2,
+                group: lazy.UrlbarUtils.RESULT_GROUP.AI,
+              },
+              {
+                flexChildren: true,
+                children: [
+                  {
+                    // If `maxHistoricalSearchSuggestions` == 0, the muxer forces
+                    // `maxResultCount` to be zero and flex is ignored, per query.
+                    flex: 2,
+                    group: lazy.UrlbarUtils.RESULT_GROUP.FORM_HISTORY,
+                  },
+                  {
+                    flex: 99,
+                    group: lazy.UrlbarUtils.RESULT_GROUP.RECENT_SEARCH,
+                  },
+                  {
+                    flex: 4,
+                    group: lazy.UrlbarUtils.RESULT_GROUP.REMOTE_SUGGESTION,
+                  },
+                ],
+              },
+              {
+                group: lazy.UrlbarUtils.RESULT_GROUP.TAIL_SUGGESTION,
+              },
+            ],
+          },
+          // general
+          {
+            flex: 1,
+            group: lazy.UrlbarUtils.RESULT_GROUP.GENERAL_PARENT,
+            children: [
+              {
+                availableSpan: 3,
+                group: lazy.UrlbarUtils.RESULT_GROUP.INPUT_HISTORY,
+              },
+              {
+                flexChildren: true,
+                children: [
+                  {
+                    flex: 2,
+                    group: lazy.UrlbarUtils.RESULT_GROUP.GENERAL,
+                    orderBy: "frecency",
+                  },
+                  {
+                    flex: 1,
+                    group: lazy.UrlbarUtils.RESULT_GROUP.REMOTE_TAB,
+                  },
+                  {
+                    // We show relatively many about-page results because they're
+                    // only added for queries starting with "about:".
+                    flex: 2,
+                    group: lazy.UrlbarUtils.RESULT_GROUP.ABOUT_PAGES,
+                  },
+                ],
+              },
+              {
+                group: lazy.UrlbarUtils.RESULT_GROUP.INPUT_HISTORY,
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+}
+
 /**
  * Preferences class.  The exported object is a singleton instance.
  */
@@ -870,7 +1013,7 @@ class Preferences {
     ]);
 
     Services.prefs.addObserver(PREF_URLBAR_BRANCH, this, true);
-    for (let pref of PREF_OTHER_DEFAULTS.keys()) {
+    for (let pref of PREF_OTHER_DEFAULTS_MAP.keys()) {
       Services.prefs.addObserver(pref, this, true);
     }
     this._observerWeakRefs = [];
@@ -891,7 +1034,7 @@ class Preferences {
    * Returns the value for the preference with the given name.
    * For preferences in the "browser.urlbar."" branch, the passed-in name
    * should be relative to the branch. It's also possible to get prefs from the
-   * PREF_OTHER_DEFAULTS Map, specifying their full name.
+   * PREF_OTHER_DEFAULTS_MAP Map, specifying their full name.
    *
    * @param {string} pref
    *        The name of the preference to get.
@@ -910,7 +1053,7 @@ class Preferences {
    * Sets the value for the preference with the given name.
    * For preferences in the "browser.urlbar."" branch, the passed-in name
    * should be relative to the branch. It's also possible to set prefs from the
-   * PREF_OTHER_DEFAULTS Map, specifying their full name.
+   * PREF_OTHER_DEFAULTS_MAP Map, specifying their full name.
    *
    * @param {string} pref
    *        The name of the preference to set.
@@ -971,16 +1114,6 @@ class Preferences {
   }
 
   /**
-   * Builds the standard result groups.  See makeResultGroups.
-   *
-   * @param {object} options
-   *   See makeResultGroups.
-   */
-  makeResultGroups(options) {
-    return makeResultGroups(options);
-  }
-
-  /**
    * Gets a pref but allows the `scotchBonnet.enableOverride` pref to
    * short circuit them so one pref can be used to enable multiple
    * features.
@@ -993,13 +1126,45 @@ class Preferences {
     return this.get("scotchBonnet.enableOverride") || this.get(pref);
   }
 
-  get resultGroups() {
-    if (!this.#resultGroups) {
-      this.#resultGroups = makeResultGroups({
-        showSearchSuggestionsFirst: this.get("showSearchSuggestionsFirst"),
-      });
+  getResultGroups({ context }) {
+    // We try to cache result groups so we don't have to rebuild them each time.
+    // This key may be modified per each SAP, and will track the cached groups,
+    // any additionally used condition must be added to the key.
+    let key = context.sapName;
+    switch (context.sapName) {
+      case "urlbar": {
+        let showSearchSuggestionsFirst =
+          context.searchString ||
+          (!this.get("suggest.trending") &&
+            !this.get("suggest.recentsearches"));
+
+        let inSearchEngineMode = !!context.searchMode?.engineName;
+
+        // If we're in a case were search suggestions would be shown first, but not
+        // in search engine mode, then just use the user preference.
+        if (!inSearchEngineMode && showSearchSuggestionsFirst) {
+          showSearchSuggestionsFirst = this.get("showSearchSuggestionsFirst");
+        }
+
+        key += showSearchSuggestionsFirst;
+        return this.#getOrCacheResultGroups(key, () =>
+          makeDefaultResultGroups({ showSearchSuggestionsFirst })
+        );
+      }
+      case "searchbar": {
+        // This is a temporary placeholder until searchbar gets its own config.
+        return this.#getOrCacheResultGroups(key, () =>
+          makeDefaultResultGroups({ showSearchSuggestionsFirst: true })
+        );
+      }
+      case "smartbar": {
+        // This is a temporary placeholder until smartbar gets its own config.
+        return this.#getOrCacheResultGroups(key, makeSmartBarGroups);
+      }
+      default: {
+        throw new Error(`Unknown SAP name: ${context.sapName}`);
+      }
     }
-    return this.#resultGroups;
   }
 
   /**
@@ -1046,7 +1211,10 @@ class Preferences {
    */
   observe(subject, topic, data) {
     let pref = data.replace(PREF_URLBAR_BRANCH, "");
-    if (!PREF_URLBAR_DEFAULTS_MAP.has(pref) && !PREF_OTHER_DEFAULTS.has(pref)) {
+    if (
+      !PREF_URLBAR_DEFAULTS_MAP.has(pref) &&
+      !PREF_OTHER_DEFAULTS_MAP.has(pref)
+    ) {
       return;
     }
     this.#notifyObservers("onPrefChanged", pref);
@@ -1068,7 +1236,7 @@ class Preferences {
         this._map.delete("autoFillAdaptiveHistoryUseCountThreshold");
         return;
       case "showSearchSuggestionsFirst":
-        this.#resultGroups = null;
+        this.#cachedResultGroups.clear();
         return;
     }
 
@@ -1210,7 +1378,7 @@ class Preferences {
     let defaultValue = PREF_URLBAR_DEFAULTS_MAP.get(pref);
     if (defaultValue === undefined) {
       branch = Services.prefs;
-      defaultValue = PREF_OTHER_DEFAULTS.get(pref);
+      defaultValue = PREF_OTHER_DEFAULTS_MAP.get(pref);
       if (defaultValue === undefined) {
         let nimbus = this._getNimbusDescriptor(pref);
         if (nimbus) {
@@ -1277,44 +1445,6 @@ class Preferences {
   }
 
   /**
-   * Initializes the showSearchSuggestionsFirst pref based on the matchGroups
-   * pref.  This function can be removed when the corresponding UI migration in
-   * BrowserGlue.sys.mjs is no longer needed.
-   */
-  initializeShowSearchSuggestionsFirstPref() {
-    let matchGroups = [];
-    let pref = Services.prefs.getCharPref("browser.urlbar.matchGroups", "");
-    try {
-      matchGroups = pref.split(",").map(v => {
-        let group = v.split(":");
-        return [group[0].trim().toLowerCase(), Number(group[1])];
-      });
-    } catch (ex) {}
-    let groupNames = matchGroups.map(group => group[0]);
-    let suggestionIndex = groupNames.indexOf("suggestion");
-    let generalIndex = groupNames.indexOf("general");
-    let showSearchSuggestionsFirst =
-      generalIndex < 0 ||
-      (suggestionIndex >= 0 && suggestionIndex < generalIndex);
-    let oldValue = Services.prefs.getBoolPref(
-      "browser.urlbar.showSearchSuggestionsFirst"
-    );
-    Services.prefs.setBoolPref(
-      "browser.urlbar.showSearchSuggestionsFirst",
-      showSearchSuggestionsFirst
-    );
-
-    // Pref observers aren't called when a pref is set to its current value, but
-    // we always want to set matchGroups to the appropriate default value via
-    // onPrefChanged, so call it now if necessary.  This is really only
-    // necessary for tests since the only time this function is called outside
-    // of tests is by a UI migration in BrowserGlue.
-    if (oldValue == showSearchSuggestionsFirst) {
-      this.onPrefChanged("showSearchSuggestionsFirst");
-    }
-  }
-
-  /**
    * Return whether or not persisted search terms is enabled.
    *
    * @returns {boolean} true: if enabled.
@@ -1325,6 +1455,20 @@ class Preferences {
       this.get("showSearchTerms.enabled") &&
       !lazy.CustomizableUI.getPlacementOfWidget("search-container")
     );
+  }
+
+  /**
+   * @type {Map<string, ResultGroup>}
+   * Result groups cached by search access point and params used to build them.
+   */
+  #cachedResultGroups = new Map();
+  #getOrCacheResultGroups(key, builder) {
+    let groups = this.#cachedResultGroups.get(key);
+    if (!groups) {
+      groups = builder();
+      this.#cachedResultGroups.set(key, groups);
+    }
+    return groups;
   }
 
   #notifyObservers(method, changed, ...rest) {
@@ -1345,8 +1489,6 @@ class Preferences {
       ++i;
     }
   }
-
-  #resultGroups = null;
 }
 
 export var UrlbarPrefs = new Preferences();

@@ -4,6 +4,7 @@
 
 const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
+  PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.sys.mjs",
   SyncedTabsController: "resource:///modules/SyncedTabsController.sys.mjs",
   SidebarTreeView:
     "moz-src:///browser/components/sidebar/SidebarTreeView.sys.mjs",
@@ -81,6 +82,11 @@ class SyncedTabsInSidebar extends SidebarPage {
     );
     // Enable the feature only if the device supports it
     closeTabMenuItem.disabled = !this.triggerNode.canClose;
+
+    let privateWindowMenuItem = contextMenu.querySelector(
+      "#sidebar-synced-tabs-context-open-in-private-window"
+    );
+    privateWindowMenuItem.hidden = !lazy.PrivateBrowsingUtils.enabled;
   }
 
   handleCommandEvent(e) {
@@ -187,6 +193,7 @@ class SyncedTabsInSidebar extends SidebarPage {
         .searchQuery=${this.controller.searchQuery}
         @fxview-tab-list-primary-action=${navigateToLink}
         @fxview-tab-list-secondary-action=${this.onSecondaryAction}
+        @fxview-tab-list-middleclick-action=${navigateToLink}
       ></sidebar-tab-list>
     </moz-card>`;
   }

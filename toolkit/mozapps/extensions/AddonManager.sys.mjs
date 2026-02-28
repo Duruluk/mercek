@@ -17,13 +17,6 @@ if ("@mozilla.org/xre/app-info;1" in Cc) {
 
 import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
 
-const MOZ_COMPATIBILITY_NIGHTLY = ![
-  "aurora",
-  "beta",
-  "release",
-  "esr",
-].includes(AppConstants.MOZ_UPDATE_CHANNEL);
-
 const INTL_LOCALES_CHANGED = "intl:app-locales-changed";
 const XPIPROVIDER_BLOCKLIST_ATTENTION_UPDATED =
   "xpi-provider:blocklist-attention-updated";
@@ -40,6 +33,12 @@ const PREF_REMOTESETTINGS_DISABLED = "extensions.remoteSettings.disabled";
 const PREF_USE_REMOTE = "extensions.webextensions.remote";
 const PREF_AMTELEMETRY_ADDONS_BUILDER =
   "extensions.telemetry.EnvironmentAddonBuilder";
+const PREF_GLEAN_PING_ADDONS_UPDATED_DELAY_MS =
+  "extensions.gleanPingAddons.updated.delay";
+const PREF_GLEAN_PING_ADDONS_UPDATED_IDLE_TIMEOUT_MS =
+  "extensions.gleanPingAddons.updated.idleTimeout";
+const PREF_GLEAN_PING_ADDONS_UPDATED_TESTING =
+  "extensions.gleanPingAddons.updated.testing";
 
 const PREF_MIN_WEBEXT_PLATFORM_VERSION =
   "extensions.webExtensionsMinPlatformVersion";
@@ -47,11 +46,14 @@ const PREF_WEBAPI_TESTING = "extensions.webapi.testing";
 const PREF_EM_POSTDOWNLOAD_THIRD_PARTY =
   "extensions.postDownloadThirdPartyPrompt";
 
+const PREF_ALLOW_EXECUTESCRIPT_IN_MOZEXTENSION =
+  "extensions.webextensions.allow_executeScript_in_moz_extension";
+
 const UPDATE_REQUEST_VERSION = 2;
 
 const BRANCH_REGEXP = /^([^\.]+\.[0-9]+[a-z]*).*/gi;
 const PREF_EM_CHECK_COMPATIBILITY_BASE = "extensions.checkCompatibility";
-var PREF_EM_CHECK_COMPATIBILITY = MOZ_COMPATIBILITY_NIGHTLY
+var PREF_EM_CHECK_COMPATIBILITY = AppConstants.NIGHTLY_BUILD
   ? PREF_EM_CHECK_COMPATIBILITY_BASE + ".nightly"
   : undefined;
 
@@ -86,10 +88,10 @@ const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
   AbuseReporter: "resource://gre/modules/AbuseReporter.sys.mjs",
   AddonRepository: "resource://gre/modules/addons/AddonRepository.sys.mjs",
+  DeferredTask: "resource://gre/modules/DeferredTask.sys.mjs",
   Extension: "resource://gre/modules/Extension.sys.mjs",
   ObjectUtils: "resource://gre/modules/ObjectUtils.sys.mjs",
   RemoteSettings: "resource://services-settings/remote-settings.sys.mjs",
-  TelemetryTimestamps: "resource://gre/modules/TelemetryTimestamps.sys.mjs",
   TelemetryUtils: "resource://gre/modules/TelemetryUtils.sys.mjs",
   isGatedPermissionType:
     "resource://gre/modules/addons/siteperms-addon-utils.sys.mjs",
@@ -111,6 +113,42 @@ XPCOMUtils.defineLazyPreferenceGetter(
   "AMTELEMETRY_ADDONS_BUILDER_ENABLED",
   PREF_AMTELEMETRY_ADDONS_BUILDER,
   false
+);
+
+// By default coalesce `addons` updated ping submission happening in a 5min interval.
+XPCOMUtils.defineLazyPreferenceGetter(
+  lazy,
+  "GLEAN_PING_ADDONS_UPDATED_DELAY_MS",
+  PREF_GLEAN_PING_ADDONS_UPDATED_DELAY_MS,
+  1000 * 60 * 5
+);
+
+// By default wait for 1min for an idle slot after the delay time have already elapsed.
+XPCOMUtils.defineLazyPreferenceGetter(
+  lazy,
+  "GLEAN_PING_ADDONS_UPDATED_IDLE_TIMEOUT_MS",
+  PREF_GLEAN_PING_ADDONS_UPDATED_IDLE_TIMEOUT_MS,
+  1000 * 60
+);
+
+// Whether EnvironmentAddonBuilder._scheduleGleanPingAddonsUpdated should
+// send the `test-glean-ping-addons-updated` observer service notification.
+XPCOMUtils.defineLazyPreferenceGetter(
+  lazy,
+  "GLEAN_PING_ADDONS_UPDATED_TESTING",
+  PREF_GLEAN_PING_ADDONS_UPDATED_TESTING,
+  false
+);
+
+XPCOMUtils.defineLazyPreferenceGetter(
+  lazy,
+  "ALLOW_EXECUTESCRIPT_IN_MOZEXTENSION",
+  PREF_ALLOW_EXECUTESCRIPT_IN_MOZEXTENSION,
+  false,
+  // onUpdate callback.
+  (_pref, _oldValue, newValue) => {
+    Glean.extensions.allowExecuteScriptInMozExtension.set(newValue);
+  }
 );
 
 // Initialize the WebExtension process script service as early as possible,
@@ -273,6 +311,7 @@ async function promiseCallProvider(aProvider, aMethod, ...aArgs) {
 
 /**
  * Gets the currently selected locale for display.
+ *
  * @return  the selected locale or "en-US" if none is selected
  */
 function getLocale() {
@@ -510,6 +549,7 @@ export var AMBrowserExtensionsImport;
 /**
  * This is the real manager, kept here rather than in AddonManager to keep its
  * contents hidden from API users.
+ *
  * @class
  * @lends AddonManager
  */
@@ -526,10 +566,6 @@ var AddonManagerInternal = {
   telemetryDetails: {},
   upgradeListeners: new Map(),
   externalExtensionLoaders: new Map(),
-
-  recordTimestamp(name, value) {
-    lazy.TelemetryTimestamps.add(name, value);
-  },
 
   /**
    * Start up a provider, and register its shutdown hook if it has one
@@ -611,7 +647,6 @@ var AddonManagerInternal = {
         return;
       }
 
-      this.recordTimestamp("AMI_startup_begin");
       Glean.addonsManager.startupTimeline.AMI_startup_begin.set(
         Services.telemetry.msSinceProcessStart()
       );
@@ -655,7 +690,7 @@ var AddonManagerInternal = {
         );
       }
 
-      if (!MOZ_COMPATIBILITY_NIGHTLY) {
+      if (!AppConstants.NIGHTLY_BUILD) {
         PREF_EM_CHECK_COMPATIBILITY =
           PREF_EM_CHECK_COMPATIBILITY_BASE +
           "." +
@@ -783,7 +818,6 @@ var AddonManagerInternal = {
 
       gStartupComplete = true;
       gStartedPromise.resolve();
-      this.recordTimestamp("AMI_startup_end");
       Glean.addonsManager.startupTimeline.AMI_startup_end.set(
         Services.telemetry.msSinceProcessStart()
       );
@@ -817,6 +851,10 @@ var AddonManagerInternal = {
       Services.prefs.getBoolPref(PREF_USE_REMOTE)
     );
     Services.prefs.addObserver(PREF_USE_REMOTE, this);
+
+    Glean.extensions.allowExecuteScriptInMozExtension.set(
+      lazy.ALLOW_EXECUTESCRIPT_IN_MOZEXTENSION
+    );
 
     logger.debug("Completed startup sequence");
     this.callManagerListeners("onStartup");
@@ -985,6 +1023,7 @@ var AddonManagerInternal = {
   /**
    * Shuts down the addon manager and all registered providers, this must clean
    * up everything in order for automated tests to fake restarts.
+   *
    * @return Promise{null} that resolves when all providers and dependent modules
    *                       have finished shutting down
    */
@@ -1325,6 +1364,7 @@ var AddonManagerInternal = {
   /**
    * Performs a background update check by starting an update for all add-ons
    * that can be updated.
+   *
    * @return Promise{null} Resolves when the background update check is complete
    *                       (the resulting addon installations may still be in progress).
    */
@@ -1727,13 +1767,13 @@ var AddonManagerInternal = {
    *
    * @param  aUrl
    *         The string represenation of the URL where the add-on is located
-   * @param  {Object} [aOptions = {}]
+   * @param  {object} [aOptions = {}]
    *         Additional options for this install
    * @param  {string} [aOptions.hash]
    *         An optional hash of the add-on
    * @param  {string} [aOptions.name]
    *         An optional placeholder name while the add-on is being downloaded
-   * @param  {string|Object} [aOptions.icons]
+   * @param  {string | object} [aOptions.icons]
    *         Optional placeholder icons while the add-on is being downloaded
    * @param  {string} [aOptions.version]
    *         An optional placeholder version while the add-on is being downloaded
@@ -1741,7 +1781,7 @@ var AddonManagerInternal = {
    *         An optional <browser> element for download permissions prompts.
    * @param  {nsIPrincipal} [aOptions.triggeringPrincipal]
    *         The principal which is attempting to install the add-on.
-   * @param  {Object} [aOptions.telemetryInfo]
+   * @param  {object} [aOptions.telemetryInfo]
    *         An optional object which provides details about the installation source
    *         included in the addon manager telemetry events.
    * @throws if aUrl is not specified or if an optional argument of
@@ -1878,7 +1918,7 @@ var AddonManagerInternal = {
    *
    * @param  {Element} aBrowser: The optional browser element that started the install
    * @param {nsIPrincipal} aInstallingPrincipal
-   * @param {String} aSitePerm
+   * @param {string} aSitePerm
    * @returns {Promise<SitePermsAddonInstall|null>} The promise will resolve with null if there
    *         are no provider with a getSitePermsAddonInstallForWebpage method. In practice,
    *         this should only be the case when SitePermsAddonProvider is not enabled,
@@ -2848,7 +2888,7 @@ var AddonManagerInternal = {
    *         Ideal icon size in pixels
    * @param  aWindow
    *         Optional window object for determining the correct scale.
-   * @return {String} The absolute URL of the icon or null if the addon doesn't have icons
+   * @return {string} The absolute URL of the icon or null if the addon doesn't have icons
    */
   getPreferredIconURL(aAddon, aSize, aWindow = undefined) {
     if (aWindow && aWindow.devicePixelRatio) {
@@ -2978,9 +3018,9 @@ var AddonManagerInternal = {
    *
    * @param  aIDs
    *         The array of IDs to retrieve
-   * @return {Promise}
-   * @resolves The array of found add-ons.
-   * @rejects  Never
+   * @returns {Promise}
+   *   Resolves to the array of found add-ons.
+   * @rejects Never
    * @throws if the aIDs argument is not specified
    */
   getAddonsByIDs(aIDs) {
@@ -3053,9 +3093,9 @@ var AddonManagerInternal = {
    * @param  aTypes
    *         An optional array of types to retrieve. Each type is a string name
    *
-   * @resolve {addons: Array, fullData: bool}
-   *          fullData is true if addons contains all the data we have on those
-   *          addons. It is false if addons only contains partial data.
+   * @returns {Promise<{addons: Array, fullData: boolean}>}
+   *   fullData is true if addons contains all the data we have on those addons.
+   *   It is false if addons only contains partial data.
    */
   async getActiveAddons(aTypes) {
     if (!gStarted) {
@@ -3316,7 +3356,7 @@ var AddonManagerInternal = {
    * @param {browser}      browser browser user is installing from
    * @param {nsIURI}       url     URI for the principal of the installing source
    * @param {AddonInstallWrapper} install
-   * @param {Object}       info    information such as addon wrapper
+   * @param {object}       info    information such as addon wrapper
    * @param {AddonWrapper} info.addon
    * @param {string}       source  simplified string describing source of install and is
    *                               generated based on the installing principal and checking
@@ -3888,10 +3928,6 @@ export var AddonManagerPrivate = {
     gXPIProvider.unregisterDictionaries(aDicts);
   },
 
-  recordTimestamp(name, value) {
-    AddonManagerInternal.recordTimestamp(name, value);
-  },
-
   _simpleMeasures: {},
   recordSimpleMeasure(name, value) {
     this._simpleMeasures[name] = value;
@@ -4043,6 +4079,7 @@ export var AddonManagerPrivate = {
 /**
  * This is the public API that UI and developers should be calling. All methods
  * just forward to AddonManagerInternal.
+ *
  * @class
  */
 export var AddonManager = {
@@ -4297,7 +4334,7 @@ export var AddonManager = {
     return gStartedPromise.promise;
   },
 
-  /** @constructor */
+  /** @class */
   init() {
     this._stateToString = new Map();
     for (let [name, value] of this._states) {
@@ -4836,6 +4873,10 @@ export class EnvironmentAddonBuilder {
     // has had a chance to load. Do we have full data yet?
     this._addonsAreFull = false;
 
+    // a DeferredTask coalescing multiple addons list updates into a single
+    // submission of the Glean Ping `addons` with the reason `updated`.
+    this._submitGleanPingAddonsUpdatedTask = null;
+
     this._log = console.createInstance({
       prefix: "EnvironmentAddonBuilder",
       maxLogLevel: Services.prefs.getBoolPref(PREF_LOGGING_ENABLED, false)
@@ -4849,10 +4890,10 @@ export class EnvironmentAddonBuilder {
   /**
    * Returns a substring of the input string.
    *
-   * @param {String} aString The input string.
+   * @param {string} aString The input string.
    * @param {Integer} aMaxLength The maximum length of the returned substring. If this is
    *        greater than the length of the input string, we return the whole input string.
-   * @return {String} The substring or null if the input string is null.
+   * @return {string} The substring or null if the input string is null.
    */
   limitStringToLength(aString, aMaxLength) {
     if (typeof aString !== "string") {
@@ -4863,8 +4904,9 @@ export class EnvironmentAddonBuilder {
 
   /**
    * Enforces the parameter to a boolean value.
+   *
    * @param aValue The input value.
-   * @return {Boolean|Object} If aValue is a boolean or a number, returns its truthfulness
+   * @return {boolean | object} If aValue is a boolean or a number, returns its truthfulness
    *         value. Otherwise, return null.
    */
   enforceBoolean(aValue) {
@@ -4876,6 +4918,7 @@ export class EnvironmentAddonBuilder {
 
   /**
    * Get the initial set of addons.
+   *
    * @returns Promise<void> when the initial load is complete.
    */
   async init() {
@@ -4907,6 +4950,10 @@ export class EnvironmentAddonBuilder {
         this._pendingTask = null;
         this._shutdownState = "_pendingTask init complete. No longer blocking.";
         this._log.debug("init - completed");
+        // Submit the addons Glean ping with reason "startup" right after
+        // the EnvironmentAddonBuilder has been initialized as part of the
+        // AddonManager and application startup.
+        GleanPings.addons.submit("startup");
       }
     })();
 
@@ -4917,6 +4964,7 @@ export class EnvironmentAddonBuilder {
     if (this._shutdownCompleted) {
       return;
     }
+    this._finalizeGleanPingAddonsUpdatedTask();
     await this._shutdownBlocker();
   }
 
@@ -5028,6 +5076,7 @@ export class EnvironmentAddonBuilder {
         this._shutdownState = "No longer blocking, _updateAddons resolved";
         if (result.changed) {
           this._onEnvironmentChange(changeReason, result.oldEnvironment);
+          this._scheduleGleanPingAddonsUpdated();
         }
       },
       err => {
@@ -5036,6 +5085,48 @@ export class EnvironmentAddonBuilder {
         this._log.error("_checkForChanges: Error collecting addons", err);
       }
     );
+  }
+
+  _scheduleGleanPingAddonsUpdated() {
+    if (!this._submitGleanPingAddonsUpdatedTask) {
+      this._submitGleanPingAddonsUpdatedTask = new lazy.DeferredTask(
+        () => {
+          if (lazy.GLEAN_PING_ADDONS_UPDATED_TESTING) {
+            Services.obs.notifyObservers(
+              null,
+              "test-glean-ping-addons-updated"
+            );
+          }
+          // Submit the addons Glean ping with reason "updated" when
+          // the list of addons/theme/GMPlugins has changed.
+          GleanPings.addons.submit("updated");
+        },
+        lazy.GLEAN_PING_ADDONS_UPDATED_DELAY_MS,
+        lazy.GLEAN_PING_ADDONS_UPDATED_IDLE_TIMEOUT_MS
+      );
+      AddonManager.beforeShutdown.addBlocker(
+        "EnvironmentAddonBuilder::GleanPingAddonsUpdated",
+        () => this._finalizeGleanPingAddonsUpdatedTask(),
+        { fetchState: () => this._shutdownState }
+      );
+    }
+    this._submitGleanPingAddonsUpdatedTask.arm();
+  }
+
+  _finalizeGleanPingAddonsUpdatedTask() {
+    try {
+      this._submitGleanPingAddonsUpdatedTask?.disarm();
+      this._submitGleanPingAddonsUpdatedTask?.finalize();
+    } catch (err) {
+      this._log.error(
+        "Unexpected failure on disarming and finalizing _submitGleanPingAddonsUpdatedTask",
+        err
+      );
+    } finally {
+      if (this._submitGleanPingAddonsUpdatedTask?.isFinalized) {
+        this._submitGleanPingAddonsUpdatedTask = null;
+      }
+    }
   }
 
   async _shutdownBlocker() {
@@ -5117,6 +5208,7 @@ export class EnvironmentAddonBuilder {
 
   /**
    * Get the addon data in object form.
+   *
    * @return Promise<object> containing the addon data.
    */
   async _getActiveAddons() {
@@ -5214,6 +5306,7 @@ export class EnvironmentAddonBuilder {
 
   /**
    * Get the currently active theme data in object form.
+   *
    * @return Promise<object> containing the active theme data.
    */
   async _getActiveTheme() {
@@ -5544,7 +5637,7 @@ AMTelemetry = {
    * @param {AddonInstall} install
    *        The AddonInstall instance to retrieve the source from.
    *
-   * @returns {Object | null}
+   * @returns {object | null}
    *          The telemetry infor ({source, method}) from the given AddonInstall instance.
    */
   getInstallTelemetryInfo(install) {
@@ -5881,8 +5974,8 @@ AMTelemetry = {
   },
 
   /**
-   * @params {object} opts
-   * @params {nsIURI} opts.displayURI
+   * @param {object} opts
+   * @param {nsIURI} opts.displayURI
    */
   recordSuspiciousSiteEvent({ displayURI }) {
     let site = displayURI?.displayHost ?? "(unknown)";

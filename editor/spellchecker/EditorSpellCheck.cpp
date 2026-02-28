@@ -741,7 +741,18 @@ EditorSpellCheck::UpdateCurrentDictionary(
 
   RefPtr<DictionaryFetcher> fetcher =
       new DictionaryFetcher(this, aCallback, mDictionaryFetcherGroup);
-  fetcher->mRootContentLang = rootEditableElement->GetLang();
+  fetcher->mRootContentLang = [&] {
+    if (rootEditableElement->IsInNativeAnonymousSubtree()) {
+      if (auto* host =
+              rootEditableElement
+                  ->GetClosestNativeAnonymousSubtreeRootParentOrHost()) {
+        // Let text editors inherit the language of the parent content across
+        // the shadow tree.
+        return host->GetLang();
+      }
+    }
+    return rootEditableElement->GetLang();
+  }();
   RefPtr<Document> doc = rootEditableElement->GetComposedDoc();
   NS_ENSURE_STATE(doc);
   fetcher->mRootDocContentLang = doc->GetContentLanguage();

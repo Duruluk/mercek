@@ -12,7 +12,6 @@
 
 #include "Point.h"
 #include "Matrix.h"
-#include <vector>
 
 namespace mozilla {
 namespace gfx {
@@ -193,7 +192,8 @@ enum ColorChannel {
   COLOR_CHANNEL_R = 0,
   COLOR_CHANNEL_G,
   COLOR_CHANNEL_B,
-  COLOR_CHANNEL_A
+  COLOR_CHANNEL_A,
+  COLOR_CHANNEL_MAX = COLOR_CHANNEL_A
 };
 
 enum DisplacementMapInputs {

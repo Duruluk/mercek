@@ -5,8 +5,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef __MOZ_WAYLAND_SURFACE_H__
-#define __MOZ_WAYLAND_SURFACE_H__
+#ifndef MOZ_WAYLAND_SURFACE_H_
+#define MOZ_WAYLAND_SURFACE_H_
 
 #include "nsWaylandDisplay.h"
 #include "mozilla/Mutex.h"
@@ -35,17 +35,13 @@ class WaylandSurface final {
 
   NS_INLINE_DECL_THREADSAFE_REFCOUNTING(WaylandSurface);
 
-  WaylandSurface(RefPtr<WaylandSurface> aParent, gfx::IntSize aSize);
+  explicit WaylandSurface(RefPtr<WaylandSurface> aParent);
 
 #ifdef MOZ_LOGGING
   nsAutoCString GetDebugTag() const;
   void* GetLoggingWidget() const { return mLoggingWidget; };
   void SetLoggingWidget(void* aWidget) { mLoggingWidget = aWidget; }
 #endif
-
-  void ReadyToDrawFrameCallbackHandler(struct wl_callback* aCallback);
-  void AddOrFireReadyToDrawCallback(const std::function<void(void)>& aDrawCB);
-  void ClearReadyToDrawCallbacks();
 
   void FrameCallbackHandler(struct wl_callback* aCallback, uint32_t aTime,
                             bool aRoutedFromChildSurface);
@@ -72,20 +68,30 @@ class WaylandSurface final {
       const WaylandSurfaceLock& aProofOfLock,
       const std::function<void(bool)>& aFrameCallbackStateHandler);
 
-  // Create and resize EGL window.
-  // GetEGLWindow() takes unscaled window size as we derive size from GdkWindow.
-  // It's scaled internally by WaylandSurface fractional scale.
-  wl_egl_window* GetEGLWindow(nsIntSize aUnscaledSize);
-  // SetEGLWindowSize() takes scaled size - it's called from rendering code
-  // which uses scaled sizes.
-  bool SetEGLWindowSize(nsIntSize aScaledSize);
+  wl_egl_window* GetEGLWindow(DesktopIntSize aSize);
   bool HasEGLWindow() const { return !!mEGLWindow; }
 
-  // Read to draw means we got frame callback from parent surface
-  // where we attached to.
-  bool IsReadyToDraw() const { return mIsReadyToDraw; }
+  // Set WaylandSurface target size (viewport & ELG surface if it's present).
+  void SetSize(DesktopIntSize aSize);
+
+  // Apply changes to EGLWindow size set by SetSize().
+  // ApplyEGLWindowSize() is called from compostor thread
+  // right before GL rendering to set EGLWindow size / viewport size
+  // for actual back buffer.
+  //
+  // aEGLWindowSize is scaled backbuffer size and it's used similary
+  // as WaylandBuffer size at Attach().
+  void ApplyEGLWindowSize(LayoutDeviceIntSize aEGLWindowSize);
+
   // Mapped means we have all internals created.
   bool IsMapped() const { return mIsMapped; }
+
+  // We've got first frame callback so we're really visible now.
+  bool IsVisible() const { return mIsVisible; }
+
+  // Called from frame callback and sets the visible flag
+  void VisibleCallbackHandler();
+
   // Indicate that Wayland surface uses Gdk resources which
   // need to be released on main thread by GdkCleanUpLocked().
   // It may be called after Unmap() to make sure
@@ -99,11 +105,11 @@ class WaylandSurface final {
   // Mapped as direct surface of MozContainer
   bool MapLocked(const WaylandSurfaceLock& aProofOfLock,
                  wl_surface* aParentWLSurface,
-                 gfx::IntPoint aSubsurfacePosition);
+                 DesktopIntPoint aSubsurfacePosition);
   // Mapped as child of WaylandSurface (used by layers)
   bool MapLocked(const WaylandSurfaceLock& aProofOfLock,
                  WaylandSurfaceLock* aParentWaylandSurfaceLock,
-                 gfx::IntPoint aSubsurfacePosition);
+                 DesktopIntPoint aSubsurfacePosition);
   // Unmap surface which hides it
   void UnmapLocked(WaylandSurfaceLock& aSurfaceLock);
 
@@ -124,10 +130,6 @@ class WaylandSurface final {
   // is updated according to buffer size.
   bool CreateViewportLocked(const WaylandSurfaceLock& aProofOfLock,
                             bool aFollowsSizeChanges);
-
-  void AddReadyToDrawCallbackLocked(
-      const WaylandSurfaceLock& aProofOfLock,
-      const std::function<void(void)>& aInitialDrawCB);
 
   // Attach WaylandBuffer which shows WaylandBuffer content
   // on screen.
@@ -166,11 +168,11 @@ class WaylandSurface final {
   void PlaceAboveLocked(const WaylandSurfaceLock& aProofOfLock,
                         WaylandSurfaceLock& aLowerSurfaceLock);
   void MoveLocked(const WaylandSurfaceLock& aProofOfLock,
-                  gfx::IntPoint aPosition);
+                  DesktopIntPoint aPosition);
   void SetViewPortSourceRectLocked(const WaylandSurfaceLock& aProofOfLock,
-                                   gfx::Rect aRect);
+                                   const DesktopIntRect& aRect);
   void SetViewPortDestLocked(const WaylandSurfaceLock& aProofOfLock,
-                             gfx::IntSize aDestSize);
+                             const DesktopIntSize& aDestSize);
   void SetTransformFlippedLocked(const WaylandSurfaceLock& aProofOfLock,
                                  bool aFlippedX, bool aFlippedY);
 
@@ -204,7 +206,7 @@ class WaylandSurface final {
   // Returns scale as float point number. If WaylandSurface is not mapped,
   // return fractional scale of parent surface or monitor.
   static constexpr const double sNoScale = -1;
-  double GetScale();
+  double GetScale() const;
 
   // Called when screen ceiled scale changed or set initial scale before we map
   // and paint the surface.
@@ -284,11 +286,7 @@ class WaylandSurface final {
   bool MapLocked(const WaylandSurfaceLock& aProofOfLock,
                  wl_surface* aParentWLSurface,
                  WaylandSurfaceLock* aParentWaylandSurfaceLock,
-                 gfx::IntPoint aSubsurfacePosition, bool aSubsurfaceDesync,
-                 bool aUseReadyToDrawCallback = true);
-
-  void SetSizeLocked(const WaylandSurfaceLock& aProofOfLock,
-                     gfx::IntSize aSizeScaled, gfx::IntSize aUnscaledSize);
+                 DesktopIntPoint aSubsurfacePosition, bool aSubsurfaceDesync);
 
   wl_surface* Lock(WaylandSurfaceLock* aWaylandSurfaceLock);
   void Unlock(struct wl_surface** aSurface,
@@ -307,21 +305,22 @@ class WaylandSurface final {
   bool HasEmulatedFrameCallbackLocked(
       const WaylandSurfaceLock& aProofOfLock) const;
 
-  void ClearReadyToDrawCallbacksLocked(const WaylandSurfaceLock& aProofOfLock);
-
   void ClearScaleLocked(const WaylandSurfaceLock& aProofOfLock);
+
+  // Calculate 'stable' rounded size for subsurface based
+  // on its size and position.
+  LayoutDeviceIntSize GetScaledSize(const DesktopIntSize& aSize) const;
 
   // Weak ref to owning widget (nsWindow or NativeLayerWayland),
   // used for diagnostics/logging only.
   void* mLoggingWidget = nullptr;
 
-  // WaylandSurface mapped - we have valid wl_surface where we can paint to.
+  // mIsMapped means we're supposed to be visible
+  // (or not if Wayland compositor decides so).
   mozilla::Atomic<bool, mozilla::Relaxed> mIsMapped{false};
 
-  // Wayland shows only subsurfaces of visible parent surfaces.
-  // mIsReadyToDraw means our parent wl_surface has content so
-  // this WaylandSurface can be visible on screen and get get frame callback.
-  mozilla::Atomic<bool, mozilla::Relaxed> mIsReadyToDraw{false};
+  // mIsVisible means we're really visible as we've got frame callback.
+  mozilla::Atomic<bool, mozilla::Relaxed> mIsVisible{false};
 
   // We used Gdk functions which needs clean up in main thread.
   mozilla::Atomic<bool, mozilla::Relaxed> mIsPendingGdkCleanup{false};
@@ -329,9 +328,7 @@ class WaylandSurface final {
   std::function<void(void)> mGdkCommitCallback;
   std::function<void(void)> mUnmapCallback;
 
-  // Scaled surface size, ceiled or fractional.
-  // This reflects real surface size which we paint.
-  gfx::IntSize mSizeScaled;
+  DesktopIntSize mSize;
 
   // Parent GdkWindow where we paint to, directly or via subsurface.
   RefPtr<GdkWindow> mGdkWindow;
@@ -360,7 +357,7 @@ class WaylandSurface final {
   bool mSubsurfaceDesync = true;
 
   wl_subsurface* mSubsurface = nullptr;
-  gfx::IntPoint mSubsurfacePosition{-1, -1};
+  DesktopIntPoint mSubsurfacePosition;
 
   // Wayland buffers recently attached to this surface or held by
   // Wayland compositor.
@@ -381,17 +378,15 @@ class WaylandSurface final {
 
   bool mViewportFollowsSizeChanges = true;
   wp_viewport* mViewport = nullptr;
-  gfx::Rect mViewportSourceRect{-1, -1, -1, -1};
-  gfx::IntSize mViewportDestinationSize{-1, -1};
+  DesktopIntRect mViewportSourceRect{-1, -1, -1, -1};
+  DesktopIntSize mViewportDestinationSize{-1, -1};
 
   // Surface flip state on X/Y asix
   bool mBufferTransformFlippedX = false;
   bool mBufferTransformFlippedY = false;
 
-  // Frame callback registered to parent surface. When we get it we know
-  // parent surface is ready and we can paint.
-  wl_callback* mReadyToDrawFrameCallback = nullptr;
-  std::vector<std::function<void(void)>> mReadyToDrawCallbacks;
+  // Frame callback for mIsVisible flag
+  wl_callback* mVisibleFrameCallback = nullptr;
 
   // Frame callbacks of this surface
   wl_callback* mFrameCallback = nullptr;
@@ -488,4 +483,4 @@ class WaylandSurface final {
 
 }  // namespace mozilla::widget
 
-#endif /* __MOZ_WAYLAND_SURFACE_H__ */
+#endif /* MOZ_WAYLAND_SURFACE_H_ */

@@ -311,8 +311,6 @@ newtab-custom-recent-title = أحدث الأنشطة
 newtab-custom-recent-subtitle = مختارات من المواقع والمحتويات الحديثة
 newtab-custom-widget-weather-toggle =
     .label = الطقس
-newtab-custom-widget-trending-search-toggle =
-    .label = عمليات البحث المُتداولة
 newtab-custom-widget-lists-toggle =
     .label = قوائم
 newtab-custom-widget-timer-toggle =
@@ -370,7 +368,7 @@ newtab-wallpaper-abstract-orange = أشكال برتقالية
 newtab-wallpaper-gradient-orange = تدرج اللون البرتقالي والوردي
 newtab-wallpaper-abstract-blue-purple = الأشكال الزرقاء والأرجوانية
 
-## Celestial
+## Firefox
 
 newtab-wallpaper-white-mountains = جبال بيضاء
 newtab-wallpaper-feature-highlight-header = جرب دفقة من الألوان
@@ -444,7 +442,7 @@ newtab-custom-wallpaper-cta = جربه
 # "Scan the code" refers to scanning the QR code that appears above the body text that leads to Firefox for mobile download.
 newtab-download-mobile-highlight-body-variant-a = افحص الرمز للتصفح بشكل آمن أثناء التنقل.
 
-## Strings for reporting ads and content
+## Strings for reporting issues with ads and content
 
 newtab-report-content-why-reporting-this =
     .label = لماذا تُبلِّغ عن هذا؟
@@ -462,3 +460,42 @@ newtab-report-cancel = ألغِ
 newtab-report-submit = أرسِل
 newtab-toast-thanks-for-reporting =
     .message = شكرا لك على الإبلاغ عن هذا.
+
+## Strings for task / to-do list productivity widget
+
+# A simple label next to the default list name letting users know this is a new / beta feature
+newtab-widget-lists-label-new =
+    .label = جديد
+newtab-widget-lists-label-beta =
+    .label = تجريبي
+newtab-widget-task-list-menu-copy = انسخ
+newtab-widget-lists-menu-edit = حرّر اسم القائمة
+newtab-widget-lists-menu-create = أنشئ قائمة جديدة
+newtab-widget-lists-menu-delete = احذف هذه القائمة
+newtab-widget-lists-menu-copy = انسخ القائمة إلى الحافظة
+newtab-widget-lists-menu-hide = أخفِ جميع القوائم
+newtab-widget-lists-menu-learn-more = اطّلع على المزيد
+newtab-widget-lists-input-add-an-item =
+    .placeholder = أضف عنصر
+newtab-widget-lists-input-menu-delete = احذف
+newtab-widget-lists-input-menu-edit = حرّر
+newtab-widget-lists-name-placeholder-default =
+    .placeholder = قائمة المهام
+# The placeholder value of the name field for a newly created list
+newtab-widget-lists-name-placeholder-new =
+    .placeholder = قائمة جديدة
+
+## Strings for timer productivity widget
+## When the timer ends, a system notification may be shown. Depending on which mode the timer is in, that message would be shown
+
+newtab-widget-timer-notification-title = المؤقت
+newtab-widget-timer-label-play =
+    .label = شغّل
+newtab-widget-timer-label-pause =
+    .label = ألبِث
+newtab-widget-timer-menu-learn-more = اطّلع على المزيد
+newtab-promo-card-title = ادعم { -brand-product-name }
+newtab-promo-card-cta = اطّلع على المزيد
+newtab-promo-card-dismiss-button =
+    .title = أهمِل
+    .aria-label = أهمِل

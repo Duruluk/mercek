@@ -4,7 +4,9 @@
 
 //! Specified types for CSS values related to borders.
 
+use crate::derives::*;
 use crate::parser::{Parse, ParserContext};
+use crate::values::computed::border::BorderSideWidth as ComputedBorderSideWidth;
 use crate::values::computed::{Context, ToComputedValue};
 use crate::values::generics::border::{
     GenericBorderCornerRadius, GenericBorderImageSideWidth, GenericBorderImageSlice,
@@ -13,13 +15,12 @@ use crate::values::generics::border::{
 use crate::values::generics::rect::Rect;
 use crate::values::generics::size::Size2D;
 use crate::values::specified::length::{Length, NonNegativeLength, NonNegativeLengthPercentage};
-use crate::values::specified::Color;
 use crate::values::specified::{AllowQuirks, NonNegativeNumber, NonNegativeNumberOrPercentage};
 use crate::Zero;
 use app_units::Au;
 use cssparser::Parser;
 use std::fmt::{self, Write};
-use style_traits::{values::SequenceWriter, CssWriter, ParseError, ToCss};
+use style_traits::{CssWriter, ParseError, ToCss};
 
 /// A specified value for a single side of a `border-style` property.
 ///
@@ -99,6 +100,7 @@ impl BorderImageSlice {
 
 /// https://drafts.csswg.org/css-backgrounds-3/#typedef-line-width
 #[derive(Clone, Debug, MallocSizeOf, PartialEq, SpecifiedValueInfo, ToCss, ToShmem, ToTyped)]
+#[typed_value(derive_fields)]
 pub enum LineWidth {
     /// `thin`
     Thin,
@@ -167,6 +169,7 @@ impl ToComputedValue for LineWidth {
 /// A specified value for a single side of the `border-width` property. The difference between this
 /// and LineWidth is whether we snap to device pixels or not.
 #[derive(Clone, Debug, MallocSizeOf, PartialEq, SpecifiedValueInfo, ToCss, ToShmem, ToTyped)]
+#[typed_value(derive_fields)]
 pub struct BorderSideWidth(LineWidth);
 
 impl BorderSideWidth {
@@ -210,28 +213,31 @@ fn snap_as_border_width(len: Au, context: &Context) -> Au {
     }
 
     let au_per_dev_px = context.device().app_units_per_device_pixel();
-    std::cmp::max(
-        Au(au_per_dev_px),
-        Au(len.0 / au_per_dev_px * au_per_dev_px),
-    )
+    std::cmp::max(Au(au_per_dev_px), Au(len.0 / au_per_dev_px * au_per_dev_px))
 }
 
 impl ToComputedValue for BorderSideWidth {
-    type ComputedValue = Au;
+    type ComputedValue = ComputedBorderSideWidth;
 
     #[inline]
     fn to_computed_value(&self, context: &Context) -> Self::ComputedValue {
-        snap_as_border_width(self.0.to_computed_value(context), context)
+        ComputedBorderSideWidth(snap_as_border_width(
+            self.0.to_computed_value(context),
+            context,
+        ))
     }
 
     #[inline]
     fn from_computed_value(computed: &Self::ComputedValue) -> Self {
-        Self(LineWidth::from_computed_value(computed))
+        Self(LineWidth::from_computed_value(&computed.0))
     }
 }
 
 /// A specified value for outline-offset.
-#[derive(Clone, Debug, MallocSizeOf, PartialEq, Parse, SpecifiedValueInfo, ToCss, ToShmem, ToTyped)]
+#[derive(
+    Clone, Debug, MallocSizeOf, PartialEq, Parse, SpecifiedValueInfo, ToCss, ToShmem, ToTyped,
+)]
+#[typed_value(derive_fields)]
 pub struct BorderSideOffset(Length);
 
 impl ToComputedValue for BorderSideOffset {
@@ -406,33 +412,4 @@ impl Parse for BorderImageRepeat {
             vertical.unwrap_or(horizontal),
         ))
     }
-}
-
-/// Serializes a border shorthand value composed of width/style/color.
-pub fn serialize_directional_border<W>(
-    dest: &mut CssWriter<W>,
-    width: &BorderSideWidth,
-    style: &BorderStyle,
-    color: &Color,
-) -> fmt::Result
-where
-    W: Write,
-{
-    let has_style = *style != BorderStyle::None;
-    let has_color = *color != Color::CurrentColor;
-    let has_width = *width != BorderSideWidth::medium();
-    if !has_style && !has_color && !has_width {
-        return width.to_css(dest);
-    }
-    let mut writer = SequenceWriter::new(dest, " ");
-    if has_width {
-        writer.item(width)?;
-    }
-    if has_style {
-        writer.item(style)?;
-    }
-    if has_color {
-        writer.item(color)?;
-    }
-    Ok(())
 }

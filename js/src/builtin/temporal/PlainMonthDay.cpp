@@ -8,8 +8,6 @@
 
 #include "mozilla/Assertions.h"
 
-#include <utility>
-
 #include "jspubtd.h"
 #include "NamespaceImports.h"
 
@@ -81,12 +79,12 @@ static PlainMonthDayObject* CreateTemporalMonthDay(
 
   // Step 4.
   auto packedDate = PackedDate::pack(isoDate);
-  object->setFixedSlot(PlainMonthDayObject::PACKED_DATE_SLOT,
-                       PrivateUint32Value(packedDate.value));
+  object->initFixedSlot(PlainMonthDayObject::PACKED_DATE_SLOT,
+                        PrivateUint32Value(packedDate.value));
 
   // Step 5.
-  object->setFixedSlot(PlainMonthDayObject::CALENDAR_SLOT,
-                       calendar.toSlotValue());
+  object->initFixedSlot(PlainMonthDayObject::CALENDAR_SLOT,
+                        calendar.toSlotValue());
 
   // Step 6.
   return object;
@@ -110,12 +108,12 @@ PlainMonthDayObject* js::temporal::CreateTemporalMonthDay(
 
   // Step 4.
   auto packedDate = PackedDate::pack(monthDay);
-  object->setFixedSlot(PlainMonthDayObject::PACKED_DATE_SLOT,
-                       PrivateUint32Value(packedDate.value));
+  object->initFixedSlot(PlainMonthDayObject::PACKED_DATE_SLOT,
+                        PrivateUint32Value(packedDate.value));
 
   // Step 5.
-  object->setFixedSlot(PlainMonthDayObject::CALENDAR_SLOT,
-                       monthDay.calendar().toSlotValue());
+  object->initFixedSlot(PlainMonthDayObject::CALENDAR_SLOT,
+                        monthDay.calendar().toSlotValue());
 
   // Step 6.
   return object;

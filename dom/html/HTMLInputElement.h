@@ -40,6 +40,7 @@ namespace mozilla {
 
 class EventChainPostVisitor;
 class EventChainPreVisitor;
+enum class StyleColorSpace : uint8_t;
 
 namespace dom {
 
@@ -116,8 +117,8 @@ class HTMLInputElement final : public TextControlElement,
 
  public:
   using ConstraintValidation::GetValidationMessage;
-  using nsGenericHTMLFormControlElementWithState::GetForm;
   using nsGenericHTMLFormControlElementWithState::GetFormAction;
+  using nsGenericHTMLFormControlElementWithState::GetFormForBindings;
   using ValueSetterOption = TextControlState::ValueSetterOption;
   using ValueSetterOptions = TextControlState::ValueSetterOptions;
 
@@ -224,13 +225,7 @@ class HTMLInputElement final : public TextControlElement,
   void SetLastValueChangeWasInteractive(bool);
 
   // TextControlElement
-  bool IsSingleLineTextControlOrTextArea() const override {
-    return IsSingleLineTextControl(false);
-  }
   void SetValueChanged(bool aValueChanged) override;
-  bool IsSingleLineTextControl() const override;
-  bool IsTextArea() const override;
-  bool IsPasswordTextControl() const override;
   Maybe<int32_t> GetCols() override;
   int32_t GetWrapCols() override;
   int32_t GetRows() override;
@@ -247,16 +242,12 @@ class HTMLInputElement final : public TextControlElement,
   nsresult BindToFrame(nsTextControlFrame* aFrame) override;
   MOZ_CAN_RUN_SCRIPT void UnbindFromFrame(nsTextControlFrame* aFrame) override;
   MOZ_CAN_RUN_SCRIPT nsresult CreateEditor() override;
-  void SetPreviewValue(const nsAString& aValue) override;
-  void GetPreviewValue(nsAString& aValue) override;
   void SetAutofillState(const nsAString& aState) override {
     SetFormAutofillState(aState);
   }
   void GetAutofillState(nsAString& aState) override {
     GetFormAutofillState(aState);
   }
-  void EnablePreview() override;
-  bool IsPreviewEnabled() override;
   void InitializeKeyboardEventListeners() override;
   void OnValueChanged(ValueChangeKind, bool aNewValueEmpty,
                       const nsAString* aKnownNewValue) override;
@@ -451,6 +442,11 @@ class HTMLInputElement final : public TextControlElement,
     SetHTMLAttr(nsGkAtoms::accept, aValue, aRv);
   }
 
+  bool Alpha() const;
+  void SetAlpha(bool aValue, ErrorResult& aRv) {
+    SetHTMLBoolAttr(nsGkAtoms::alpha, aValue, aRv);
+  }
+
   void GetAlt(nsAString& aValue) { GetHTMLAttr(nsGkAtoms::alt, aValue); }
   void SetAlt(const nsAString& aValue, ErrorResult& aRv) {
     SetHTMLAttr(nsGkAtoms::alt, aValue, aRv);
@@ -476,6 +472,12 @@ class HTMLInputElement final : public TextControlElement,
 
   bool Checked() const { return mChecked; }
   void SetChecked(bool aChecked);
+
+  void GetColorSpace(nsAString& aValue) const;
+  StyleColorSpace GetColorSpaceEnum() const;
+  void SetColorSpace(const nsAString& aValue, ErrorResult& aRv) {
+    SetHTMLAttr(nsGkAtoms::colorspace, aValue, aRv);
+  }
 
   bool IsRadioOrCheckbox() const {
     return mType == FormControlType::InputCheckbox ||
@@ -531,7 +533,8 @@ class HTMLInputElement final : public TextControlElement,
   bool IsDraggingRange() const { return mIsDraggingRange; }
   void SetIndeterminate(bool aValue);
 
-  HTMLDataListElement* GetList() const;
+  Element* GetListForBindings() const;
+  HTMLDataListElement* GetListInternal() const;
 
   void GetMax(nsAString& aValue) { GetHTMLAttr(nsGkAtoms::max, aValue); }
   void SetMax(const nsAString& aValue, ErrorResult& aRv) {
@@ -692,7 +695,8 @@ class HTMLInputElement final : public TextControlElement,
   // <input> element.
   bool StepsInputValue(const WidgetKeyboardEvent&) const;
 
-  already_AddRefed<nsINodeList> GetLabels();
+  already_AddRefed<nsINodeList> GetLabelsForBindings();
+  already_AddRefed<nsINodeList> GetLabelsInternal();
 
   MOZ_CAN_RUN_SCRIPT void Select();
 
@@ -778,13 +782,19 @@ class HTMLInputElement final : public TextControlElement,
   Element* GetDateTimeBoxElement();
 
   /*
-   * The following functions are called from datetime input box XBL to control
+   * The following functions are called from the datetimebox element to control
    * and update the picker.
    */
   void OpenDateTimePicker(const DateTimeValue& aInitialValue);
-  void UpdateDateTimePicker(const DateTimeValue& aValue);
   void CloseDateTimePicker();
-  void SetDateTimePickerState(bool aIsOpen);
+
+  /**
+   * Sets open state for the input element, depending on whether the picker is
+   * open or closed.
+   */
+  void SetOpenState(bool aIsOpen);
+
+  void OpenColorPicker();
 
   /*
    * Called from datetime input box binding when inner text fields are focused
@@ -807,6 +817,21 @@ class HTMLInputElement final : public TextControlElement,
   double GetMinimumAsDouble() { return GetMinimum().toDouble(); }
   double GetMaximumAsDouble() { return GetMaximum().toDouble(); }
 
+  /**
+   * Return the current value as InputPickerColor.
+   */
+  void GetColor(InputPickerColor& aValue);
+
+  /**
+   * Update color value when alpha or colorspace is changed.
+   */
+  void UpdateColor();
+
+  /**
+   * Converts the InputPickerColor into a string and set it as user input.
+   */
+  void SetUserInputColor(const InputPickerColor& aValue);
+
   void StartNumberControlSpinnerSpin();
   enum SpinnerStopState { eAllowDispatchingEvents, eDisallowDispatchingEvents };
   void StopNumberControlSpinnerSpin(
@@ -820,14 +845,6 @@ class HTMLInputElement final : public TextControlElement,
    */
   MOZ_CAN_RUN_SCRIPT_BOUNDARY
   static void HandleNumberControlSpin(void* aData);
-
-  bool NumberSpinnerUpButtonIsDepressed() const {
-    return mNumberControlSpinnerIsSpinning && mNumberControlSpinnerSpinsUp;
-  }
-
-  bool NumberSpinnerDownButtonIsDepressed() const {
-    return mNumberControlSpinnerIsSpinning && !mNumberControlSpinnerSpinsUp;
-  }
 
   bool MozIsTextField(bool aExcludePassword);
 
@@ -889,15 +906,20 @@ class HTMLInputElement final : public TextControlElement,
     return IsAutoDirectionalityAssociated(mType);
   }
 
+  // Pull IsSingleLineTextControl into our scope, otherwise it'd be hidden
+  // by the TextControlElement version.
+  using nsGenericHTMLFormControlElementWithState::IsSingleLineTextControl;
+  using TextControlElement::IsSingleLineTextControl;
+
+  // If needed, lazily sets up the shadow tree for this <input> element.
+  // Returns the ShadowRoot _only if it was just created_!
+  ShadowRoot* CreateShadowTreeFromLayoutIfNeeded();
+
  protected:
   MOZ_CAN_RUN_SCRIPT_BOUNDARY virtual ~HTMLInputElement();
 
   JSObject* WrapNode(JSContext* aCx,
                      JS::Handle<JSObject*> aGivenProto) override;
-
-  // Pull IsSingleLineTextControl into our scope, otherwise it'd be hidden
-  // by the TextControlElement version.
-  using nsGenericHTMLFormControlElementWithState::IsSingleLineTextControl;
 
   /**
    * The ValueModeType specifies how the value IDL attribute should behave.
@@ -1329,11 +1351,6 @@ class HTMLInputElement final : public TextControlElement,
    */
   void ApplyStep(int32_t aStep, ErrorResult&);
 
-  /**
-   * Returns if the current type is an experimental mobile type.
-   */
-  static bool IsExperimentalMobileType(FormControlType);
-
   /*
    * Returns if the current type is one of the date/time input types: date,
    * time, month, week and datetime-local.
@@ -1584,8 +1601,18 @@ class HTMLInputElement final : public TextControlElement,
            aType == FormControlType::InputTime ||
            aType == FormControlType::InputDatetimeLocal;
   }
-
   bool CreatesDateTimeWidget() const { return CreatesDateTimeWidget(mType); }
+
+  static bool CreatesUAShadowTree(FormControlType aType) {
+    return IsSingleLineTextControl(false, aType) ||
+           CreatesDateTimeWidget(aType);
+  }
+  bool CreatesUAShadowTree() const { return CreatesUAShadowTree(mType); }
+
+  static NotifyUAWidget NotifiesUAWidget(FormControlType aType) {
+    return NotifyUAWidget(CreatesDateTimeWidget(aType));
+  }
+  NotifyUAWidget NotifiesUAWidget() const { return NotifiesUAWidget(mType); }
 
   static bool MayFireChangeOnBlur(FormControlType aType) {
     return IsSingleLineTextControl(false, aType) ||
@@ -1593,6 +1620,7 @@ class HTMLInputElement final : public TextControlElement,
            aType == FormControlType::InputRange ||
            aType == FormControlType::InputNumber;
   }
+  void SetupShadowTree(bool aNotify);
 
   bool CheckActivationBehaviorPreconditions(EventChainVisitor& aVisitor) const;
 

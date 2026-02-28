@@ -131,8 +131,7 @@ set_define("FMT_USE_LOCALE", 0)
 option(
     "--enable-debug",
     nargs="?",
-    help="Enable building with developer debug info "
-    "(using the given compiler flags)",
+    help="Enable building with developer debug info (using the given compiler flags)",
 )
 
 
@@ -605,18 +604,6 @@ include(
 )
 
 
-# Awk detection
-# ==============================================================
-awk = check_prog("AWK", ("gawk", "mawk", "nawk", "awk"), paths=prefer_mozillabuild_path)
-
-# Until the AWK variable is not necessary in old-configure
-
-
-@depends(awk)
-def awk_for_old_configure(value):
-    return value
-
-
 # GNU make detection
 # ==============================================================
 option(env="MAKE", nargs=1, help="Path to GNU make")
@@ -634,7 +621,25 @@ def possible_makes(make, host):
     return candidates
 
 
-check_prog("GMAKE", possible_makes, bootstrap="mozmake")
+gmake = check_prog("GMAKE", possible_makes, bootstrap="mozmake")
+
+
+@depends(gmake)
+@checking("for gmake version")
+def gmake_version(prog):
+    out = check_cmd_output(prog, "--version")
+    version_line = out.splitlines()[0]
+    if not version_line.startswith("GNU Make"):
+        die("GNU make is required")
+    return Version(version_line[8:].strip())
+
+
+@depends(gmake_version)
+def check_gmake_version(version):
+    make_min_ver = Version("3.81")
+    if version < make_min_ver:
+        die(f"GNU Make {make_min_ver} or higher is required")
+
 
 # watchman detection
 # ==============================================================
@@ -778,7 +783,17 @@ def nsis_flags(host):
 set_config("MAKENSISU_FLAGS", nsis_flags)
 
 check_prog("7Z", ("7z", "7za"), allow_missing=True, when=target_is_windows)
-check_prog("UPX", ("upx",), allow_missing=True, when=target_is_windows)
+
+
+# UPX is used for compressing the Windows installer SFX stub.
+# UPX currently does not support ARM64 PE binaries
+# https://github.com/upx/upx/issues/650
+@depends(target)
+def need_upx(target):
+    return target.os == "WINNT" and target.cpu != "aarch64"
+
+
+check_prog("UPX", ("upx",), allow_missing=True, bootstrap="upx/bin", when=need_upx)
 
 
 check_prog(
@@ -981,7 +996,6 @@ def save_cache(build_environment, configure_cache):
 
 @depends(build_environment, build_project)
 @imports("__sandbox__")
-@imports("glob")
 @imports(_from="os.path", _import="exists")
 def config_status_deps(build_env, build_project):
     topsrcdir = build_env.topsrcdir
@@ -1013,7 +1027,6 @@ def config_status_deps(build_env, build_project):
             os.path.join(topsrcdir, "python", "sites", "mach.txt"),
             os.path.join(topsrcdir, "python", "mach", "mach", "site.py"),
         ]
-        + glob.glob(os.path.join(topsrcdir, "build", "autoconf", "*.m4"))
     )
 
 

@@ -162,14 +162,7 @@ impl crate::CommandEncoder for CommandBuffer {
         dynamic_offsets: &[wgt::DynamicOffset],
     ) {
     }
-    unsafe fn set_push_constants(
-        &mut self,
-        layout: &Resource,
-        stages: wgt::ShaderStages,
-        offset_bytes: u32,
-        data: &[u32],
-    ) {
-    }
+    unsafe fn set_immediates(&mut self, layout: &Resource, offset_bytes: u32, data: &[u32]) {}
 
     unsafe fn insert_debug_marker(&mut self, label: &str) {}
     unsafe fn begin_debug_marker(&mut self, group_label: &str) {}
@@ -298,6 +291,12 @@ impl crate::CommandEncoder for CommandBuffer {
         src: &Resource,
         dst: &Resource,
         copy: wgt::AccelerationStructureCopy,
+    ) {
+    }
+
+    unsafe fn set_acceleration_structure_dependencies(
+        command_buffers: &[&CommandBuffer],
+        dependencies: &[&Resource],
     ) {
     }
 }

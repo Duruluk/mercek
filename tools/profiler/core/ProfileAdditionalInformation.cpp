@@ -17,9 +17,9 @@
 #ifdef MOZ_GECKO_PROFILER
 #  include "platform.h"
 
-JSString*
-mozilla::ProfileGenerationAdditionalInformation::CreateJSStringFromSourceData(
-    JSContext* aCx, const ProfilerJSSourceData& aSourceData) const {
+JSString* mozilla::ProfileGenerationAdditionalInformation::
+    MaybeCreateJSStringFromSourceData(
+        JSContext* aCx, const ProfilerJSSourceData& aSourceData) const {
   return aSourceData.data().match(
       [&](const ProfilerJSSourceData::SourceTextUTF16& srcText) -> JSString* {
         return JS_NewUCStringCopyN(aCx, srcText.chars().get(),
@@ -39,7 +39,7 @@ mozilla::ProfileGenerationAdditionalInformation::CreateJSStringFromSourceData(
         return JS_NewStringCopyN(aCx, srcText.chars().get(), srcText.length());
       },
       [&](const ProfilerJSSourceData::Unavailable&) -> JSString* {
-        return JS_NewStringCopyZ(aCx, "[unavailable]");
+        return nullptr;
       });
 }
 
@@ -64,7 +64,8 @@ void mozilla::ProfileGenerationAdditionalInformation::ToJSValue(
   JS::Rooted<JSObject*> jsSourcesObj(aCx, JS_NewPlainObject(aCx));
   if (jsSourcesObj) {
     for (const auto& entry : mJSSourceEntries) {
-      JSString* sourceStr = CreateJSStringFromSourceData(aCx, entry.sourceData);
+      JSString* sourceStr =
+          MaybeCreateJSStringFromSourceData(aCx, entry.sourceData);
       if (sourceStr) {
         JS::Rooted<JS::Value> sourceVal(aCx, JS::StringValue(sourceStr));
         JS_SetProperty(aCx, jsSourcesObj, PromiseFlatCString(entry.uuid).get(),

@@ -24,11 +24,11 @@ add_task(async function () {
 });
 
 async function testMarkOverridden(inspector, view) {
-  const elementStyle = view._elementStyle;
+  const elementStyle = view.elementStyle;
   const rule = elementStyle.rules[1];
   checkProperties(rule);
 
-  const ruleEditor = getRuleViewRuleEditor(view, 1);
+  const ruleEditor = getRuleViewRuleEditorAt(view, 1);
   info("Focusing an existing selector name in the rule-view");
   const editor = await focusEditableField(view, ruleEditor.selectorText);
 

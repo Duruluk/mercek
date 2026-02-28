@@ -53,6 +53,7 @@
 #include "mozilla/net/OpaqueResponseUtils.h"
 #include "mozilla/net/UrlClassifierCommon.h"
 #include "mozilla/net/UrlClassifierFeatureFactory.h"
+#include "mozilla/StaticPrefs_javascript.h"
 #include "nsBufferedStreams.h"
 #include "nsCOMPtr.h"
 #include "nsCRT.h"
@@ -394,10 +395,18 @@ nsresult HttpBaseChannel::Init(nsIURI* aURI, uint32_t aCaps,
     }
   }
 
+  RefPtr<mozilla::dom::BrowsingContext> browsingContext;
+  mLoadInfo->GetBrowsingContext(getter_AddRefs(browsingContext));
+
+  const nsCString& languageOverride =
+      browsingContext ? browsingContext->Top()->GetLanguageOverride()
+                      : EmptyCString();
+
   rv = gHttpHandler->AddStandardRequestHeaders(
       &mRequestHead, aURI, isHTTPS, contentPolicyType,
       nsContentUtils::ShouldResistFingerprinting(this,
-                                                 RFPTarget::HttpUserAgent));
+                                                 RFPTarget::HttpUserAgent),
+      languageOverride);
   if (NS_FAILED(rv)) return rv;
 
   nsAutoCString type;
@@ -1602,6 +1611,7 @@ nsresult HttpBaseChannel::DoApplyContentConversionsInternal(
     LOG(("Changing Content-Encoding from '%s' to ''", contentEncoding.get()));
     // Can't use SetHeader; we need to overwrite the current value
     rv = mResponseHead->SetHeaderOverride(nsHttp::Content_Encoding, ""_ns);
+    rv = mResponseHead->SetHeaderOverride(nsHttp::Content_Length, ""_ns);
   }
   *aNewNextListener = do_AddRef(nextListener).take();
   return NS_OK;
@@ -1877,6 +1887,7 @@ HttpBaseChannel::GetRequestSize(uint64_t* aRequestSize) {
 
 NS_IMETHODIMP
 HttpBaseChannel::GetDecodedBodySize(uint64_t* aDecodedBodySize) {
+  MutexAutoLock lock(mOnDataFinishedMutex);
   *aDecodedBodySize = mDecodedBodySize;
   return NS_OK;
 }
@@ -3037,6 +3048,17 @@ nsresult EnsureMIMEOfScript(HttpBaseChannel* aChannel, nsIURI* aURI,
     return NS_OK;
   }
 
+  const auto internalPolicyType = aLoadInfo->InternalContentPolicyType();
+  if (internalPolicyType ==
+          nsIContentPolicy::TYPE_INTERNAL_WORKER_STATIC_MODULE &&
+      nsContentUtils::IsJsonMimeType(typeString)) {
+    // script and json are both allowed
+    glean::http::script_block_incorrect_mime
+        .EnumGet(glean::http::ScriptBlockIncorrectMimeLabel::eTextJson)
+        .Add();
+    return NS_OK;
+  }
+
   switch (aLoadInfo->InternalContentPolicyType()) {
     case nsIContentPolicy::TYPE_SCRIPT:
     case nsIContentPolicy::TYPE_INTERNAL_SCRIPT:
@@ -3212,6 +3234,14 @@ nsresult EnsureMIMEOfScript(HttpBaseChannel* aChannel, nsIURI* aURI,
       return NS_OK;
     }
 
+#ifdef NIGHTLY_BUILD
+    if (StaticPrefs::javascript_options_experimental_wasm_esm_integration()) {
+      if (nsContentUtils::HasWasmMimeTypeEssence(typeString)) {
+        return NS_OK;
+      }
+    }
+#endif
+
     ReportMimeTypeMismatch(aChannel, "BlockWorkerWithWrongMimeType", aURI,
                            contentType, Report::Error);
     return NS_ERROR_CORRUPTED_CONTENT;
@@ -3220,6 +3250,14 @@ nsresult EnsureMIMEOfScript(HttpBaseChannel* aChannel, nsIURI* aURI,
   // ES6 modules require a strict MIME type check.
   if (internalType == nsIContentPolicy::TYPE_INTERNAL_MODULE ||
       internalType == nsIContentPolicy::TYPE_INTERNAL_MODULE_PRELOAD) {
+#ifdef NIGHTLY_BUILD
+    if (StaticPrefs::javascript_options_experimental_wasm_esm_integration()) {
+      if (nsContentUtils::HasWasmMimeTypeEssence(typeString)) {
+        return NS_OK;
+      }
+    }
+#endif
+
     ReportMimeTypeMismatch(aChannel, "BlockModuleWithWrongMimeType", aURI,
                            contentType, Report::Error);
     return NS_ERROR_CORRUPTED_CONTENT;
@@ -3259,6 +3297,14 @@ void WarnWrongMIMEOfScript(HttpBaseChannel* aChannel, nsIURI* aURI,
   if (nsContentUtils::IsJavascriptMIMEType(typeString)) {
     return;
   }
+
+#ifdef NIGHTLY_BUILD
+  if (StaticPrefs::javascript_options_experimental_wasm_esm_integration()) {
+    if (nsContentUtils::HasWasmMimeTypeEssence(typeString)) {
+      return;
+    }
+  }
+#endif
 
   ReportMimeTypeMismatch(aChannel, "WarnScriptWithWrongMimeType", aURI,
                          contentType, Report::Warning);
@@ -4549,6 +4595,21 @@ already_AddRefed<nsILoadInfo> HttpBaseChannel::CloneLoadInfoForRedirect(
       }
     }
   }
+
+  // Clone a new cookieJarSettings from the old one for the new channel.
+  // Otherwise, updating the new cookieJarSettings will affect the old one.
+  nsCOMPtr<nsICookieJarSettings> oldCookieJarSettings;
+  mLoadInfo->GetCookieJarSettings(getter_AddRefs(oldCookieJarSettings));
+
+  RefPtr<CookieJarSettings> newCookieJarSettings;
+  newCookieJarSettings = CookieJarSettings::Cast(oldCookieJarSettings)->Clone();
+
+  newLoadInfo->SetCookieJarSettings(newCookieJarSettings);
+
+  // Clear the isThirdPartyContextToTopWindow flag for the new channel so that
+  // it will be computed again when the new channel is opened.
+  static_cast<net::LoadInfo*>(newLoadInfo.get())
+      ->ClearIsThirdPartyContextToTopWindow();
 
   // Leave empty, we want a 'clean ground' when creating the new channel.
   // This will be ensured to be either set by the protocol handler or set
@@ -6887,3 +6948,4 @@ void HttpBaseChannel::SetFetchPriorityDOM(
 
 }  // namespace net
 }  // namespace mozilla
+#undef LOGORB

@@ -28,11 +28,11 @@
 #include "api/array_view.h"
 #include "api/environment/environment.h"
 #include "api/fec_controller.h"
-#include "api/field_trials_view.h"
 #include "api/media_types.h"
 #include "api/rtc_error.h"
 #include "api/rtc_event_log/rtc_event_log.h"
 #include "api/rtp_headers.h"
+#include "api/rtp_parameters.h"
 #include "api/scoped_refptr.h"
 #include "api/sequence_checker.h"
 #include "api/task_queue/pending_task_safety_flag.h"
@@ -59,7 +59,7 @@
 #include "call/receive_time_calculator.h"
 #include "call/rtp_config.h"
 #include "call/rtp_stream_receiver_controller.h"
-#include "call/rtp_transport_controller_send_factory.h"
+#include "call/rtp_transport_controller_send.h"
 #include "call/version.h"
 #include "call/video_receive_stream.h"
 #include "call/video_send_stream.h"
@@ -110,11 +110,11 @@ namespace {
 class PayloadTypeSuggesterForTests : public PayloadTypeSuggester {
  public:
   PayloadTypeSuggesterForTests() = default;
-  RTCErrorOr<PayloadType> SuggestPayloadType(const std::string& /* mid */,
-                                             Codec codec) override {
+  RTCErrorOr<PayloadType> SuggestPayloadType(absl::string_view /*mid*/,
+                                             const Codec& codec) override {
     return payload_type_picker_.SuggestMapping(codec, nullptr);
   }
-  RTCError AddLocalMapping(const std::string& /* mid */,
+  RTCError AddLocalMapping(absl::string_view mid,
                            PayloadType /* payload_type */,
                            const Codec& /* codec */) override {
     return RTCError::OK();
@@ -278,11 +278,10 @@ class Call final : public webrtc::Call,
 
   Stats GetStats() const override;
 
-  void EnableSendCongestionControlFeedbackAccordingToRfc8888() override;
-  int FeedbackAccordingToRfc8888Count() override;
-  int FeedbackAccordingToTransportCcCount() override;
-
-  const FieldTrialsView& trials() const override;
+  void SetPreferredRtcpCcAckType(
+      RtcpFeedbackType preferred_rtcp_cc_ack_type) override;
+  std::optional<int> FeedbackAccordingToRfc8888Count() override;
+  std::optional<int> FeedbackAccordingToTransportCcCount() override;
 
   TaskQueueBase* network_thread() const override;
   TaskQueueBase* worker_thread() const override;
@@ -515,14 +514,8 @@ class Call final : public webrtc::Call,
 }  // namespace internal
 
 std::unique_ptr<Call> Call::Create(CallConfig config) {
-  std::unique_ptr<RtpTransportControllerSendInterface> transport_send;
-  if (config.rtp_transport_controller_send_factory != nullptr) {
-    transport_send = config.rtp_transport_controller_send_factory->Create(
-        config.ExtractTransportConfig());
-  } else {
-    transport_send = RtpTransportControllerSendFactory().Create(
-        config.ExtractTransportConfig());
-  }
+  auto transport_send = std::make_unique<RtpTransportControllerSend>(
+      config.ExtractTransportConfig());
 
   return std::make_unique<internal::Call>(std::move(config),
                                           std::move(transport_send));
@@ -1033,7 +1026,7 @@ webrtc::VideoReceiveStreamInterface* Call::CreateVideoReceiveStream(
   VideoReceiveStream2* receive_stream = new VideoReceiveStream2(
       env_, this, num_cpu_cores_, transport_send_->packet_router(),
       std::move(configuration), call_stats_.get(),
-      std::make_unique<VCMTiming>(&env_.clock(), trials()),
+      std::make_unique<VCMTiming>(&env_.clock(), env_.field_trials()),
       &nack_periodic_processor_, decode_sync_.get());
   // TODO(bugs.webrtc.org/11993): Set this up asynchronously on the network
   // thread.
@@ -1155,24 +1148,30 @@ Call::Stats Call::GetStats() const {
   stats.max_padding_bitrate_bps =
       configured_max_padding_bitrate_bps_.load(std::memory_order_relaxed);
 
+  // Congestion control feedback messages received.
+  stats.ccfb_messages_received =
+      transport_send_->ReceivedCongestionControlFeedbackCount();
+
+  stats.sent_ccfb_stats_per_ssrc =
+      receive_side_cc_.GetCongestionControllerStatsPerSsrc();
+  stats.received_ccfb_stats_per_ssrc =
+      transport_send_->GetCongestionControlFeedbackStatsPerSsrc();
+
   return stats;
 }
 
-void Call::EnableSendCongestionControlFeedbackAccordingToRfc8888() {
-  receive_side_cc_.EnableSendCongestionControlFeedbackAccordingToRfc8888();
-  transport_send_->EnableCongestionControlFeedbackAccordingToRfc8888();
+void Call::SetPreferredRtcpCcAckType(
+    RtcpFeedbackType preferred_rtcp_cc_ack_type) {
+  receive_side_cc_.SetPreferredRtcpCcAckType(preferred_rtcp_cc_ack_type);
+  transport_send_->SetPreferredRtcpCcAckType(preferred_rtcp_cc_ack_type);
 }
 
-int Call::FeedbackAccordingToRfc8888Count() {
+std::optional<int> Call::FeedbackAccordingToRfc8888Count() {
   return transport_send_->ReceivedCongestionControlFeedbackCount();
 }
 
-int Call::FeedbackAccordingToTransportCcCount() {
+std::optional<int> Call::FeedbackAccordingToTransportCcCount() {
   return transport_send_->ReceivedTransportCcFeedbackCount();
-}
-
-const FieldTrialsView& Call::trials() const {
-  return env_.field_trials();
 }
 
 TaskQueueBase* Call::network_thread() const {

@@ -7,8 +7,12 @@
 const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
   ExtensionParent: "resource://gre/modules/ExtensionParent.sys.mjs",
-  IPProtectionService:
-    "resource:///modules/ipprotection/IPProtectionService.sys.mjs",
+  IPPExceptionsManager:
+    "moz-src:///browser/components/ipprotection/IPPExceptionsManager.sys.mjs",
+  IPPProxyManager:
+    "moz-src:///browser/components/ipprotection/IPPProxyManager.sys.mjs",
+  IPPProxyStates:
+    "moz-src:///browser/components/ipprotection/IPPProxyManager.sys.mjs",
 });
 
 ChromeUtils.defineLazyGetter(lazy, "tabTracker", () => {
@@ -33,23 +37,18 @@ this.ippActivator = class extends ExtensionAPI {
           context,
           name: "ippActivator.onIPPActivated",
           register: fire => {
-            const topics = [
-              "IPProtectionService:StateChanged",
-              "IPProtectionService:Started",
-              "IPProtectionService:Stopped",
-              "IPProtectionService:SignedOut",
-            ];
+            const topics = ["IPPProxyManager:StateChanged"];
             const observer = _event => {
               fire.async();
             };
 
             topics.forEach(topic =>
-              lazy.IPProtectionService.addEventListener(topic, observer)
+              lazy.IPPProxyManager.addEventListener(topic, observer)
             );
 
             return () => {
               topics.forEach(topic =>
-                lazy.IPProtectionService.removeEventListener(topic, observer)
+                lazy.IPPProxyManager.removeEventListener(topic, observer)
               );
             };
           },
@@ -82,11 +81,7 @@ this.ippActivator = class extends ExtensionAPI {
           }
         },
         isIPPActive() {
-          if ("state" in lazy.IPProtectionService) {
-            return lazy.IPProtectionService.state === "active";
-          }
-
-          return !!lazy.IPProtectionService.isActive;
+          return lazy.IPPProxyManager.state === lazy.IPPProxyStates.ACTIVE;
         },
         getDynamicTabBreakages() {
           try {
@@ -169,6 +164,25 @@ this.ippActivator = class extends ExtensionAPI {
             return { baseDomain, host };
           } catch (_) {
             return { baseDomain: "", host: "" };
+          }
+        },
+        hasExclusion(url) {
+          if (
+            !Services.prefs.getBoolPref(
+              "browser.ipProtection.features.siteExceptions",
+              false
+            )
+          ) {
+            return false;
+          }
+
+          try {
+            const uri = Services.io.newURI(url);
+            const principal =
+              Services.scriptSecurityManager.createContentPrincipal(uri, {});
+            return lazy.IPPExceptionsManager.hasExclusion(principal);
+          } catch (e) {
+            return false;
           }
         },
         async showMessage(message, tabId) {
@@ -293,6 +307,40 @@ this.ippActivator = class extends ExtensionAPI {
                 PREF_DYNAMIC_WEBREQUEST_BREAKAGES,
                 observer
               );
+          },
+        }).api(),
+        onIPPExceptionsChanged: new ExtensionCommon.EventManager({
+          context,
+          name: "ippActivator.onIPPExceptionsChanged",
+          register: fire => {
+            const observer = {
+              observe(subject, topic, data) {
+                if (topic !== "perm-changed") {
+                  return;
+                }
+
+                if (data === "cleared") {
+                  fire.async();
+                  return;
+                }
+
+                let permission;
+                try {
+                  permission = subject.QueryInterface(Ci.nsIPermission);
+                } catch (e) {
+                  return;
+                }
+
+                if (permission.type !== "ipp-vpn") {
+                  return;
+                }
+
+                fire.async();
+              },
+            };
+
+            Services.obs.addObserver(observer, "perm-changed");
+            return () => Services.obs.removeObserver(observer, "perm-changed");
           },
         }).api(),
       },

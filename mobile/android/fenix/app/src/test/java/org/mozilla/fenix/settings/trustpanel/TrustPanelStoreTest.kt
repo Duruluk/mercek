@@ -18,6 +18,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mozilla.fenix.settings.PhoneFeature
+import org.mozilla.fenix.settings.sitepermissions.AUTOPLAY_ALLOW_ALL
 import org.mozilla.fenix.settings.trustpanel.store.AutoplayValue
 import org.mozilla.fenix.settings.trustpanel.store.TrustPanelAction
 import org.mozilla.fenix.settings.trustpanel.store.TrustPanelState
@@ -34,7 +35,7 @@ class TrustPanelStoreTest {
     fun `WHEN toggle tracking protection action is dispatched THEN tracking protection enabled state is updated`() = runTest {
         val store = TrustPanelStore(initialState = TrustPanelState())
 
-        store.dispatch(TrustPanelAction.ToggleTrackingProtection).join()
+        store.dispatch(TrustPanelAction.ToggleTrackingProtection)
 
         assertFalse(store.state.isTrackingProtectionEnabled)
     }
@@ -43,7 +44,7 @@ class TrustPanelStoreTest {
     fun `WHEN update number of trackers blocked action is dispatched THEN number of trackers blocked state is updated`() = runTest {
         val store = TrustPanelStore(initialState = TrustPanelState())
 
-        store.dispatch(TrustPanelAction.UpdateNumberOfTrackersBlocked(1)).join()
+        store.dispatch(TrustPanelAction.UpdateNumberOfTrackersBlocked(1))
 
         assertEquals(store.state.numberOfTrackersBlocked, 1)
     }
@@ -53,7 +54,7 @@ class TrustPanelStoreTest {
         val store = TrustPanelStore(initialState = TrustPanelState())
         val baseDomain = "mozilla.org"
 
-        store.dispatch(TrustPanelAction.UpdateBaseDomain(baseDomain)).join()
+        store.dispatch(TrustPanelAction.UpdateBaseDomain(baseDomain))
 
         assertEquals(store.state.baseDomain, baseDomain)
     }
@@ -63,7 +64,7 @@ class TrustPanelStoreTest {
         val store = TrustPanelStore(initialState = TrustPanelState())
         val trackerCategory = TrackingProtectionCategory.CRYPTOMINERS
 
-        store.dispatch(TrustPanelAction.UpdateDetailedTrackerCategory(trackerCategory)).join()
+        store.dispatch(TrustPanelAction.UpdateDetailedTrackerCategory(trackerCategory))
 
         assertEquals(store.state.detailedTrackerCategory, trackerCategory)
     }
@@ -91,7 +92,7 @@ class TrustPanelStoreTest {
                 assertEquals(
                     websitePermission,
                     WebsitePermission.Autoplay(
-                        autoplayValue = AutoplayValue.AUTOPLAY_BLOCK_AUDIBLE,
+                        autoplayValue = AutoplayValue.AUTOPLAY_BLOCK_ALL,
                         isVisible = true,
                         deviceFeature = phoneFeature,
                     ),
@@ -122,7 +123,7 @@ class TrustPanelStoreTest {
         whenever(sitePermissions.localNetworkAccess).thenReturn(ALLOWED)
 
         whenever(permissionHighlights.isAutoPlayBlocking).thenReturn(true)
-        whenever(settings.isLnaBlockingEnabled).thenReturn(false)
+        whenever(settings.isLnaFeatureEnabled).thenReturn(false)
 
         val state = TrustPanelStore.createWebsitePermissionState(
             settings = settings,
@@ -156,7 +157,7 @@ class TrustPanelStoreTest {
         whenever(sitePermissions.localDeviceAccess).thenReturn(ALLOWED)
         whenever(sitePermissions.localNetworkAccess).thenReturn(ALLOWED)
         whenever(permissionHighlights.isAutoPlayBlocking).thenReturn(true)
-        whenever(settings.isLnaBlockingEnabled).thenReturn(true)
+        whenever(settings.isLnaFeatureEnabled).thenReturn(true)
 
         val state = TrustPanelStore.createWebsitePermissionState(
             settings = settings,
@@ -203,6 +204,34 @@ class TrustPanelStoreTest {
     }
 
     @Test
+    fun `GIVEN site permissions are null WHEN create website permission state method is called THEN autoplay defaults to settings autoplay state`() {
+        val settings: Settings = mock()
+        val permissionHighlights: PermissionHighlightsState = mock()
+
+        whenever(permissionHighlights.isAutoPlayBlocking).thenReturn(true)
+        whenever(settings.getSitePermissionsPhoneFeatureAction(any(), any())).thenReturn(ASK_TO_ALLOW)
+        whenever(settings.getAutoplayUserSetting()).thenReturn(AUTOPLAY_ALLOW_ALL)
+
+        val state = TrustPanelStore.createWebsitePermissionState(
+            settings = settings,
+            sitePermissions = null,
+            permissionHighlights = permissionHighlights,
+            isPermissionBlockedByAndroid = { phoneFeature: PhoneFeature ->
+                phoneFeature == PhoneFeature.CAMERA // Only the camera permission is blocked
+            },
+        )
+
+        assertEquals(
+            state[PhoneFeature.AUTOPLAY],
+            WebsitePermission.Autoplay(
+                autoplayValue = AutoplayValue.AUTOPLAY_ALLOW_ALL,
+                isVisible = true,
+                deviceFeature = PhoneFeature.AUTOPLAY,
+            ),
+        )
+    }
+
+    @Test
     fun `GIVEN site permissions are null and autoplay is not blocking WHEN create website permission state method is called THEN autoplay isn't visible`() {
         val settings: Settings = mock()
         val permissionHighlights: PermissionHighlightsState = mock()
@@ -222,7 +251,7 @@ class TrustPanelStoreTest {
         assertEquals(
             state[PhoneFeature.AUTOPLAY],
             WebsitePermission.Autoplay(
-                autoplayValue = AutoplayValue.AUTOPLAY_BLOCK_AUDIBLE,
+                autoplayValue = AutoplayValue.AUTOPLAY_BLOCK_ALL,
                 isVisible = false,
                 deviceFeature = PhoneFeature.AUTOPLAY,
             ),
@@ -234,7 +263,7 @@ class TrustPanelStoreTest {
         val store = TrustPanelStore(initialState = TrustPanelState())
         val newSitePermissions: SitePermissions = mock()
 
-        store.dispatch(TrustPanelAction.UpdateSitePermissions(newSitePermissions)).join()
+        store.dispatch(TrustPanelAction.UpdateSitePermissions(newSitePermissions))
 
         assertEquals(store.state.sitePermissions, newSitePermissions)
     }
@@ -254,7 +283,7 @@ class TrustPanelStoreTest {
             ),
         )
 
-        store.dispatch(TrustPanelAction.WebsitePermissionAction.GrantPermissionBlockedByAndroid(PhoneFeature.CAMERA)).join()
+        store.dispatch(TrustPanelAction.WebsitePermissionAction.GrantPermissionBlockedByAndroid(PhoneFeature.CAMERA))
 
         assertEquals(
             (store.state.websitePermissionsState[PhoneFeature.CAMERA]as? WebsitePermission.Toggleable)
@@ -278,7 +307,7 @@ class TrustPanelStoreTest {
             ),
         )
 
-        store.dispatch(TrustPanelAction.WebsitePermissionAction.TogglePermission(PhoneFeature.CAMERA)).join()
+        store.dispatch(TrustPanelAction.WebsitePermissionAction.TogglePermission(PhoneFeature.CAMERA))
 
         assertEquals(
             (store.state.websitePermissionsState[PhoneFeature.CAMERA]as? WebsitePermission.Toggleable)
@@ -303,7 +332,7 @@ class TrustPanelStoreTest {
 
         store.dispatch(
             TrustPanelAction.WebsitePermissionAction.ChangeAutoplay(AutoplayValue.AUTOPLAY_ALLOW_ALL),
-        ).join()
+        )
 
         assertEquals(
             (store.state.websitePermissionsState[PhoneFeature.AUTOPLAY]as? WebsitePermission.Autoplay)

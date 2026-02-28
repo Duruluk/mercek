@@ -28,6 +28,7 @@ const CACHE_KEY = "inferred_personalization_feed";
 const DISCOVERY_STREAM_CACHE_KEY = "discovery_stream";
 const INTEREST_VECTOR_UPDATE_HOURS = 24;
 const HOURS_TO_MS = 60 * 60 * 1000;
+const DAYS_TO_SECONDS = 24 * 60 * 60;
 
 const PREF_USER_INFERRED_PERSONALIZATION =
   "discoverystream.sections.personalization.inferred.user.enabled";
@@ -99,6 +100,7 @@ export class InferredPersonalizationFeed {
 
   /**
    * Get Inferrred model raw data
+   *
    * @returns JSON of inferred model
    */
   async getInferredModelData() {
@@ -170,6 +172,7 @@ export class InferredPersonalizationFeed {
           clicks: clickTotals,
           impressions: ivImpressions,
           model_id: inferredModel.model_id,
+          timeZoneOffset: lazy.NewTabUtils.getUtcOffset(),
         });
         return inferredInterests;
       }
@@ -305,14 +308,19 @@ export class InferredPersonalizationFeed {
 
   /**
    * Deletes older data from a table
+   *
    * @param {int} preserveAgeDays Number of days to preserve
    * @param {*} table Table to clear
    */
-  async clearOldDataOfTable(preserveAgeDays, table) {
+  async clearOldDataOfTable(
+    preserveAgeDays,
+    table,
+    placesUtils = lazy.PlacesUtils
+  ) {
     let sql = `DELETE FROM ${table}
-      WHERE timestamp_s < ${timeMSToSeconds(this.Date().now()) - preserveAgeDays * 60 * 24}`;
+      WHERE timestamp_s < ${timeMSToSeconds(this.Date().now()) - preserveAgeDays * DAYS_TO_SECONDS}`;
     try {
-      await lazy.PlacesUtils.withConnectionWrapper(
+      await placesUtils.withConnectionWrapper(
         "newtab/lib/InferredPersonalizationFeed.sys.mjs: clearOldDataOfTable",
         async db => {
           await db.execute(sql);
@@ -325,6 +333,7 @@ export class InferredPersonalizationFeed {
 
   /**
    * Deletes older data from impression and click tables
+   *
    * @param {int} preserveAgeDays Number of days to preserve (defaults to 6 months)
    */
   async clearOldData(preserveAgeDays) {

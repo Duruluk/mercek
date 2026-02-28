@@ -5,10 +5,10 @@
 "use strict";
 
 const { IPPChannelFilter } = ChromeUtils.importESModule(
-  "resource:///modules/ipprotection/IPPChannelFilter.sys.mjs"
+  "moz-src:///browser/components/ipprotection/IPPChannelFilter.sys.mjs"
 );
 const { IPPNetworkErrorObserver } = ChromeUtils.importESModule(
-  "resource:///modules/ipprotection/IPPNetworkErrorObserver.sys.mjs"
+  "moz-src:///browser/components/ipprotection/IPPNetworkErrorObserver.sys.mjs"
 );
 
 add_task(async function test_createConnection_and_proxy() {
@@ -21,7 +21,7 @@ add_task(async function test_createConnection_and_proxy() {
   await withProxyServer(async proxyInfo => {
     // Create the IPP connection filter
     const filter = IPPChannelFilter.create();
-    filter.initialize("", proxyInfo.host, proxyInfo.port, proxyInfo.type);
+    filter.initialize("", proxyInfo.server);
     filter.start();
 
     const observer = new IPPNetworkErrorObserver();

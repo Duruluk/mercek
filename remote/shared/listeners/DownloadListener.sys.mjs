@@ -25,7 +25,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
  * };
  * ```
  *
- * @fires download-started
+ * @fires DownloadListener#"download-started"
  *    The DownloadListener emits the following events:
  *    - "download-started" when a download begins,
  *    - "download-stopped" when a download is stopped
@@ -168,7 +168,14 @@ export class DownloadListener {
 
     // canceled + hasPartialData corresponds to a paused download.
     const paused = download.canceled && download.hasPartialData;
-    if (!state.stopped && download.stopped && !paused) {
+    // intercepted flag means that the download was paused by `DownloadBehaviorManager`
+    // to cleanup potential partial data.
+    if (
+      !state.stopped &&
+      download.stopped &&
+      !paused &&
+      !download.intercepted
+    ) {
       state.stopped = true;
       this.emit("download-stopped", {
         download,

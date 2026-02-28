@@ -27,10 +27,14 @@ void NativeMenuSupport::CreateNativeMenuBar(nsIWidget* aParent,
 #endif
 }
 
-already_AddRefed<NativeMenu> NativeMenuSupport::CreateNativeContextMenu(
+already_AddRefed<NativeMenu> NativeMenuSupport::CreateNativePopupMenu(
     dom::Element* aPopup) {
   return MakeAndAddRef<NativeMenuGtk>(aPopup);
 }
+
+bool NativeMenuSupport::ShouldUseNativeAnchoredMenus() { return false; }
+
+bool NativeMenuSupport::ShouldUseNativeAnchoredMenulists() { return false; }
 
 bool NativeMenuSupport::ShouldUseNativeContextMenus() {
   return NativeMenuGtk::CanUse();

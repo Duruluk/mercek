@@ -32,7 +32,6 @@ use core::num::NonZeroU64;
 use alloc::{boxed::Box, string::String, string::ToString, sync::Arc};
 
 use hashbrown::HashMap;
-use wgt::PushConstantRange;
 
 use crate::{
     device::{Device, DeviceError},
@@ -114,7 +113,7 @@ impl TimestampNormalizer {
                 .raw()
                 .create_bind_group_layout(&hal::BindGroupLayoutDescriptor {
                     label: hal_label(
-                        Some("Timestamp Normalization Bind Group Layout"),
+                        Some("(wgpu internal) Timestamp Normalization Bind Group Layout"),
                         device.instance_flags,
                     ),
                     flags: hal::BindGroupLayoutFlags::empty(),
@@ -152,7 +151,7 @@ impl TimestampNormalizer {
                 panic!("Timestamp normalization requires the wgsl feature flag to be enabled!");
 
             let info = crate::device::create_validator(
-                wgt::Features::PUSH_CONSTANTS,
+                wgt::Features::IMMEDIATES,
                 wgt::DownlevelFlags::empty(),
                 naga::valid::ValidationFlags::all(),
             )
@@ -170,7 +169,10 @@ impl TimestampNormalizer {
                 debug_source: None,
             });
             let hal_desc = hal::ShaderModuleDescriptor {
-                label: None,
+                label: hal_label(
+                    Some("(wgpu internal) Timestamp normalizer shader module"),
+                    device.instance_flags,
+                ),
                 runtime_checks: wgt::ShaderRuntimeChecks::unchecked(),
             };
             let module = device
@@ -189,12 +191,12 @@ impl TimestampNormalizer {
             let pipeline_layout = device
                 .raw()
                 .create_pipeline_layout(&hal::PipelineLayoutDescriptor {
-                    label: None,
-                    bind_group_layouts: &[temporary_bind_group_layout.as_ref()],
-                    push_constant_ranges: &[PushConstantRange {
-                        stages: wgt::ShaderStages::COMPUTE,
-                        range: 0..8,
-                    }],
+                    label: hal_label(
+                        Some("(wgpu internal) Timestamp normalizer pipeline layout"),
+                        device.instance_flags,
+                    ),
+                    bind_group_layouts: &[Some(temporary_bind_group_layout.as_ref())],
+                    immediate_size: 8,
                     flags: hal::PipelineLayoutFlags::empty(),
                 })
                 .map_err(|e| {
@@ -208,7 +210,10 @@ impl TimestampNormalizer {
             constants.insert(String::from("TIMESTAMP_PERIOD_SHIFT"), shift as f64);
 
             let pipeline_desc = hal::ComputePipelineDescriptor {
-                label: None,
+                label: hal_label(
+                    Some("(wgpu internal) Timestamp normalizer pipeline"),
+                    device.instance_flags,
+                ),
                 layout: pipeline_layout.as_ref(),
                 stage: hal::ProgrammableStage {
                     module: module.as_ref(),
@@ -336,16 +341,15 @@ impl TimestampNormalizer {
             encoder.transition_buffers(barrier.as_slice());
             encoder.begin_compute_pass(&hal::ComputePassDescriptor {
                 label: hal_label(
-                    Some("Timestamp normalization pass"),
+                    Some("(wgpu internal) Timestamp normalization pass"),
                     buffer.device.instance_flags,
                 ),
                 timestamp_writes: None,
             });
             encoder.set_compute_pipeline(&*state.pipeline);
-            encoder.set_bind_group(&*state.pipeline_layout, 0, Some(bind_group), &[]);
-            encoder.set_push_constants(
+            encoder.set_bind_group(&*state.pipeline_layout, 0, bind_group, &[]);
+            encoder.set_immediates(
                 &*state.pipeline_layout,
-                wgt::ShaderStages::COMPUTE,
                 0,
                 &[buffer_offset_timestamps, total_timestamps],
             );

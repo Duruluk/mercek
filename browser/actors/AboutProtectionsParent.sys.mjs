@@ -177,12 +177,12 @@ export class AboutProtectionsParent extends JSWindowActorParent {
     }
 
     const userFacingLogins =
-      Services.logins.countLogins("", "", "") -
-      Services.logins.countLogins(
+      (await Services.logins.countLoginsAsync("", "", "")) -
+      (await Services.logins.countLoginsAsync(
         lazy.FXA_PWDMGR_HOST,
         null,
         lazy.FXA_PWDMGR_REALM
-      );
+      ));
 
     let potentiallyBreachedLogins = null;
     // Get the stats for number of potentially breached Lockwise passwords

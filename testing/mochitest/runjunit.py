@@ -479,7 +479,7 @@ class JunitArgumentParser(argparse.ArgumentParser):
     """
 
     def __init__(self, **kwargs):
-        super(JunitArgumentParser, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         self.add_argument(
             "--appname",
@@ -636,14 +636,16 @@ class JunitArgumentParser(argparse.ArgumentParser):
             help="Defines an extra user preference.",
         )
         # Additional options for server.
-        self.add_argument(
-            "--certificate-path",
-            action="store",
-            type=str,
-            dest="certPath",
-            default=None,
-            help="Path to directory containing certificate store.",
-        ),
+        (
+            self.add_argument(
+                "--certificate-path",
+                action="store",
+                type=str,
+                dest="certPath",
+                default=None,
+                help="Path to directory containing certificate store.",
+            ),
+        )
         self.add_argument(
             "--http-port",
             action="store",
@@ -689,9 +691,7 @@ def run_test_harness(parser, options):
     if hasattr(options, "log"):
         log = options.log
     else:
-        log = mozlog.commandline.setup_logging(
-            "runjunit", options, {"tbpl": sys.stdout}
-        )
+        log = mozlog.commandline.setup_logging("runjunit", options, {"raw": sys.stdout})
     runner = JUnitTestRunner(log, options)
     result = -1
     try:

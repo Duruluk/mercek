@@ -863,16 +863,25 @@ async function assertNetErrorPage({
         advancedButton.scrollIntoView(true);
         EventUtils.synthesizeMouseAtCenter(advancedButton, {}, content);
         await ContentTaskUtils.waitForCondition(
-          () =>
-            netErrorCard.exceptionButton &&
-            !netErrorCard.exceptionButton.disabled,
-          "Wait for the exception button to be created."
+          () => netErrorCard.advancedContainer,
+          "Wait for the advanced container."
         );
 
-        Assert.ok(
-          !netErrorCard.exceptionButton.disabled,
-          "The exception button is now enabled."
-        );
+        const hideExceptionButton = netErrorCard.shouldHideExceptionButton();
+        if (!hideExceptionButton) {
+          await ContentTaskUtils.waitForCondition(
+            () =>
+              netErrorCard.exceptionButton &&
+              !netErrorCard.exceptionButton.disabled,
+            "Wait for the exception button to be created."
+          );
+
+          Assert.ok(
+            !netErrorCard.exceptionButton.disabled,
+            "The exception button is now enabled."
+          );
+        }
+
         Assert.equal(
           advancedButton.dataset.l10nId,
           "fp-certerror-hide-advanced-button",
@@ -885,6 +894,10 @@ async function assertNetErrorPage({
 
         // Assert Error Code
         const certErrorCodeLink = netErrorCard.errorCode;
+        await ContentTaskUtils.waitForCondition(
+          () => certErrorCodeLink.textContent.includes(errorCode),
+          "Wait for Fluent to populate error code text"
+        );
         Assert.equal(
           certErrorCodeLink.textContent,
           `Error Code: ${errorCode}`,
@@ -897,12 +910,7 @@ async function assertNetErrorPage({
         );
 
         certErrorCodeLink.scrollIntoView(true);
-        EventUtils.synthesizeMouseAtCenter(certErrorCodeLink, {}, content);
-        await ContentTaskUtils.waitForMutationCondition(
-          netErrorCard,
-          { attributeFilter: ["certErrorDebugInfoShowing"] },
-          () => netErrorCard.certErrorDebugInfoShowing
-        );
+        await EventUtils.synthesizeMouse(certErrorCodeLink, 2, 2, {}, content);
         Assert.ok(
           netErrorCard.certErrorDebugInfoShowing,
           "The 'certErrorDebugInfoShowing' boolean should be toggled (to true) after Advance button click on assertAdvancedButton."
@@ -1223,13 +1231,27 @@ add_task(async function checkSandboxedIframe_feltPrivacyToTrue() {
     advancedButton.scrollIntoView(true);
     EventUtils.synthesizeMouseAtCenter(advancedButton, {}, content);
     await ContentTaskUtils.waitForCondition(
-      () =>
-        netErrorCard.exceptionButton && !netErrorCard.exceptionButton.disabled,
-      "Wait for the exception button to be created."
+      () => netErrorCard.advancedContainer,
+      "Wait for the advanced container."
     );
+
+    const hideExceptionButton = netErrorCard.shouldHideExceptionButton();
+    if (!hideExceptionButton) {
+      await ContentTaskUtils.waitForCondition(
+        () =>
+          netErrorCard.exceptionButton &&
+          !netErrorCard.exceptionButton.disabled,
+        "Wait for the exception button to be created."
+      );
+    }
 
     // Assert Error Code
     const certErrorCodeLink = netErrorCard.errorCode;
+    await ContentTaskUtils.waitForCondition(
+      () =>
+        certErrorCodeLink.textContent.includes("SEC_ERROR_EXPIRED_CERTIFICATE"),
+      "Wait for Fluent to populate error code text"
+    );
     Assert.equal(
       certErrorCodeLink.textContent,
       `Error Code: SEC_ERROR_EXPIRED_CERTIFICATE`,

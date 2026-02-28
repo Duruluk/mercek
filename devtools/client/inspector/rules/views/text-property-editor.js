@@ -22,6 +22,9 @@ const { throttle } = require("resource://devtools/shared/throttle.js");
 const {
   style: { ELEMENT_STYLE },
 } = require("resource://devtools/shared/constants.js");
+const {
+  canPointerEventDrag,
+} = require("resource://devtools/client/shared/events.js");
 
 loader.lazyRequireGetter(
   this,
@@ -96,7 +99,7 @@ const IS_DRAGGING_CLASSNAME = "ruleview-propertyvalue-dragging";
  *        The rule editor that owns this TextPropertyEditor.
  * @param {TextProperty} property
  *        The text property to edit.
- * @param {Object} options
+ * @param {object} options
  * @param {Set} options.elementsWithPendingClicks
  */
 class TextPropertyEditor {
@@ -309,7 +312,7 @@ class TextPropertyEditor {
 
       this.valueContainer.addEventListener(
         "click",
-        event => {
+        async event => {
           // Clicks within the value shouldn't propagate any further.
           event.stopPropagation();
 
@@ -322,26 +325,29 @@ class TextPropertyEditor {
             const isRuleInStartingStyle =
               this.ruleEditor.rule.isInStartingStyle();
             const rulePseudoElement = this.ruleEditor.rule.pseudoElement;
-            this.ruleView.highlightProperty(event.target.dataset.variableName, {
-              ruleValidator: rule => {
-                // If the associated rule is not in starting style, the variable
-                // definition can't be in a starting style rule.
-                // Note that if the rule is in starting style, then the variable
-                // definition might be in a starting style rule, or in a regular one.
-                if (!isRuleInStartingStyle && rule.isInStartingStyle()) {
-                  return false;
-                }
+            await this.ruleView.highlightProperty(
+              event.target.dataset.variableName,
+              {
+                ruleValidator: rule => {
+                  // If the associated rule is not in starting style, the variable
+                  // definition can't be in a starting style rule.
+                  // Note that if the rule is in starting style, then the variable
+                  // definition might be in a starting style rule, or in a regular one.
+                  if (!isRuleInStartingStyle && rule.isInStartingStyle()) {
+                    return false;
+                  }
 
-                if (
-                  rule.pseudoElement &&
-                  rulePseudoElement !== rule.pseudoElement
-                ) {
-                  return false;
-                }
+                  if (
+                    rule.pseudoElement &&
+                    rulePseudoElement !== rule.pseudoElement
+                  ) {
+                    return false;
+                  }
 
-                return true;
-              },
-            });
+                  return true;
+                },
+              }
+            );
           }
         },
         { signal: this.abortController.signal }
@@ -408,16 +414,16 @@ class TextPropertyEditor {
         start: this.#onStartEditing,
         element: this.valueSpan,
         done: this.#onValueDone,
-        destroy: onValueDonePromise => {
+        destroy: async onValueDonePromise => {
           const cb = this.update;
           // The `done` callback is called before this `destroy` callback is.
           // In #onValueDone, we might preview/set the property and we want to wait for
           // that to be resolved before updating the view so all data are up to date (see Bug 1325145).
-          if (
-            onValueDonePromise &&
-            typeof onValueDonePromise.then === "function"
-          ) {
-            return onValueDonePromise.then(cb);
+          //
+          // Note that it is important to only await if a promise is passed,
+          // otherwise browser_rules_grid-template-areas.js starts failing because of a race condition.
+          if (typeof onValueDonePromise?.then == "function") {
+            await onValueDonePromise;
           }
           return cb();
         },
@@ -453,7 +459,7 @@ class TextPropertyEditor {
    * Get the grid line names of the grid that the currently selected element is
    * contained in.
    *
-   * @return {Object} Contains the names of the cols and rows as arrays
+   * @return {object} Contains the names of the cols and rows as arrays
    * {cols: [], rows: []}.
    */
   #getGridlineNames = async () => {
@@ -527,7 +533,7 @@ class TextPropertyEditor {
    * Get the path from which to resolve requests for this
    * rule's stylesheet.
    *
-   * @return {String} the stylesheet's href.
+   * @return {string} the stylesheet's href.
    */
   get #sheetHref() {
     const domRule = this.rule.domRule;
@@ -575,7 +581,7 @@ class TextPropertyEditor {
       this.element.removeAttribute("dirty");
     }
 
-    const outputParser = this.ruleView._outputParser;
+    const { outputParser } = this.ruleView;
     this.outputParserOptions = {
       angleClass: "ruleview-angle",
       angleSwatchClass: SHARED_SWATCH_CLASS + " " + ANGLE_SWATCH_CLASS,
@@ -606,6 +612,21 @@ class TextPropertyEditor {
           varName,
           this.rule.pseudoElement
         ),
+      getAttributeValue: attrName => {
+        const nodeFront = this.rule.elementStyle.element.isPseudoElement
+          ? // get the closest non pseudo element
+            this.rule.elementStyle.element.getUltimateOriginatingElement()
+          : this.rule.elementStyle.element;
+
+        const attribute = nodeFront.attributes.find(
+          attr => attr.name === attrName
+        );
+        if (!attribute) {
+          return null;
+        }
+
+        return attribute.value;
+      },
       inStartingStyleRule: this.rule.isInStartingStyle(),
       isValid: this.isValid(),
     };
@@ -657,9 +678,11 @@ class TextPropertyEditor {
       "." + FONT_FAMILY_CLASS
     );
     if (fontFamilySpans.length && this.prop.enabled && !this.prop.overridden) {
-      this.rule.elementStyle
-        .getUsedFontFamilies()
-        .then(families => {
+      // This code branch was historically spawn in a distinct async task
+      // but it may not be strictly required.
+      (async () => {
+        try {
+          const families = await this.rule.elementStyle.getUsedFontFamilies();
           for (const span of fontFamilySpans) {
             const authoredFont = span.textContent.toLowerCase();
             if (families.has(authoredFont)) {
@@ -671,10 +694,10 @@ class TextPropertyEditor {
           }
 
           this.ruleView.emit("font-highlighted", this.valueSpan);
-        })
-        .catch(e =>
-          console.error("Could not get the list of font families", e)
-        );
+        } catch (e) {
+          console.error("Could not get the list of font families", e);
+        }
+      })();
     }
 
     // Attach the color picker tooltip to the color swatches
@@ -837,7 +860,7 @@ class TextPropertyEditor {
     this.#updateShorthandOverridden();
 
     // Update the rule property highlight.
-    this.ruleView._updatePropertyHighlight(this);
+    this.ruleView.updatePropertyHighlight(this);
 
     // Restore focus back to the element whose markup was recreated above, if
     // the focus is still in the current document (avoid stealing the focus, see
@@ -1253,7 +1276,7 @@ class TextPropertyEditor {
     });
     appendText(nameContainer, ": ");
 
-    const outputParser = this.ruleView._outputParser;
+    const { outputParser } = this.ruleView;
     const frag = outputParser.parseCssProperty(computed.name, computed.value, {
       colorSwatchClass: "inspector-swatch inspector-colorswatch",
       urlClass: "theme-link",
@@ -1378,11 +1401,11 @@ class TextPropertyEditor {
    * Ignores the change if the user pressed escape, otherwise
    * commits it.
    *
-   * @param {String} value
+   * @param {string} value
    *        The value contained in the editor.
-   * @param {Boolean} commit
+   * @param {boolean} commit
    *        True if the change should be applied.
-   * @param {Number} direction
+   * @param {number} direction
    *        The move focus direction number.
    */
   #onNameDone = (value, commit, direction) => {
@@ -1438,7 +1461,7 @@ class TextPropertyEditor {
    * Begin editing next or previous available property given the focus
    * direction.
    *
-   * @param {Number} direction
+   * @param {number} direction
    *        The move focus direction number.
    */
   remove(direction) {
@@ -1456,11 +1479,11 @@ class TextPropertyEditor {
    * Called when a value editor closes.  If the user pressed escape,
    * revert to the value this property had before editing.
    *
-   * @param {String} value
+   * @param {string} value
    *        The value contained in the editor.
-   * @param {Boolean} commit
+   * @param {boolean} commit
    *        True if the change should be applied.
-   * @param {Number} direction
+   * @param {number} direction
    *        The move focus direction number.
    */
   #onValueDone = (value = "", commit, direction) => {
@@ -1563,9 +1586,9 @@ class TextPropertyEditor {
    * Example: Calling with "red; width: 100px" would return
    * { firstValue: "red", propertiesToAdd: [{ name: "width", value: "100px" }] }
    *
-   * @param {String} value
+   * @param {string} value
    *        The string to parse
-   * @return {Object} An object with the following properties:
+   * @return {object} An object with the following properties:
    *        firstValue: A string containing a simple value, like
    *                    "red" or "100px!important"
    *        propertiesToAdd: An array with additional properties, following the
@@ -1606,9 +1629,9 @@ class TextPropertyEditor {
   /**
    * Live preview this property, without committing changes.
    *
-   * @param {String} value
+   * @param {string} value
    *        The value to set the current property to.
-   * @param {Boolean} reverting
+   * @param {boolean} reverting
    *        True if we're reverting the previously previewed value
    */
   #previewValue = (value, reverting = false) => {
@@ -1631,7 +1654,7 @@ class TextPropertyEditor {
    * Alt on macosx and ctrl on other OSs
    *
    * @param  {KeyboardEvent} event
-   * @returns {Boolean}
+   * @returns {boolean}
    */
   #hasSmallIncrementModifier(event) {
     const modifier =
@@ -1644,8 +1667,8 @@ class TextPropertyEditor {
    * e.g. if the input is "128px" it will return an object like
    * { groups: { value: "128", unit: "px"}}
    *
-   * @param  {String} value
-   * @returns {Object|null}
+   * @param  {string} value
+   * @returns {object | null}
    */
   #parseDimension(value) {
     // The regex handles values like +1, -1, 1e4, .4, 1.3e-4, 1.567
@@ -1658,7 +1681,7 @@ class TextPropertyEditor {
    * Check if a textProperty value is supported to add the dragging feature
    *
    * @param  {TextProperty} textProperty
-   * @returns {Boolean}
+   * @returns {boolean}
    */
   #isDraggableProperty(textProperty) {
     // Check if the feature is explicitly disabled.
@@ -1684,9 +1707,7 @@ class TextPropertyEditor {
   }
 
   #draggingOnPointerDown = event => {
-    // We want to handle a drag during a mouse button is pressed.  So, we can
-    // ignore pointer events which are caused by other devices.
-    if (event.pointerType != "mouse") {
+    if (!canPointerEventDrag(event)) {
       return;
     }
 
@@ -1729,7 +1750,7 @@ class TextPropertyEditor {
     });
   };
 
-  #draggingOnMouseMove = throttle(event => {
+  #draggingOnMouseMove = throttle(async event => {
     if (!this.#isDragging) {
       return;
     }
@@ -1771,10 +1792,13 @@ class TextPropertyEditor {
     const { value, unit } = this.#draggingValueCache;
     // We use toFixed to avoid the case where value is too long, 9.00001px for example
     const roundedValue = Number.isInteger(value) ? value : value.toFixed(1);
-    this.prop
-      .setValue(roundedValue + unit, this.prop.priority)
-      .then(() => this.ruleView.emitForTests("property-updated-by-dragging"));
+    const onValueSet = this.prop.setValue(
+      roundedValue + unit,
+      this.prop.priority
+    );
     this.#hasDragged = true;
+    await onValueSet;
+    this.ruleView.emitForTests("property-updated-by-dragging");
   }, 30);
 
   #draggingOnPointerUp = () => {
@@ -1852,7 +1876,7 @@ class TextPropertyEditor {
    * Validate this property. Does it make sense for this value to be assigned
    * to this property name? This does not apply the property value
    *
-   * @return {Boolean} true if the property name + value pair is valid, false otherwise.
+   * @return {boolean} true if the property name + value pair is valid, false otherwise.
    */
   isValid() {
     return this.prop.isValid();
@@ -1860,7 +1884,8 @@ class TextPropertyEditor {
 
   /**
    * Validate the name of this property.
-   * @return {Boolean} true if the property name is valid, false otherwise.
+   *
+   * @return {boolean} true if the property name is valid, false otherwise.
    */
   #isNameValid() {
     return this.prop.isNameValid();

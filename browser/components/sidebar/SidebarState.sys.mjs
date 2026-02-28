@@ -239,6 +239,8 @@ export class SidebarState {
       !hasSidebarLauncherBeenVisible
     ) {
       props.launcherVisible = this.defaultLauncherVisible;
+    } else if (this.revampVisibility == "always-show") {
+      props.launcherVisible = true;
     }
     for (const [key, value] of Object.entries(props)) {
       if (value === undefined) {
@@ -468,6 +470,7 @@ export class SidebarState {
       this.#launcherEverVisible = true;
     }
     this.#launcherContainerEl.hidden = !visible;
+    this.#launcherEl.requestUpdate();
     this.#updateTabbrowser(visible);
     this.#sidebarBoxEl.style.paddingInlineStart =
       this.panelOpen && !visible ? "var(--space-small)" : "unset";

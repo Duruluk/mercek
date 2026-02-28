@@ -1,621 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<issues format="6" by="lint 8.13.0" type="baseline" client="gradle" dependencies="false" name="AGP (8.13.0)" variant="all" version="8.13.0">
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        mockkStatic(AboutListItemBinding::class)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/settings/about/AboutPageAdapterTest.kt"
-            line="71"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        mockkStatic(&quot;org.mozilla.fenix.ext.FragmentKt&quot;)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/browser/BrowserFragmentTest.kt"
-            line="77"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;unmockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        unmockkStatic(&quot;org.mozilla.fenix.ext.FragmentKt&quot;)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/browser/BrowserFragmentTest.kt"
-            line="114"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        mockkStatic(AppCompatResources::class)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/browser/BrowserFragmentTest.kt"
-            line="348"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;unmockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        unmockkStatic(AppCompatResources::class)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/browser/BrowserFragmentTest.kt"
-            line="357"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        mockkStatic(AppCompatResources::class)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/browser/BrowserFragmentTest.kt"
-            line="370"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;unmockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        unmockkStatic(AppCompatResources::class)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/browser/BrowserFragmentTest.kt"
-            line="378"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        mockkStatic(AppCompatResources::class)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/browser/BrowserFragmentTest.kt"
-            line="395"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;unmockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        unmockkStatic(AppCompatResources::class)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/browser/BrowserFragmentTest.kt"
-            line="407"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        mockkStatic(AppCompatResources::class)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/browser/BrowserFragmentTest.kt"
-            line="424"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;unmockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        unmockkStatic(AppCompatResources::class)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/browser/BrowserFragmentTest.kt"
-            line="435"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        mockkStatic(AppCompatResources::class)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/browser/BrowserFragmentTest.kt"
-            line="452"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;unmockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        unmockkStatic(AppCompatResources::class)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/browser/BrowserFragmentTest.kt"
-            line="465"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        mockkStatic(AppCompatResources::class)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/browser/BrowserFragmentTest.kt"
-            line="529"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;unmockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        unmockkStatic(AppCompatResources::class)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/browser/BrowserFragmentTest.kt"
-            line="535"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        mockkStatic(&quot;mozilla.components.service.pocket.ext.PocketStoryKt&quot;) {"
-        errorLine2="        ^">
-        <location
-            file="src/test/java/org/mozilla/fenix/home/pocket/DefaultPocketStoriesControllerTest.kt"
-            line="220"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        mockkStatic(&quot;mozilla.components.service.pocket.ext.PocketStoryKt&quot;) {"
-        errorLine2="        ^">
-        <location
-            file="src/test/java/org/mozilla/fenix/home/pocket/DefaultPocketStoriesControllerTest.kt"
-            line="272"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        mockkStatic(&quot;mozilla.components.service.pocket.ext.PocketStoryKt&quot;) {"
-        errorLine2="        ^">
-        <location
-            file="src/test/java/org/mozilla/fenix/home/pocket/DefaultPocketStoriesControllerTest.kt"
-            line="413"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        mockkStatic(&quot;mozilla.components.service.pocket.ext.PocketStoryKt&quot;) {"
-        errorLine2="        ^">
-        <location
-            file="src/test/java/org/mozilla/fenix/home/pocket/DefaultPocketStoriesControllerTest.kt"
-            line="465"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        mockkStatic(&quot;mozilla.components.service.pocket.ext.PocketStoryKt&quot;) {"
-        errorLine2="        ^">
-        <location
-            file="src/test/java/org/mozilla/fenix/home/pocket/DefaultPocketStoriesControllerTest.kt"
-            line="518"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        mockkStatic(&quot;org.mozilla.fenix.ext.ContextKt&quot;)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/components/toolbar/DefaultToolbarIntegrationTest.kt"
-            line="28"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;unmockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        unmockkStatic(&quot;org.mozilla.fenix.ext.ContextKt&quot;)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/components/toolbar/DefaultToolbarIntegrationTest.kt"
-            line="51"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        mockkStatic(&quot;org.mozilla.fenix.ext.FragmentKt&quot;)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/settings/HomeSettingsFragmentTest.kt"
-            line="47"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        mockkStatic(&quot;org.mozilla.fenix.ext.ContextKt&quot;)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/settings/HomeSettingsFragmentTest.kt"
-            line="48"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;unmockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        unmockkStatic(&quot;org.mozilla.fenix.ext.ContextKt&quot;)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/settings/HomeSettingsFragmentTest.kt"
-            line="69"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;unmockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        unmockkStatic(&quot;org.mozilla.fenix.ext.FragmentKt&quot;)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/settings/HomeSettingsFragmentTest.kt"
-            line="70"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        mockkStatic(&quot;mozilla.components.support.utils.ext.ContextKt&quot;)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/home/toolbar/HomeToolbarViewTest.kt"
-            line="39"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        mockkStatic(&quot;org.mozilla.fenix.ext.ContextKt&quot;)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/home/toolbar/HomeToolbarViewTest.kt"
-            line="40"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;unmockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        unmockkStatic(&quot;mozilla.components.support.utils.ext.ContextKt&quot;)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/home/toolbar/HomeToolbarViewTest.kt"
-            line="54"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;unmockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        unmockkStatic(&quot;org.mozilla.fenix.ext.ContextKt&quot;)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/home/toolbar/HomeToolbarViewTest.kt"
-            line="55"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        mockkStatic(&quot;org.mozilla.fenix.settings.advanced.LocaleManagerExtensionKt&quot;)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/settings/advanced/LocaleSettingsControllerTest.kt"
-            line="47"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="            mockkStatic(&quot;mozilla.components.support.ktx.android.util.DisplayMetricsKt&quot;)"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/tabstray/TabSheetBehaviorManagerTest.kt"
-            line="753"
-            column="13"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;unmockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="            unmockkStatic(&quot;mozilla.components.support.ktx.android.util.DisplayMetricsKt&quot;)"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/tabstray/TabSheetBehaviorManagerTest.kt"
-            line="764"
-            column="13"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="            mockkStatic(&quot;mozilla.components.support.ktx.android.util.DisplayMetricsKt&quot;)"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/tabstray/TabSheetBehaviorManagerTest.kt"
-            line="778"
-            column="13"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;unmockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="            unmockkStatic(&quot;mozilla.components.support.ktx.android.util.DisplayMetricsKt&quot;)"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/tabstray/TabSheetBehaviorManagerTest.kt"
-            line="789"
-            column="13"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="            mockkStatic(&quot;mozilla.components.support.ktx.android.util.DisplayMetricsKt&quot;)"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/tabstray/TabSheetBehaviorManagerTest.kt"
-            line="803"
-            column="13"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;unmockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="            unmockkStatic(&quot;mozilla.components.support.ktx.android.util.DisplayMetricsKt&quot;)"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/tabstray/TabSheetBehaviorManagerTest.kt"
-            line="814"
-            column="13"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="            mockkStatic(&quot;mozilla.components.support.ktx.android.util.DisplayMetricsKt&quot;)"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/tabstray/TabSheetBehaviorManagerTest.kt"
-            line="828"
-            column="13"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;unmockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="            unmockkStatic(&quot;mozilla.components.support.ktx.android.util.DisplayMetricsKt&quot;)"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/tabstray/TabSheetBehaviorManagerTest.kt"
-            line="840"
-            column="13"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="            mockkStatic(&quot;mozilla.components.support.ktx.android.util.DisplayMetricsKt&quot;)"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/tabstray/TabSheetBehaviorManagerTest.kt"
-            line="854"
-            column="13"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;unmockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="            unmockkStatic(&quot;mozilla.components.support.ktx.android.util.DisplayMetricsKt&quot;)"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/tabstray/TabSheetBehaviorManagerTest.kt"
-            line="866"
-            column="13"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="            mockkStatic(&quot;mozilla.components.support.ktx.android.util.DisplayMetricsKt&quot;)"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/tabstray/TabSheetBehaviorManagerTest.kt"
-            line="880"
-            column="13"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;unmockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="            unmockkStatic(&quot;mozilla.components.support.ktx.android.util.DisplayMetricsKt&quot;)"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/tabstray/TabSheetBehaviorManagerTest.kt"
-            line="892"
-            column="13"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        mockkStatic(&quot;org.mozilla.fenix.utils.UndoKt&quot;)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/home/TabsCleanupFeatureTest.kt"
-            line="76"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        mockkStatic(&quot;mozilla.components.browser.state.selector.SelectorsKt&quot;)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/home/TabsCleanupFeatureTest.kt"
-            line="224"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        mockkStatic(&quot;mozilla.components.browser.state.selector.SelectorsKt&quot;)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/home/TabsCleanupFeatureTest.kt"
-            line="255"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        mockkStatic(&quot;mozilla.components.browser.state.selector.SelectorsKt&quot;)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/home/TabsCleanupFeatureTest.kt"
-            line="290"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        mockkStatic(&quot;org.mozilla.fenix.ext.ContextKt&quot;) {"
-        errorLine2="        ^">
-        <location
-            file="src/test/java/org/mozilla/fenix/trackingprotection/TrackingProtectionPanelViewTest.kt"
-            line="62"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        mockkStatic(&quot;org.mozilla.fenix.ext.ContextKt&quot;) {"
-        errorLine2="        ^">
-        <location
-            file="src/test/java/org/mozilla/fenix/trackingprotection/TrackingProtectionPanelViewTest.kt"
-            line="76"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        mockkStatic(&quot;org.mozilla.fenix.ext.ContextKt&quot;) {"
-        errorLine2="        ^">
-        <location
-            file="src/test/java/org/mozilla/fenix/trackingprotection/TrackingProtectionPanelViewTest.kt"
-            line="91"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        mockkStatic(&quot;org.mozilla.fenix.ext.ContextKt&quot;) {"
-        errorLine2="        ^">
-        <location
-            file="src/test/java/org/mozilla/fenix/trackingprotection/TrackingProtectionPanelViewTest.kt"
-            line="132"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        mockkStatic(&quot;org.mozilla.fenix.ext.ContextKt&quot;) {"
-        errorLine2="        ^">
-        <location
-            file="src/test/java/org/mozilla/fenix/trackingprotection/TrackingProtectionPanelViewTest.kt"
-            line="155"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        mockkStatic(&quot;mozilla.components.support.ktx.android.util.DisplayMetricsKt&quot;)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/ext/ViewTest.kt"
-            line="43"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        mockkStatic(&quot;mozilla.components.support.utils.ext.WindowInsetsCompatKt&quot;)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/ext/ViewTest.kt"
-            line="44"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoStaticMocking"
-        message="Usage of MockK&apos;s &apos;mockkStatic&apos; for static mocking is discouraged. Refactor to use dependency injection."
-        errorLine1="        mockkStatic(&quot;org.mozilla.fenix.ext.ViewKt&quot;)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/ext/ViewTest.kt"
-            line="45"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="ScrollViewSize"
-        message="This LinearLayout should use `android:layout_height=&quot;wrap_content&quot;`"
-        errorLine1="        android:layout_height=&quot;match_parent&quot;"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/layout/fragment_save_search_engine.xml"
-            line="17"
-            column="9"/>
-    </issue>
+<issues format="6" by="lint 8.13.2" type="baseline" client="gradle" dependencies="false" name="AGP (8.13.2)" variant="all" version="8.13.2">
 
     <issue
         id="AppBundleLocaleChanges"
@@ -624,228 +8,8 @@
         errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/org/mozilla/fenix/ext/Context.kt"
-            line="83"
+            line="88"
             column="9"/>
-    </issue>
-
-    <issue
-        id="IntentFilterUniqueDataAttributes"
-        message="Consider splitting data tag into multiple tags with individual attributes to avoid confusion"
-        errorLine1="                &lt;data android:scheme=&quot;${deepLinkScheme}&quot;"
-        errorLine2="                ^">
-        <location
-            file="src/main/AndroidManifest.xml"
-            line="510"
-            column="17"/>
-    </issue>
-
-    <issue
-        id="IntentFilterUniqueDataAttributes"
-        message="Consider splitting data tag into multiple tags with individual attributes to avoid confusion"
-        errorLine1="                &lt;data android:scheme=&quot;${deepLinkScheme}&quot;"
-        errorLine2="                ^">
-        <location
-            file="src/main/AndroidManifest.xml"
-            line="512"
-            column="17"/>
-    </issue>
-
-    <issue
-        id="IntentFilterUniqueDataAttributes"
-        message="Consider splitting data tag into multiple tags with individual attributes to avoid confusion"
-        errorLine1="                &lt;data android:scheme=&quot;${deepLinkScheme}&quot;"
-        errorLine2="                ^">
-        <location
-            file="src/main/AndroidManifest.xml"
-            line="514"
-            column="17"/>
-    </issue>
-
-    <issue
-        id="IntentFilterUniqueDataAttributes"
-        message="Consider splitting data tag into multiple tags with individual attributes to avoid confusion"
-        errorLine1="                &lt;data android:scheme=&quot;${deepLinkScheme}&quot;"
-        errorLine2="                ^">
-        <location
-            file="src/main/AndroidManifest.xml"
-            line="516"
-            column="17"/>
-    </issue>
-
-    <issue
-        id="IntentFilterUniqueDataAttributes"
-        message="Consider splitting data tag into multiple tags with individual attributes to avoid confusion"
-        errorLine1="                &lt;data android:scheme=&quot;${deepLinkScheme}&quot;"
-        errorLine2="                ^">
-        <location
-            file="src/main/AndroidManifest.xml"
-            line="518"
-            column="17"/>
-    </issue>
-
-    <issue
-        id="IntentFilterUniqueDataAttributes"
-        message="Consider splitting data tag into multiple tags with individual attributes to avoid confusion"
-        errorLine1="                &lt;data android:scheme=&quot;${deepLinkScheme}&quot;"
-        errorLine2="                ^">
-        <location
-            file="src/main/AndroidManifest.xml"
-            line="520"
-            column="17"/>
-    </issue>
-
-    <issue
-        id="IntentFilterUniqueDataAttributes"
-        message="Consider splitting data tag into multiple tags with individual attributes to avoid confusion"
-        errorLine1="                &lt;data android:scheme=&quot;${deepLinkScheme}&quot;"
-        errorLine2="                ^">
-        <location
-            file="src/main/AndroidManifest.xml"
-            line="522"
-            column="17"/>
-    </issue>
-
-    <issue
-        id="IntentFilterUniqueDataAttributes"
-        message="Consider splitting data tag into multiple tags with individual attributes to avoid confusion"
-        errorLine1="                &lt;data android:scheme=&quot;${deepLinkScheme}&quot;"
-        errorLine2="                ^">
-        <location
-            file="src/main/AndroidManifest.xml"
-            line="524"
-            column="17"/>
-    </issue>
-
-    <issue
-        id="IntentFilterUniqueDataAttributes"
-        message="Consider splitting data tag into multiple tags with individual attributes to avoid confusion"
-        errorLine1="                &lt;data android:scheme=&quot;${deepLinkScheme}&quot;"
-        errorLine2="                ^">
-        <location
-            file="src/main/AndroidManifest.xml"
-            line="526"
-            column="17"/>
-    </issue>
-
-    <issue
-        id="IntentFilterUniqueDataAttributes"
-        message="Consider splitting data tag into multiple tags with individual attributes to avoid confusion"
-        errorLine1="                &lt;data android:scheme=&quot;${deepLinkScheme}&quot;"
-        errorLine2="                ^">
-        <location
-            file="src/main/AndroidManifest.xml"
-            line="528"
-            column="17"/>
-    </issue>
-
-    <issue
-        id="IntentFilterUniqueDataAttributes"
-        message="Consider splitting data tag into multiple tags with individual attributes to avoid confusion"
-        errorLine1="                &lt;data android:scheme=&quot;${deepLinkScheme}&quot;"
-        errorLine2="                ^">
-        <location
-            file="src/main/AndroidManifest.xml"
-            line="530"
-            column="17"/>
-    </issue>
-
-    <issue
-        id="IntentFilterUniqueDataAttributes"
-        message="Consider splitting data tag into multiple tags with individual attributes to avoid confusion"
-        errorLine1="                &lt;data android:scheme=&quot;${deepLinkScheme}&quot;"
-        errorLine2="                ^">
-        <location
-            file="src/main/AndroidManifest.xml"
-            line="532"
-            column="17"/>
-    </issue>
-
-    <issue
-        id="IntentFilterUniqueDataAttributes"
-        message="Consider splitting data tag into multiple tags with individual attributes to avoid confusion"
-        errorLine1="                &lt;data android:scheme=&quot;${deepLinkScheme}&quot;"
-        errorLine2="                ^">
-        <location
-            file="src/main/AndroidManifest.xml"
-            line="534"
-            column="17"/>
-    </issue>
-
-    <issue
-        id="IntentFilterUniqueDataAttributes"
-        message="Consider splitting data tag into multiple tags with individual attributes to avoid confusion"
-        errorLine1="                &lt;data android:scheme=&quot;${deepLinkScheme}&quot;"
-        errorLine2="                ^">
-        <location
-            file="src/main/AndroidManifest.xml"
-            line="536"
-            column="17"/>
-    </issue>
-
-    <issue
-        id="IntentFilterUniqueDataAttributes"
-        message="Consider splitting data tag into multiple tags with individual attributes to avoid confusion"
-        errorLine1="                &lt;data android:scheme=&quot;${deepLinkScheme}&quot;"
-        errorLine2="                ^">
-        <location
-            file="src/main/AndroidManifest.xml"
-            line="538"
-            column="17"/>
-    </issue>
-
-    <issue
-        id="IntentFilterUniqueDataAttributes"
-        message="Consider splitting data tag into multiple tags with individual attributes to avoid confusion"
-        errorLine1="                &lt;data android:scheme=&quot;${deepLinkScheme}&quot;"
-        errorLine2="                ^">
-        <location
-            file="src/main/AndroidManifest.xml"
-            line="540"
-            column="17"/>
-    </issue>
-
-    <issue
-        id="IntentFilterUniqueDataAttributes"
-        message="Consider splitting data tag into multiple tags with individual attributes to avoid confusion"
-        errorLine1="                &lt;data android:scheme=&quot;${deepLinkScheme}&quot;"
-        errorLine2="                ^">
-        <location
-            file="src/main/AndroidManifest.xml"
-            line="542"
-            column="17"/>
-    </issue>
-
-    <issue
-        id="IntentFilterUniqueDataAttributes"
-        message="Consider splitting data tag into multiple tags with individual attributes to avoid confusion"
-        errorLine1="                &lt;data android:scheme=&quot;${deepLinkScheme}&quot;"
-        errorLine2="                ^">
-        <location
-            file="src/main/AndroidManifest.xml"
-            line="544"
-            column="17"/>
-    </issue>
-
-    <issue
-        id="IntentFilterUniqueDataAttributes"
-        message="Consider splitting data tag into multiple tags with individual attributes to avoid confusion"
-        errorLine1="                &lt;data android:scheme=&quot;${deepLinkScheme}&quot;"
-        errorLine2="                ^">
-        <location
-            file="src/main/AndroidManifest.xml"
-            line="546"
-            column="17"/>
-    </issue>
-
-    <issue
-        id="IntentFilterUniqueDataAttributes"
-        message="Consider splitting data tag into multiple tags with individual attributes to avoid confusion"
-        errorLine1="                &lt;data android:scheme=&quot;${deepLinkScheme}&quot;"
-        errorLine2="                ^">
-        <location
-            file="src/main/AndroidManifest.xml"
-            line="548"
-            column="17"/>
     </issue>
 
     <issue
@@ -1179,6 +343,50 @@
     </issue>
 
     <issue
+        id="VectorRaster"
+        message="Limit vector icons sizes to 200×200 to keep icon drawing fast; see https://developer.android.com/studio/write/vector-asset-studio#when for more"
+        errorLine1="    android:width=&quot;202dp&quot;"
+        errorLine2="                   ~~~~~">
+        <location
+            file="src/main/res/drawable/nova_onboarding_notifications.xml"
+            line="7"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="VectorRaster"
+        message="Limit vector icons sizes to 200×200 to keep icon drawing fast; see https://developer.android.com/studio/write/vector-asset-studio#when for more"
+        errorLine1="    android:width=&quot;257dp&quot;"
+        errorLine2="                   ~~~~~">
+        <location
+            file="src/main/res/drawable/nova_onboarding_tou.xml"
+            line="7"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="VectorRaster"
+        message="Limit vector icons sizes to 200×200 to keep icon drawing fast; see https://developer.android.com/studio/write/vector-asset-studio#when for more"
+        errorLine1="    android:height=&quot;257dp&quot;"
+        errorLine2="                    ~~~~~">
+        <location
+            file="src/main/res/drawable/nova_onboarding_tou_2.xml"
+            line="8"
+            column="21"/>
+    </issue>
+
+    <issue
+        id="VectorRaster"
+        message="Limit vector icons sizes to 200×200 to keep icon drawing fast; see https://developer.android.com/studio/write/vector-asset-studio#when for more"
+        errorLine1="    android:width=&quot;206dp&quot;"
+        errorLine2="                   ~~~~~">
+        <location
+            file="src/main/res/drawable/nova_onboarding_widget.xml"
+            line="7"
+            column="20"/>
+    </issue>
+
+    <issue
         id="VisibleForTests"
         message="This method should only be accessed from tests or within private scope"
         errorLine1="                recentTabs = state.recentTabs.filterOutTab(action.recentTab),"
@@ -1196,7 +404,7 @@
         errorLine2="        ~~~~~~~~~~~~~">
         <location
             file="src/main/java/org/mozilla/fenix/browser/BrowserFragment.kt"
-            line="593"
+            line="592"
             column="9"/>
     </issue>
 
@@ -1295,7 +503,7 @@
         errorLine2="         ~~~~~~~~">
         <location
             file="src/main/AndroidManifest.xml"
-            line="751"
+            line="740"
             column="10"/>
     </issue>
 
@@ -1306,7 +514,7 @@
         errorLine2="                             ~~~~~">
         <location
             file="src/main/AndroidManifest.xml"
-            line="59"
+            line="65"
             column="30"/>
     </issue>
 
@@ -1394,7 +602,7 @@
         errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/org/mozilla/fenix/library/history/HistoryView.kt"
-            line="144"
+            line="147"
             column="9"/>
     </issue>
 
@@ -1576,12 +784,12 @@
 
     <issue
         id="Overdraw"
-        message="Possible overdraw: Root element paints background `?attr/layer1` with a theme that also paints a background (inferred theme is `@style/NormalTheme`)"
-        errorLine1="    android:background=&quot;?attr/layer1&quot;"
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        message="Possible overdraw: Root element paints background `?attr/colorSurface` with a theme that also paints a background (inferred theme is `@style/NormalTheme`)"
+        errorLine1="    android:background=&quot;?attr/colorSurface&quot;"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/layout/address_select_bar.xml"
-            line="12"
+            line="10"
             column="5"/>
     </issue>
 
@@ -1620,9 +828,9 @@
 
     <issue
         id="Overdraw"
-        message="Possible overdraw: Root element paints background `?attr/layer1` with a theme that also paints a background (inferred theme is `@style/NormalTheme`)"
-        errorLine1="    android:background=&quot;?attr/layer1&quot;>"
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        message="Possible overdraw: Root element paints background `?attr/colorSurface` with a theme that also paints a background (inferred theme is `@style/NormalTheme`)"
+        errorLine1="    android:background=&quot;?attr/colorSurface&quot;>"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/layout/component_cookie_banner_details_panel.xml"
             line="11"
@@ -1631,9 +839,9 @@
 
     <issue
         id="Overdraw"
-        message="Possible overdraw: Root element paints background `?attr/layer1` with a theme that also paints a background (inferred theme is `@style/NormalTheme`)"
-        errorLine1="    android:background=&quot;?attr/layer1&quot;"
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        message="Possible overdraw: Root element paints background `?attr/colorSurface` with a theme that also paints a background (inferred theme is `@style/NormalTheme`)"
+        errorLine1="    android:background=&quot;?attr/colorSurface&quot;"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/layout/component_find_in_page_bar.xml"
             line="11"
@@ -1642,9 +850,9 @@
 
     <issue
         id="Overdraw"
-        message="Possible overdraw: Root element paints background `?attr/layer1` with a theme that also paints a background (inferred theme is `@style/NormalTheme`)"
-        errorLine1="    android:background=&quot;?attr/layer1&quot;>"
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        message="Possible overdraw: Root element paints background `?attr/colorSurface` with a theme that also paints a background (inferred theme is `@style/NormalTheme`)"
+        errorLine1="    android:background=&quot;?attr/colorSurface&quot;>"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/layout/component_tracking_protection_panel.xml"
             line="13"
@@ -1653,9 +861,9 @@
 
     <issue
         id="Overdraw"
-        message="Possible overdraw: Root element paints background `?attr/layer1` with a theme that also paints a background (inferred theme is `@style/NormalTheme`)"
-        errorLine1="    android:background=&quot;?attr/layer1&quot;"
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        message="Possible overdraw: Root element paints background `?attr/colorSurface` with a theme that also paints a background (inferred theme is `@style/NormalTheme`)"
+        errorLine1="    android:background=&quot;?attr/colorSurface&quot;"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/layout/connection_details_website_info.xml"
             line="13"
@@ -1664,12 +872,12 @@
 
     <issue
         id="Overdraw"
-        message="Possible overdraw: Root element paints background `?attr/layer1` with a theme that also paints a background (inferred theme is `@style/NormalTheme`)"
-        errorLine1="    android:background=&quot;?attr/layer1&quot;"
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        message="Possible overdraw: Root element paints background `?attr/colorSurface` with a theme that also paints a background (inferred theme is `@style/NormalTheme`)"
+        errorLine1="    android:background=&quot;?attr/colorSurface&quot;"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/layout/creditcard_select_bar.xml"
-            line="7"
+            line="10"
             column="5"/>
     </issue>
 
@@ -1708,17 +916,6 @@
 
     <issue
         id="Overdraw"
-        message="Possible overdraw: Root element paints background `?homeBackground` with a theme that also paints a background (inferred theme is `@style/NormalTheme`)"
-        errorLine1="    android:background=&quot;?homeBackground&quot;>"
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/layout/fragment_home.xml"
-            line="16"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="Overdraw"
         message="Possible overdraw: Root element paints background `?scrim` with a theme that also paints a background (inferred theme is `@style/NormalTheme`)"
         errorLine1="    android:background=&quot;?scrim&quot;"
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
@@ -1741,9 +938,9 @@
 
     <issue
         id="Overdraw"
-        message="Possible overdraw: Root element paints background `?attr/layer1` with a theme that also paints a background (inferred theme is `@style/NormalTheme`)"
-        errorLine1="    android:background=&quot;?attr/layer1&quot;"
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        message="Possible overdraw: Root element paints background `?attr/colorSurface` with a theme that also paints a background (inferred theme is `@style/NormalTheme`)"
+        errorLine1="    android:background=&quot;?attr/colorSurface&quot;"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/layout/fragment_sign_out.xml"
             line="10"
@@ -1752,9 +949,9 @@
 
     <issue
         id="Overdraw"
-        message="Possible overdraw: Root element paints background `?attr/layer1` with a theme that also paints a background (inferred theme is `@style/NormalTheme`)"
-        errorLine1="    android:background=&quot;?attr/layer1&quot;"
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        message="Possible overdraw: Root element paints background `?attr/colorSurface` with a theme that also paints a background (inferred theme is `@style/NormalTheme`)"
+        errorLine1="    android:background=&quot;?attr/colorSurface&quot;"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/layout/info_banner.xml"
             line="11"
@@ -1774,20 +971,9 @@
 
     <issue
         id="Overdraw"
-        message="Possible overdraw: Root element paints background `?attr/selectableItemBackground` with a theme that also paints a background (inferred theme is `@style/NormalTheme`)"
-        errorLine1="    android:background=&quot;?attr/selectableItemBackground&quot;"
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/layout/layout_add_login.xml"
-            line="11"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="Overdraw"
-        message="Possible overdraw: Root element paints background `?attr/layer1` with a theme that also paints a background (inferred theme is `@style/NormalTheme`)"
-        errorLine1="    android:background=&quot;?attr/layer1&quot;"
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        message="Possible overdraw: Root element paints background `?attr/colorSurface` with a theme that also paints a background (inferred theme is `@style/NormalTheme`)"
+        errorLine1="    android:background=&quot;?attr/colorSurface&quot;"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/layout/login_select_bar.xml"
             line="9"
@@ -1796,9 +982,9 @@
 
     <issue
         id="Overdraw"
-        message="Possible overdraw: Root element paints background `?attr/layer1` with a theme that also paints a background (inferred theme is `@style/NormalTheme`)"
-        errorLine1="    android:background=&quot;?attr/layer1&quot;"
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        message="Possible overdraw: Root element paints background `?attr/colorSurface` with a theme that also paints a background (inferred theme is `@style/NormalTheme`)"
+        errorLine1="    android:background=&quot;?attr/colorSurface&quot;"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/layout/navigation_toolbar.xml"
             line="14"
@@ -1829,12 +1015,12 @@
 
     <issue
         id="Overdraw"
-        message="Possible overdraw: Root element paints background `?attr/layer1` with a theme that also paints a background (inferred theme is `@style/NormalTheme`)"
-        errorLine1="    android:background=&quot;?attr/layer1&quot;"
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        message="Possible overdraw: Root element paints background `?attr/colorSurface` with a theme that also paints a background (inferred theme is `@style/NormalTheme`)"
+        errorLine1="    android:background=&quot;?attr/colorSurface&quot;"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/layout/suggest_strong_password_bar.xml"
-            line="11"
+            line="9"
             column="5"/>
     </issue>
 
@@ -1861,69 +1047,14 @@
     </issue>
 
     <issue
-        id="UnusedResources"
-        message="The resource `R.string.resource_scheme` appears to be unused"
-        errorLine1="    &lt;string name=&quot;resource_scheme&quot;>&quot;resource://&quot;&lt;/string>"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~">
+        id="Overdraw"
+        message="Possible overdraw: Root element paints background `?attr/colorSurface` with a theme that also paints a background (inferred theme is `@style/NormalTheme`)"
+        errorLine1="    android:background=&quot;?attr/colorSurface&quot;"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
-            file="src/main/res/values/arrays.xml"
-            line="44"
-            column="13"/>
-    </issue>
-
-    <issue
-        id="UnusedResources"
-        message="The resource `R.string.chrome_scheme` appears to be unused"
-        errorLine1="    &lt;string name=&quot;chrome_scheme&quot;>&quot;chrome://&lt;/string>"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/arrays.xml"
-            line="45"
-            column="13"/>
-    </issue>
-
-    <issue
-        id="UnusedResources"
-        message="The resource `R.string.about_scheme` appears to be unused"
-        errorLine1="    &lt;string name=&quot;about_scheme&quot;>&quot;about:&quot;&lt;/string>"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/arrays.xml"
-            line="46"
-            column="13"/>
-    </issue>
-
-    <issue
-        id="UnusedResources"
-        message="The resource `R.array.mozac_url_schemes_blocklist` appears to be unused"
-        errorLine1="    &lt;string-array name=&quot;mozac_url_schemes_blocklist&quot; >"
-        errorLine2="                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/arrays.xml"
-            line="47"
-            column="19"/>
-    </issue>
-
-    <issue
-        id="UnusedResources"
-        message="The resource `R.dimen.mozac_browser_menu_corner_radius` appears to be unused"
-        errorLine1="    &lt;dimen name=&quot;mozac_browser_menu_corner_radius&quot;>8dp&lt;/dimen>"
-        errorLine2="           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/dimens.xml"
-            line="12"
-            column="12"/>
-    </issue>
-
-    <issue
-        id="UnusedResources"
-        message="The resource `R.dimen.mozac_browser_menu2_corner_radius` appears to be unused"
-        errorLine1="    &lt;dimen name=&quot;mozac_browser_menu2_corner_radius&quot;>8dp&lt;/dimen>"
-        errorLine2="           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/dimens.xml"
-            line="13"
-            column="12"/>
+            file="src/main/res/layout/email_mask_bar.xml"
+            line="9"
+            column="5"/>
     </issue>
 
     <issue
@@ -1955,7 +1086,7 @@
         errorLine2="             ~~~~~~">
         <location
             file="src/main/java/org/mozilla/fenix/experiments/view/ResearchSurfaceSurvey.kt"
-            line="76"
+            line="77"
             column="14"/>
     </issue>
 
@@ -1966,7 +1097,7 @@
         errorLine2="                                                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values-vi/strings.xml"
-            line="3742"
+            line="3917"
             column="62"/>
     </issue>
 
@@ -1989,6 +1120,13 @@
 
     <issue
         id="IconLocation"
+        message="Found bitmap drawable `res/drawable/ic_japan_onboarding_favicon.webp` in densityless folder">
+        <location
+            file="src/main/res/drawable/ic_japan_onboarding_favicon.webp"/>
+    </issue>
+
+    <issue
+        id="IconLocation"
         message="Found bitmap drawable `res/drawable/ic_wordmark_logo.webp` in densityless folder">
         <location
             file="src/main/res/drawable/ic_wordmark_logo.webp"/>
@@ -2006,20 +1144,6 @@
         message="Found bitmap drawable `res/drawable/ic_wordmark_text_private.webp` in densityless folder">
         <location
             file="src/main/res/drawable/ic_wordmark_text_private.webp"/>
-    </issue>
-
-    <issue
-        id="IconLocation"
-        message="Found bitmap drawable `res/drawable/onboarding_redesign_background.webp` in densityless folder">
-        <location
-            file="src/main/res/drawable/onboarding_redesign_background.webp"/>
-    </issue>
-
-    <issue
-        id="IconLocation"
-        message="Found bitmap drawable `res/drawable/onboarding_redesign_background_landscape.webp` in densityless folder">
-        <location
-            file="src/main/res/drawable/onboarding_redesign_background_landscape.webp"/>
     </issue>
 
     <issue
@@ -2050,7 +1174,7 @@
         errorLine2="                ^">
         <location
             file="src/main/java/org/mozilla/fenix/search/SearchDialogFragment.kt"
-            line="401"
+            line="413"
             column="17"/>
     </issue>
 
@@ -2061,7 +1185,7 @@
         errorLine2="                                                         ^">
         <location
             file="src/main/java/org/mozilla/fenix/search/SearchDialogFragment.kt"
-            line="401"
+            line="413"
             column="58"/>
     </issue>
 
@@ -2072,7 +1196,7 @@
         errorLine2="                ^">
         <location
             file="src/main/java/org/mozilla/fenix/search/SearchDialogFragment.kt"
-            line="411"
+            line="423"
             column="17"/>
     </issue>
 
@@ -2083,7 +1207,7 @@
         errorLine2="                                                         ^">
         <location
             file="src/main/java/org/mozilla/fenix/search/SearchDialogFragment.kt"
-            line="411"
+            line="423"
             column="58"/>
     </issue>
 
@@ -2094,7 +1218,7 @@
         errorLine2="                ^">
         <location
             file="src/main/java/org/mozilla/fenix/search/SearchDialogFragment.kt"
-            line="417"
+            line="429"
             column="17"/>
     </issue>
 
@@ -2105,7 +1229,7 @@
         errorLine2="                                                         ^">
         <location
             file="src/main/java/org/mozilla/fenix/search/SearchDialogFragment.kt"
-            line="417"
+            line="429"
             column="58"/>
     </issue>
 
@@ -2140,226 +1264,6 @@
             file="src/main/res/layout/checkbox_left_sub_preference.xml"
             line="15"
             column="5"/>
-    </issue>
-
-    <issue
-        id="NoObjectMocking"
-        message="Usage of MockK&apos;s &apos;mockkObject&apos; for object/singleton mocking is discouraged. Consider providing dependencies explicitly."
-        errorLine1="        mockkObject(FeatureFlags)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/browser/BrowserFragmentTest.kt"
-            line="108"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoObjectMocking"
-        message="Usage of MockK&apos;s &apos;unmockkObject&apos; for object/singleton mocking is discouraged. Consider providing dependencies explicitly."
-        errorLine1="        unmockkObject(FeatureFlags)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/browser/BrowserFragmentTest.kt"
-            line="113"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoObjectMocking"
-        message="Usage of MockK&apos;s &apos;mockkObject&apos; for object/singleton mocking is discouraged. Consider providing dependencies explicitly."
-        errorLine1="        mockkObject(ThemeManager.Companion)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/browser/BrowserFragmentTest.kt"
-            line="345"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoObjectMocking"
-        message="Usage of MockK&apos;s &apos;unmockkObject&apos; for object/singleton mocking is discouraged. Consider providing dependencies explicitly."
-        errorLine1="        unmockkObject(ThemeManager.Companion)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/browser/BrowserFragmentTest.kt"
-            line="356"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoObjectMocking"
-        message="Usage of MockK&apos;s &apos;mockkObject&apos; for object/singleton mocking is discouraged. Consider providing dependencies explicitly."
-        errorLine1="        mockkObject(ThemeManager.Companion)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/browser/BrowserFragmentTest.kt"
-            line="367"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoObjectMocking"
-        message="Usage of MockK&apos;s &apos;unmockkObject&apos; for object/singleton mocking is discouraged. Consider providing dependencies explicitly."
-        errorLine1="        unmockkObject(ThemeManager.Companion)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/browser/BrowserFragmentTest.kt"
-            line="377"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoObjectMocking"
-        message="Usage of MockK&apos;s &apos;mockkObject&apos; for object/singleton mocking is discouraged. Consider providing dependencies explicitly."
-        errorLine1="        mockkObject(ThemeManager.Companion)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/browser/BrowserFragmentTest.kt"
-            line="392"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoObjectMocking"
-        message="Usage of MockK&apos;s &apos;unmockkObject&apos; for object/singleton mocking is discouraged. Consider providing dependencies explicitly."
-        errorLine1="        unmockkObject(ThemeManager.Companion)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/browser/BrowserFragmentTest.kt"
-            line="406"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoObjectMocking"
-        message="Usage of MockK&apos;s &apos;mockkObject&apos; for object/singleton mocking is discouraged. Consider providing dependencies explicitly."
-        errorLine1="        mockkObject(ThemeManager.Companion)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/browser/BrowserFragmentTest.kt"
-            line="421"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoObjectMocking"
-        message="Usage of MockK&apos;s &apos;unmockkObject&apos; for object/singleton mocking is discouraged. Consider providing dependencies explicitly."
-        errorLine1="        unmockkObject(ThemeManager.Companion)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/browser/BrowserFragmentTest.kt"
-            line="434"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoObjectMocking"
-        message="Usage of MockK&apos;s &apos;mockkObject&apos; for object/singleton mocking is discouraged. Consider providing dependencies explicitly."
-        errorLine1="        mockkObject(ThemeManager.Companion)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/browser/BrowserFragmentTest.kt"
-            line="449"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoObjectMocking"
-        message="Usage of MockK&apos;s &apos;unmockkObject&apos; for object/singleton mocking is discouraged. Consider providing dependencies explicitly."
-        errorLine1="        unmockkObject(ThemeManager.Companion)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/browser/BrowserFragmentTest.kt"
-            line="464"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoObjectMocking"
-        message="Usage of MockK&apos;s &apos;mockkObject&apos; for object/singleton mocking is discouraged. Consider providing dependencies explicitly."
-        errorLine1="        mockkObject(ThemeManager.Companion)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/browser/BrowserFragmentTest.kt"
-            line="526"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoObjectMocking"
-        message="Usage of MockK&apos;s &apos;unmockkObject&apos; for object/singleton mocking is discouraged. Consider providing dependencies explicitly."
-        errorLine1="        unmockkObject(ThemeManager.Companion)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/browser/BrowserFragmentTest.kt"
-            line="534"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoObjectMocking"
-        message="Usage of MockK&apos;s &apos;mockkObject&apos; for object/singleton mocking is discouraged. Consider providing dependencies explicitly."
-        errorLine1="        mockkObject(DownloadCancelDialogFragment.Companion) {"
-        errorLine2="        ^">
-        <location
-            file="src/test/java/org/mozilla/fenix/browser/store/BrowserScreenMiddlewareTest.kt"
-            line="56"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoObjectMocking"
-        message="Usage of MockK&apos;s &apos;mockkObject&apos; for object/singleton mocking is discouraged. Consider providing dependencies explicitly."
-        errorLine1="        mockkObject(DownloadCancelDialogFragment.Companion) {"
-        errorLine2="        ^">
-        <location
-            file="src/test/java/org/mozilla/fenix/browser/store/BrowserScreenMiddlewareTest.kt"
-            line="100"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoObjectMocking"
-        message="Usage of MockK&apos;s &apos;mockkObject&apos; for object/singleton mocking is discouraged. Consider providing dependencies explicitly."
-        errorLine1="        mockkObject(ContentRecommendationsFeatureHelper) {"
-        errorLine2="        ^">
-        <location
-            file="src/test/java/org/mozilla/fenix/settings/HomeSettingsFragmentTest.kt"
-            line="75"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoObjectMocking"
-        message="Usage of MockK&apos;s &apos;mockkObject&apos; for object/singleton mocking is discouraged. Consider providing dependencies explicitly."
-        errorLine1="        mockkObject(ContentRecommendationsFeatureHelper) {"
-        errorLine2="        ^">
-        <location
-            file="src/test/java/org/mozilla/fenix/settings/HomeSettingsFragmentTest.kt"
-            line="86"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoObjectMocking"
-        message="Usage of MockK&apos;s &apos;mockkObject&apos; for object/singleton mocking is discouraged. Consider providing dependencies explicitly."
-        errorLine1="        mockkObject(LocaleManager)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/settings/advanced/LocaleManagerExtensionTest.kt"
-            line="31"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="NoObjectMocking"
-        message="Usage of MockK&apos;s &apos;mockkObject&apos; for object/singleton mocking is discouraged. Consider providing dependencies explicitly."
-        errorLine1="        mockkObject(LocaleManager)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/test/java/org/mozilla/fenix/settings/advanced/LocaleSettingsControllerTest.kt"
-            line="46"
-            column="9"/>
     </issue>
 
 </issues>

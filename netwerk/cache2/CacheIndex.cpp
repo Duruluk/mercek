@@ -11,7 +11,6 @@
 #include "CacheIndexIterator.h"
 #include "CacheIndexContextIterator.h"
 #include "nsThreadUtils.h"
-#include "nsISizeOf.h"
 #include "nsPrintfCString.h"
 #include "mozilla/DebugOnly.h"
 #include "prinrval.h"
@@ -854,14 +853,14 @@ nsresult CacheIndex::RemoveEntry(const SHA1Sum::Hash* aHash,
   // error out - async since removal happens on MainThread.
 
   // TODO XXX There may be a hole here where a dictionary entry can get
-  // referenced for a request before RemoveDictionaryFor can run, but after
+  // referenced for a request before RemoveDictionaryOMT can run, but after
   // the entry is removed here.
 
   // Note: we don't want to (re)clear dictionaries when the
   // CacheFileContextEvictor purges entries; they've already been cleared
   // via CacheIndex::EvictByContext synchronously
   if (aClearDictionary) {
-    DictionaryCache::RemoveDictionaryFor(aKey);
+    DictionaryCache::RemoveDictionaryOMT(aKey);
   }
 
   StaticMutexAutoLock lock(sLock);
@@ -1349,8 +1348,14 @@ nsresult CacheIndex::GetEntryForEviction(EvictionSortedSnapshot& aSnapshot,
 
     ++skipped;
 
-    if (evictMedia && CacheIndexEntry::GetContentType(rec) !=
-                          nsICacheEntry::CONTENT_TYPE_MEDIA) {
+    uint32_t type = CacheIndexEntry::GetContentType(rec);
+
+    if (evictMedia && type != nsICacheEntry::CONTENT_TYPE_MEDIA) {
+      continue;
+    }
+
+    if (type == nsICacheEntry::CONTENT_TYPE_DICTIONARY) {
+      // Let them be removed by becoming empty and removing themselves
       continue;
     }
 
@@ -3797,21 +3802,14 @@ size_t CacheIndex::SizeOfExcludingThisInternal(
   sLock.AssertCurrentThreadOwns();
 
   size_t n = 0;
-  nsCOMPtr<nsISizeOf> sizeOf;
 
   // mIndexHandle and mJournalHandle are reported via SizeOfHandlesRunnable
   // in CacheFileIOManager::SizeOfExcludingThisInternal as part of special
   // handles array.
 
-  sizeOf = do_QueryInterface(mCacheDirectory);
-  if (sizeOf) {
-    n += sizeOf->SizeOfIncludingThis(mallocSizeOf);
-  }
+  // mCacheDirectory is an nsIFile which we don't have reporting for.
 
-  sizeOf = do_QueryInterface(mUpdateTimer);
-  if (sizeOf) {
-    n += sizeOf->SizeOfIncludingThis(mallocSizeOf);
-  }
+  // mUpdateTimer is an nsITimer which we don't have reporting for.
 
   n += mallocSizeOf(mRWBuf);
   n += mallocSizeOf(mRWHash);
@@ -3871,7 +3869,7 @@ void CacheIndex::DoTelemetryReport() {
   static const nsLiteralCString
       contentTypeNames[nsICacheEntry::CONTENT_TYPE_LAST] = {
           "UNKNOWN"_ns, "OTHER"_ns,      "JAVASCRIPT"_ns, "IMAGE"_ns,
-          "MEDIA"_ns,   "STYLESHEET"_ns, "WASM"_ns};
+          "MEDIA"_ns,   "STYLESHEET"_ns, "WASM"_ns,       "DICTIONARY"_ns};
 
   for (uint32_t i = 0; i < nsICacheEntry::CONTENT_TYPE_LAST; ++i) {
     if (mIndexStats.Size() > 0) {

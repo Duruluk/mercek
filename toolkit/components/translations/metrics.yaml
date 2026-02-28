@@ -176,7 +176,6 @@ translations:
     description: >
       Metrics related to the performance of the TranslationsEngine.
     extra_keys:
-      flow_id: *flow_id
       from_language: *from_language
       to_language: *to_language
       average_words_per_request:
@@ -938,6 +937,49 @@ translations.about_translations_page:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1814195
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1814195
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - translations-telemetry-alerts@mozilla.com
+    expires: never
+
+translations.feature:
+  enable:
+    type: event
+    description: >
+      Triggers when the Translations feature is enabled via the AI Feature API.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010993
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010993
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - translations-telemetry-alerts@mozilla.com
+    expires: never
+
+  disable:
+    type: event
+    description: >
+      Triggers when the Translations feature is disabled via the AI Feature API.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010993
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010993
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - translations-telemetry-alerts@mozilla.com
+    expires: never
+
+  reset:
+    type: event
+    description: >
+      Triggers when the Translations feature is reset via the AI Feature API.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010993
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010993
     data_sensitivity:
       - interaction
     notification_emails:

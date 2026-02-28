@@ -7,7 +7,9 @@ package org.mozilla.fenix.experiments
 import android.content.Context
 import android.os.Build
 import androidx.annotation.VisibleForTesting
-import mozilla.components.support.utils.ext.getPackageInfoCompat
+import mozilla.components.support.locale.LocaleManager
+import mozilla.components.support.locale.LocaleManager.getSystemDefault
+import mozilla.components.support.utils.ext.packageManagerCompatHelper
 import org.json.JSONArray
 import org.json.JSONObject
 import org.mozilla.experiments.nimbus.NIMBUS_DATA_DIR
@@ -19,6 +21,8 @@ import org.mozilla.fenix.GleanMetrics.NimbusSystem
 import org.mozilla.fenix.GleanMetrics.Pings
 import org.mozilla.fenix.ext.settings
 import org.mozilla.fenix.home.pocket.ContentRecommendationsFeatureHelper
+import org.mozilla.fenix.termsofuse.experimentation.TermsOfUseAdvancedTargetingHelper
+import org.mozilla.fenix.termsofuse.experimentation.utils.DefaultTermsOfUseDataProvider
 import org.mozilla.fenix.utils.Settings
 import java.io.File
 
@@ -64,6 +68,7 @@ class RecordedNimbusContext(
     val userAcceptedTou: Boolean,
     val noShortcutsOrStoriesOptOuts: Boolean,
     val addonIds: List<String>,
+    val touPoints: Int?,
 ) : RecordedContext {
     /**
      * [getEventQueries] is called by the Nimbus SDK Rust code to retrieve the map of event
@@ -105,6 +110,7 @@ class RecordedNimbusContext(
                 userAcceptedTou = userAcceptedTou,
                 noShortcutsOrStoriesOptOuts = noShortcutsOrStoriesOptOuts,
                 addonIds = NimbusSystem.RecordedNimbusContextObjectAddonIds(addonIds.toMutableList()),
+                touPoints = touPoints,
             ),
         )
         Pings.nimbus.submit()
@@ -151,6 +157,7 @@ class RecordedNimbusContext(
                 "user_accepted_tou" to userAcceptedTou,
                 "no_shortcuts_or_stories_opt_outs" to noShortcutsOrStoriesOptOuts,
                 "addon_ids" to JSONArray(addonIds),
+                "tou_points" to touPoints,
             ),
         )
         return obj
@@ -172,8 +179,15 @@ class RecordedNimbusContext(
             isFirstRun: Boolean,
         ): RecordedNimbusContext {
             val settings = context.settings()
+            val langTag = LocaleManager.getCurrentLocale(context)
+                ?.toLanguageTag() ?: getSystemDefault().toLanguageTag()
+            val termsOfUseAdvancedTargetingHelper = TermsOfUseAdvancedTargetingHelper(
+                DefaultTermsOfUseDataProvider(settings),
+                langTag,
+            )
 
-            val packageInfo = context.packageManager.getPackageInfoCompat(context.packageName, 0)
+            val packageInfo =
+                context.packageManagerCompatHelper.getPackageInfoCompat(context.packageName, 0)
             val deviceInfo = NimbusDeviceInfo.default()
             val db = File(context.applicationInfo.dataDir, NIMBUS_DATA_DIR)
             val calculatedAttributes = getCalculatedAttributes(
@@ -199,6 +213,7 @@ class RecordedNimbusContext(
                 userAcceptedTou = settings.hasAcceptedTermsOfService,
                 noShortcutsOrStoriesOptOuts = settings.noShortcutsOrStoriesOptOuts(context),
                 addonIds = getFormattedAddons(settings),
+                touPoints = termsOfUseAdvancedTargetingHelper.getTouPoints(),
             )
         }
 
@@ -261,6 +276,7 @@ class RecordedNimbusContext(
                 userAcceptedTou = true,
                 noShortcutsOrStoriesOptOuts = true,
                 addonIds = addonIds,
+                touPoints = 3,
             )
         }
     }

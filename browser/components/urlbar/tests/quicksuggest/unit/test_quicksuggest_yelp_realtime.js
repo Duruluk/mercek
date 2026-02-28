@@ -22,12 +22,21 @@ const YELP_MERINO_SINGLE = [
   {
     provider: "yelp",
     is_sponsored: true,
+    custom_details: {
+      yelp: {
+        values: [
+          {
+            some_value: "foo",
+          },
+        ],
+      },
+    },
   },
 ];
 
 add_setup(async function init() {
   // Disable search suggestions so we don't hit the network.
-  await Services.search.init();
+  await SearchService.init();
   Services.prefs.setBoolPref("browser.search.suggest.enabled", false);
 
   await QuickSuggestTestUtils.ensureQuickSuggestInit({
@@ -406,14 +415,12 @@ function yelpOptInResult({ dismissButton = false } = {}) {
         command: "dismiss",
         l10n: {
           id: "urlbar-result-realtime-opt-in-dismiss",
-          cacheable: true,
         },
       }
     : {
         command: "not_now",
         l10n: {
           id: "urlbar-result-realtime-opt-in-not-now",
-          cacheable: true,
         },
       };
   return {
@@ -431,11 +438,9 @@ function yelpOptInResult({ dismissButton = false } = {}) {
       icon: "chrome://browser/skin/illustrations/yelpRealtime-opt-in.svg",
       titleL10n: {
         id: "urlbar-result-yelp-realtime-opt-in-title",
-        cacheable: true,
       },
       descriptionL10n: {
         id: "urlbar-result-yelp-realtime-opt-in-description",
-        cacheable: true,
         parseMarkup: true,
       },
       descriptionLearnMoreTopic: "firefox-suggest",
@@ -444,7 +449,6 @@ function yelpOptInResult({ dismissButton = false } = {}) {
           command: "opt_in",
           l10n: {
             id: "urlbar-result-realtime-opt-in-allow",
-            cacheable: true,
           },
           input: "coffee",
           attributes: {
@@ -476,9 +480,14 @@ function yelpMerinoResult() {
     payload: {
       source: "merino",
       provider: "yelp",
-      dynamicType: "yelpRealtime",
+      dynamicType: "realtime-yelpRealtime",
       telemetryType: "yelpRealtime",
       isSponsored: true,
+      items: [
+        {
+          some_value: "foo",
+        },
+      ],
     },
   };
 }

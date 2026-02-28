@@ -14,11 +14,8 @@
 #include "mozilla/RefPtr.h"
 #include "mozilla/dom/BindingDeclarations.h"
 #include "mozilla/dom/CustomElementRegistryBinding.h"
-#include "mozilla/dom/Document.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/ElementInternals.h"
-#include "mozilla/dom/ElementInternalsBinding.h"
-#include "mozilla/dom/HTMLFormElement.h"
 #include "nsAtomHashKeys.h"
 #include "nsCycleCollectionParticipant.h"
 #include "nsTHashSet.h"
@@ -31,6 +28,7 @@ namespace dom {
 
 struct CustomElementData;
 struct ElementDefinitionOptions;
+struct LifecycleCallbackArgs;
 class CallbackFunction;
 class CustomElementCallback;
 class CustomElementReaction;
@@ -48,30 +46,6 @@ enum class ElementCallbackType {
   eFormDisabled,
   eFormStateRestore,
   eGetCustomInterface
-};
-
-struct LifecycleCallbackArgs {
-  // Used by the attribute changed callback.
-  RefPtr<nsAtom> mName;
-  nsString mOldValue;
-  nsString mNewValue;
-  nsString mNamespaceURI;
-
-  // Used by the adopted callback.
-  RefPtr<Document> mOldDocument;
-  RefPtr<Document> mNewDocument;
-
-  // Used by the form associated callback.
-  RefPtr<HTMLFormElement> mForm;
-
-  // Used by the form disabled callback.
-  bool mDisabled;
-
-  // Used by the form state restore callback.
-  Nullable<OwningFileOrUSVStringOrFormData> mState;
-  RestoreReason mReason;
-
-  size_t SizeOfExcludingThis(MallocSizeOf aMallocSizeOf) const;
 };
 
 // Each custom element has an associated callback queue and an element is
@@ -411,6 +385,10 @@ class CustomElementRegistry final : public nsISupports, public nsWrapperCache {
   CustomElementDefinition* LookupCustomElementDefinition(
       JSContext* aCx, JSObject* aConstructor) const;
 
+  /**
+   * Enqueue a custom element callback reaction.
+   * https://html.spec.whatwg.org/#enqueue-a-custom-element-callback-reaction
+   */
   static void EnqueueLifecycleCallback(ElementCallbackType aType,
                                        Element* aCustomElement,
                                        const LifecycleCallbackArgs& aArgs,
@@ -418,7 +396,7 @@ class CustomElementRegistry final : public nsISupports, public nsWrapperCache {
 
   /**
    * Upgrade an element.
-   * https://html.spec.whatwg.org/multipage/scripting.html#upgrades
+   * https://html.spec.whatwg.org/#concept-upgrade-an-element
    */
   MOZ_CAN_RUN_SCRIPT
   static void Upgrade(Element* aElement, CustomElementDefinition* aDefinition,
@@ -553,9 +531,15 @@ class CustomElementRegistry final : public nsISupports, public nsWrapperCache {
               CustomElementConstructor& aFunctionConstructor,
               const ElementDefinitionOptions& aOptions, ErrorResult& aRv);
 
+  /**
+   * https://html.spec.whatwg.org/#dom-customelementregistry-get
+   */
   void Get(const nsAString& name,
            OwningCustomElementConstructorOrUndefined& aRetVal);
 
+  /**
+   * https://html.spec.whatwg.org/#dom-customelementregistry-getname
+   */
   void GetName(JSContext* aCx, CustomElementConstructor& aConstructor,
                nsAString& aResult);
 

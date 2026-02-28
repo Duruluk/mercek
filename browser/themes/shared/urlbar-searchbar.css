@@ -4,9 +4,14 @@
 
 @namespace html url("http://www.w3.org/1999/xhtml");
 
+:host,
 :root {
   --urlbar-container-min-width: 310px;
-  --urlbar-container-padding: 1px;
+  /* Usually we wouldn't need snapping border widths manually, but we use this
+   * for other layout calculations too */
+  --urlbar-container-border-width: max(env(hairline), round(down, 1px, env(hairline)));
+  --urlbar-container-padding: round(up, 1px, env(hairline));
+  --urlbar-container-border-padding: calc(var(--urlbar-container-border-width) + var(--urlbar-container-padding));
   --urlbar-margin-inline: 5px;
   --urlbar-padding-block: 4px;
 
@@ -39,16 +44,25 @@
   }
 }
 
+toolbar[inactive="true"] .urlbar,
 #urlbar[actiontype="switchtab"][action-override] > .urlbar-input-container > #urlbar-label-box,
 #urlbar:not([actiontype="switchtab"], [actiontype="extension"]) > .urlbar-input-container > #urlbar-label-box,
 #urlbar:not([actiontype="switchtab"]) > .urlbar-input-container > #urlbar-label-box > #urlbar-label-switchtab,
 #urlbar:not([actiontype="extension"]) > .urlbar-input-container > #urlbar-label-box > #urlbar-label-extension,
 .urlbar-input-container[pageproxystate="invalid"] > #page-action-buttons > .urlbar-page-action,
-#identity-box.chromeUI ~ #page-action-buttons > .urlbar-page-action:not(#star-button-box),
+#identity-box.chromeUI ~ #page-action-buttons > .urlbar-page-action:not(#star-button-box, #split-view-button),
 #urlbar[usertyping] > .urlbar-input-container > #page-action-buttons > #urlbar-zoom-button,
-.urlbar:is(:not([usertyping]), :not([focused])) > .urlbar-input-container > .urlbar-go-button,
-.urlbar-revert-button-container {
+.urlbar:not([usertyping]) > .urlbar-input-container > .urlbar-go-button,
+.urlbar:not(#searchbar-new, [focused]) > .urlbar-input-container > .urlbar-go-button,
+#urlbar-revert-button-container {
   display: none;
+}
+
+/* Document Picture-in-Picture API window */
+@media (display-mode: picture-in-picture) {
+  #page-action-buttons {
+    display: none;
+  }
 }
 
 /* When rich suggestions are enabled the urlbar identity icon is given extra padding to
@@ -123,7 +137,7 @@
 #searchbar {
   background-color: var(--toolbar-field-background-color);
   background-clip: border-box;
-  border: 1px solid var(--toolbar-field-border-color);
+  border: var(--urlbar-container-border-width) solid var(--toolbar-field-border-color);
   border-radius: var(--toolbarbutton-border-radius);
 }
 
@@ -146,7 +160,7 @@
   outline: none;
 }
 
-.urlbar-input {
+#urlbar .urlbar-input {
   mask-repeat: no-repeat;
   unicode-bidi: plaintext;
   text-align: match-parent;
@@ -289,8 +303,7 @@
 }
 
 .urlbar-input-container {
-  /* Match urlbar-background's border. */
-  border: 1px solid transparent;
+  border: var(--urlbar-container-border-width) solid transparent;
   padding: var(--urlbar-container-padding);
   min-width: 0;
 }
@@ -357,9 +370,11 @@
 }
 
 .urlbar-input-box {
-  /* Show the url scheme in a static box when overflowing to the left */
-  position: relative;
-  direction: ltr;
+  #urlbar & {
+    /* Show the url scheme in a static box when overflowing to the left */
+    position: relative;
+    direction: ltr;
+  }
 
   :root[customizing] & {
     visibility: hidden;
@@ -430,7 +445,8 @@
 /* The page actions menu is hidden by default, it is only shown in small
    windows as the overflow target of multiple page action buttons */
 #pageActionButton {
-  visibility: collapse;
+  /* TODO: display: none fixes browser_startup_images.js but breaks some tests. */
+  display: none;
 }
 
 /* 680px is just below half of popular 1366px wide screens, so when putting two
@@ -444,7 +460,7 @@
     display: none;
   }
   #pageActionButton[multiple-children] {
-    visibility: visible;
+    display: revert;
   }
 }
 
@@ -531,6 +547,24 @@
   height: 16px;
 }
 
+#split-view-button {
+  &[data-active-index="0"] > #split-view-button-icon {
+    list-style-image: url("chrome://browser/skin/split-view-left-16.svg");
+  }
+  &[data-active-index="1"] > #split-view-button-icon {
+    list-style-image: url("chrome://browser/skin/split-view-right-16.svg");
+  }
+
+  &:dir(rtl) {
+    &[data-active-index="0"] > #split-view-button-icon {
+      list-style-image: url("chrome://browser/skin/split-view-right-16.svg");
+    }
+    &[data-active-index="1"] > #split-view-button-icon {
+      list-style-image: url("chrome://browser/skin/split-view-left-16.svg");
+    }
+  }
+}
+
 #pageAction-panel-bookmark,
 #star-button {
   list-style-image: url("chrome://browser/skin/bookmark-hollow.svg");
@@ -552,19 +586,24 @@
  * will be barely visible. For now we try to make them more visible through
  * some filtering tricks.
  *
- * TODO(emilio): Evaluate removing this. SVGs can use prefers-color-scheme to
- * determine the right color-scheme to use, see bug 1779457.
+ * TODO(Bug 2016509): disable the deprecated filter applied to the pageAction icon
+ * on all channels (extensions will be able to use prefer-color-scheme inside
+ * their SVG icons instead, see Bug 2001318 for additional context).
+ *
  */
-.urlbar-addon-page-action[style*=".svg"] > .urlbar-icon {
-  :root[lwt-toolbar-field="dark"] #urlbar:not([focused]) &,
-  :root[lwt-toolbar-field-focus="dark"] #urlbar[focused] & {
-    filter: grayscale(100%) brightness(20%) invert();
-  }
-
-  /* As above, but for the default theme in dark mode, which suffers from the same issue */
-  @media (prefers-color-scheme: dark) {
-    :root:not([lwtheme]) & {
+/* stylelint-disable-next-line media-query-no-invalid */
+@media -moz-pref("extensions.webextensions.pageActionIconDarkModeFilter.enabled") {
+  .urlbar-addon-page-action[style*=".svg"] > .urlbar-icon {
+    :root[lwt-toolbar-field="dark"] #urlbar:not([focused]) &,
+    :root[lwt-toolbar-field-focus="dark"] #urlbar[focused] & {
       filter: grayscale(100%) brightness(20%) invert();
+    }
+
+    /* As above, but for the default theme in dark mode, which suffers from the same issue */
+    @media (prefers-color-scheme: dark) {
+      :root:not([lwtheme]) & {
+        filter: grayscale(100%) brightness(20%) invert();
+      }
     }
   }
 }
@@ -586,8 +625,8 @@
 .urlbar-revert-button,
 .urlbar-go-button,
 .search-go-button {
-  width: calc(var(--urlbar-min-height) - 2px /* border */ - 2 * var(--urlbar-container-padding));
-  height: calc(var(--urlbar-min-height) - 2px /* border */ - 2 * var(--urlbar-container-padding));
+  width: calc(var(--urlbar-min-height) - 2 * var(--urlbar-container-border-padding));
+  height: calc(var(--urlbar-min-height) - 2 * var(--urlbar-container-border-padding));
   border-radius: var(--urlbar-inner-border-radius);
   padding: var(--urlbar-icon-padding);
   color: inherit;
@@ -626,8 +665,7 @@
   }
 }
 
-#pageActionButton,
-.share-more-button {
+#pageActionButton {
   list-style-image: url("chrome://global/skin/icons/more.svg");
 }
 
@@ -690,6 +728,7 @@
   transition: margin-inline-start step-end var(--cfr-animation-duration);
 
   #urlbar[cfr-recommendation-state="expanded"] & {
+    width: auto;
     margin-inline-start: calc(var(--cfr-label-width) * -1);
     transition: margin-inline-start step-start var(--cfr-animation-duration);
   }
@@ -767,7 +806,7 @@
   transition-timing-function: ease-in-out, ease-in-out, step-end, step-end;
   transition-duration: var(--cfr-animation-duration);
   align-items: center;
-  margin-block: calc((var(--urlbar-min-height) - var(--urlbar-container-padding) - 2px /* border */ - 24px) / 2);
+  margin-block: calc((var(--urlbar-min-height) - 24px) / 2 - var(--urlbar-container-border-padding));
 
   &:-moz-locale-dir(rtl) {
     mask-position-x: calc(var(--cfr-label-width) * -1);
@@ -824,7 +863,7 @@
 
 /* Persisted Search revert button */
 
-.urlbar-revert-button {
+#urlbar-revert-button {
   list-style-image: url(chrome://global/skin/icons/defaultFavicon.svg);
   fill: var(--toolbarbutton-icon-fill-attention);
 
@@ -833,8 +872,8 @@
   }
 }
 
-.urlbar[persistsearchterms] > .urlbar-input-container {
-  > .urlbar-revert-button-container {
+#urlbar[persistsearchterms] > .urlbar-input-container {
+  > #urlbar-revert-button-container {
     display: inherit;
   }
 
@@ -920,7 +959,7 @@
 
 @media (prefers-contrast) and (-moz-platform: windows) {
   #translations-button-locale {
-    font-weight: bold;
+    font-weight: var(--font-weight-bold);
   }
 
   #translations-button[translationsactive]:is(:hover, [open]) > #translations-button-icon {
@@ -946,7 +985,7 @@
   border-radius: var(--urlbar-inner-border-radius);
   background-color: var(--urlbar-box-bgcolor);
   color: var(--urlbar-box-text-color);
-  margin-block: calc((var(--urlbar-min-height) - 20px) / 2 - 1px /* border */ - var(--urlbar-container-padding));
+  margin-block: calc((var(--urlbar-min-height) - 20px) / 2 - var(--urlbar-container-border-padding));
   overflow: hidden;
 
   :where(#urlbar[focused]) & {
@@ -1138,21 +1177,19 @@
 
   .urlbar[searchmode] & {
     background-color: var(--urlbar-box-bgcolor);
-    margin-inline-end: 0;
-    border-start-end-radius: 0;
-    border-end-end-radius: 0;
   }
 
-  /* The background rule should match to .searchmode-switcher-chicklet */
   .urlbar[focused] & {
     background-color: var(--urlbar-box-focus-bgcolor);
   }
 
-  /* stylelint-disable media-query-no-invalid */
-  @media (not -moz-pref("browser.urlbar.searchModeSwitcher.featureGate")) and (not -moz-pref("browser.urlbar.scotchBonnet.enableOverride")) {
-    display: none;
+  .urlbar:not(#searchbar-new) & {
+    /* stylelint-disable media-query-no-invalid */
+    @media (not -moz-pref("browser.urlbar.searchModeSwitcher.featureGate")) and (not -moz-pref("browser.urlbar.scotchBonnet.enableOverride")) {
+      display: none;
+    }
+    /* stylelint-enable media-query-no-invalid */
   }
-  /* stylelint-enable media-query-no-invalid */
 }
 
 .searchmode-switcher-icon {
@@ -1163,45 +1200,25 @@
   list-style-image: url("chrome://global/skin/icons/search-glass.svg");
 }
 
-.searchmode-switcher-chicklet {
-  background-color: var(--urlbar-box-bgcolor);
-  border-start-end-radius: var(--toolbarbutton-border-radius);
-  border-end-end-radius: var(--urlbar-inner-border-radius);
-  align-items: center;
-  height: 100%;
-  max-width: 40%;
-  margin-inline-end: var(--urlbar-searchmodeswitcher-margin-inline-end);
-  display: none;
-
-  /* stylelint-disable-next-line media-query-no-invalid */
-  @media -moz-pref("browser.urlbar.searchModeSwitcher.featureGate") or -moz-pref("browser.urlbar.scotchBonnet.enableOverride") {
-    .urlbar[searchmode] & {
-      display: inline-flex;
-    }
-  }
-
-  .urlbar[focused] & {
-    background-color: var(--urlbar-box-focus-bgcolor);
-  }
-}
-
 .searchmode-switcher-title {
+  display: none;
   margin: 0;
   align-items: center;
   text-overflow: ellipsis;
   overflow: hidden;
   white-space: nowrap;
   max-width: var(--search-engine-name-max-width);
+  margin-inline: var(--urlbar-searchmodeswitcher-inline-padding);
 
-  &:empty {
-    display: none;
+  .urlbar:not(#searchbar-new)[searchmode] & {
+    display: inline-flex;
   }
 }
 
 .searchmode-switcher-close {
+  display: none;
   appearance: none;
   pointer-events: all;
-  margin-inline: var(--urlbar-searchmodeswitcher-inline-padding);
 
   .urlbar[searchmode] & {
     display: inline-flex;
@@ -1209,11 +1226,19 @@
 }
 
 .searchmode-switcher-dropmarker {
+  @media (prefers-reduced-motion: no-preference) {
+    transition: 300ms transform ease-in-out;
+  }
+
   .urlbar[searchmode] & {
     display: none;
   }
-  .urlbar-searchmode-switcher[open] & {
-    transform: rotate(180deg);
+  .searchmode-switcher[open] > & {
+    transform: rotate(-180deg);
+
+    &:-moz-locale-dir(rtl) {
+      transform: rotate(180deg);
+    }
   }
 }
 
@@ -1238,8 +1263,7 @@
 }
 
 .searchmode-switcher-popup-description {
-  margin-inline: 4px;
-  padding: var(--arrowpanel-menuitem-padding);
+  font-weight: revert;
 }
 
 .searchmode-switcher-popup-search-settings-button,
@@ -1253,27 +1277,29 @@
   #urlbar[searchmode] > .urlbar-input-container > #urlbar-search-mode-indicator {
     display: none;
   }
-
   /* stylelint-disable-next-line media-query-no-invalid */
   @media not -moz-pref("browser.urlbar.unifiedSearchButton.always") {
-    .searchmode-switcher {
-      background-color: var(--urlbar-box-bgcolor);
-      .urlbar:not([unifiedsearchbutton-available]) > .urlbar-input-container > & {
-        /* Display as off-screen to get focus */
-        position: fixed;
-        top: -999px;
-      }
-    }
-
-    .searchmode-switcher-dropmarker {
-      margin-inline-start: var(--urlbar-searchmodeswitcher-inline-padding);
-    }
-
     #urlbar[pageproxystate="invalid"] {
       #identity-box,
       #tracking-protection-icon-container {
         display: none;
       }
     }
+  }
+}
+
+/* stylelint-disable-next-line media-query-no-invalid */
+@media not -moz-pref("browser.urlbar.unifiedSearchButton.always") {
+  .searchmode-switcher {
+    background-color: var(--urlbar-box-bgcolor);
+    .urlbar:not([unifiedsearchbutton-available]) > .urlbar-input-container > & {
+      /* Display as off-screen to get focus */
+      position: fixed;
+      top: -999px;
+    }
+  }
+
+  .searchmode-switcher-dropmarker {
+    margin-inline-start: var(--urlbar-searchmodeswitcher-inline-padding);
   }
 }

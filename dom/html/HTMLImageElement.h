@@ -36,6 +36,7 @@ class HTMLImageElement final : public nsGenericHTMLElement,
 
   // nsISupports
   NS_DECL_ISUPPORTS_INHERITED
+  NS_DECL_ADDSIZEOFEXCLUDINGTHIS
 
   bool Draggable() const override;
 
@@ -200,7 +201,7 @@ class HTMLImageElement final : public nsGenericHTMLElement,
   }
 
 #ifdef DEBUG
-  HTMLFormElement* GetForm() const;
+  HTMLFormElement* GetFormInternal() const;
 #endif
   void SetForm(HTMLFormElement* aForm);
   void ClearForm(bool aRemoveFromForm);
@@ -249,7 +250,7 @@ class HTMLImageElement final : public nsGenericHTMLElement,
       nsAString& aResult);
 
   enum class StartLoad : bool { No, Yes };
-  void StopLazyLoading(StartLoad = StartLoad::Yes);
+  void StopLazyLoading(StartLoad);
 
   // This is used when restyling, for retrieving the extra style from the source
   // element.

@@ -9,7 +9,7 @@ use wgc::{
         ComputePassDescriptor, PassTimestampWrites, RenderPassColorAttachment,
         RenderPassDepthStencilAttachment,
     },
-    id::CommandEncoderId,
+    id::{CommandEncoderId, TextureViewId},
 };
 use wgt::{BufferAddress, BufferSize, Color, DynamicOffset, IndexFormat};
 
@@ -51,7 +51,7 @@ pub struct Pass<C> {
 pub struct RecordedRenderPass {
     base: Pass<RenderCommand>,
     color_attachments: Vec<Option<RenderPassColorAttachment>>,
-    depth_stencil_attachment: Option<RenderPassDepthStencilAttachment>,
+    depth_stencil_attachment: Option<RenderPassDepthStencilAttachment<TextureViewId>>,
     timestamp_writes: Option<PassTimestampWrites>,
     occlusion_query_set_id: Option<id::QuerySetId>,
 }
@@ -60,7 +60,7 @@ impl RecordedRenderPass {
     pub fn new(
         label: Option<String>,
         color_attachments: Vec<Option<RenderPassColorAttachment>>,
-        depth_stencil_attachment: Option<RenderPassDepthStencilAttachment>,
+        depth_stencil_attachment: Option<RenderPassDepthStencilAttachment<TextureViewId>>,
         timestamp_writes: Option<PassTimestampWrites>,
         occlusion_query_set_id: Option<id::QuerySetId>,
     ) -> Self {
@@ -709,6 +709,27 @@ pub fn replay_render_pass(
     src_pass: &RecordedRenderPass,
     error_buf: &mut crate::error::OwnedErrorBuffer,
 ) {
+    // Explicitly forbid `LoadOp::DontCare`, until wgpu#8780 is resolved.
+    //
+    // Since `DontCare` is not part of WebGPU (and is unlikely to become so),
+    // only a corrupted content process could ever produce such a render pass,
+    // so it suffices for us to just crash here if we see it.
+    for attachment in &src_pass.color_attachments {
+        if let Some(attachment) = attachment {
+            assert!(!matches!(attachment.load_op, wgt::LoadOp::DontCare(_)));
+        }
+    }
+    if let Some(ref attachment) = src_pass.depth_stencil_attachment {
+        assert!(!matches!(
+            attachment.depth.load_op,
+            Some(wgt::LoadOp::DontCare(_))
+        ));
+        assert!(!matches!(
+            attachment.stencil.load_op,
+            Some(wgt::LoadOp::DontCare(_))
+        ));
+    }
+
     let (mut dst_pass, err) = global.command_encoder_begin_render_pass(
         id,
         &wgc::command::RenderPassDescriptor {
@@ -717,6 +738,7 @@ pub fn replay_render_pass(
             depth_stencil_attachment: src_pass.depth_stencil_attachment.as_ref(),
             timestamp_writes: src_pass.timestamp_writes.as_ref(),
             occlusion_query_set: src_pass.occlusion_query_set_id,
+            multiview_mask: None,
         },
     );
     if let Some(err) = err {

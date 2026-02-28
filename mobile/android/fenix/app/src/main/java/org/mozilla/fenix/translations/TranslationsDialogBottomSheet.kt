@@ -5,7 +5,6 @@
 package org.mozilla.fenix.translations
 
 import android.content.res.Configuration
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +18,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -32,7 +33,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.tooling.preview.PreviewLightDark
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import mozilla.components.compose.base.Dropdown
@@ -43,12 +45,13 @@ import mozilla.components.compose.base.text.Text
 import mozilla.components.concept.engine.translate.Language
 import mozilla.components.concept.engine.translate.TranslationError
 import org.mozilla.fenix.R
-import org.mozilla.fenix.compose.BetaLabel
 import org.mozilla.fenix.compose.InfoCard
 import org.mozilla.fenix.compose.InfoType
 import org.mozilla.fenix.compose.LinkText
 import org.mozilla.fenix.compose.LinkTextState
 import org.mozilla.fenix.theme.FirefoxTheme
+import org.mozilla.fenix.theme.PreviewThemeProvider
+import org.mozilla.fenix.theme.Theme
 import java.util.Locale
 import mozilla.components.ui.icons.R as iconsR
 
@@ -95,6 +98,7 @@ fun TranslationsDialogBottomSheet(
 
         if (showFirstTimeFlow) {
             Spacer(modifier = Modifier.height(8.dp))
+
             TranslationsDialogInfoMessage(
                 learnMoreUrl = learnMoreUrl,
                 onLearnMoreClicked = onLearnMoreClicked,
@@ -300,7 +304,7 @@ private fun TranslationsDialogContent(
         translateFromLanguages?.let { addAll(it) }
     }
 
-    val longestLanguageSize = getLongestLanguageWidth(allLanguagesList, FirefoxTheme.typography.subtitle1)
+    val longestLanguageSize = getLongestLanguageWidth(allLanguagesList, FirefoxTheme.typography.body1)
 
     when (LocalConfiguration.current.orientation) {
         Configuration.ORIENTATION_LANDSCAPE -> {
@@ -459,40 +463,40 @@ private fun TranslationsDialogHeader(
     showPageSettings: Boolean,
     onSettingClicked: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Column {
-            BetaLabel()
-        }
-        Column {
-            if (showPageSettings) {
-                IconButton(
-                    onClick = { onSettingClicked() },
-                    modifier = Modifier.size(24.dp),
-                ) {
-                    Icon(
-                        painter = painterResource(id = iconsR.drawable.mozac_ic_settings_24),
-                        contentDescription = stringResource(
-                            id = R.string.translation_option_bottom_sheet_title_heading,
-                        ),
-                        tint = FirefoxTheme.colors.iconPrimary,
-                    )
-                }
+    if (showPageSettings) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+        ) {
+            IconButton(
+                onClick = { onSettingClicked() },
+                modifier = Modifier.size(24.dp),
+            ) {
+                Icon(
+                    painter = painterResource(id = iconsR.drawable.mozac_ic_settings_24),
+                    contentDescription = stringResource(
+                        id = R.string.translation_option_bottom_sheet_title_heading,
+                    ),
+                )
             }
         }
     }
+
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.padding(top = 12.dp),
+        modifier = Modifier.padding(
+            top = if (showPageSettings) {
+                12.dp
+            } else {
+                0.dp
+            },
+        ),
     ) {
         Text(
             text = title,
             modifier = Modifier
                 .weight(1f)
                 .semantics { heading() },
-            color = FirefoxTheme.colors.textPrimary,
             style = FirefoxTheme.typography.headline7,
         )
     }
@@ -566,7 +570,7 @@ private fun TranslationsDialogInfoMessage(
             ),
             linkTextStates = listOf(learnMoreState),
             style = FirefoxTheme.typography.body2.copy(
-                color = FirefoxTheme.colors.textPrimary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             ),
             linkTextDecoration = TextDecoration.Underline,
         )
@@ -669,31 +673,6 @@ private fun getLongestLanguageWidth(languages: List<Language>, style: TextStyle)
 }
 
 @Composable
-@PreviewLightDark
-private fun TranslationsDialogBottomSheetPreview() {
-    FirefoxTheme {
-        Column(modifier = Modifier.background(color = FirefoxTheme.colors.layer1)) {
-            TranslationsDialogBottomSheet(
-                translationsDialogState = TranslationsDialogState(
-                    positiveButtonType = PositiveButtonType.Enabled,
-                    toLanguages = getTranslateToLanguageList(),
-                    fromLanguages = getTranslateFromLanguageList(),
-                ),
-                learnMoreUrl = "",
-                showPageSettings = true,
-                showFirstTimeFlow = true,
-                onSettingClicked = {},
-                onLearnMoreClicked = {},
-                onPositiveButtonClicked = {},
-                onNegativeButtonClicked = {},
-                onFromDropdownSelected = {},
-                onToDropdownSelected = {},
-            )
-        }
-    }
-}
-
-@Composable
 internal fun getTranslateFromLanguageList(): List<Language> {
     return mutableListOf<Language>().apply {
         add(
@@ -750,5 +729,32 @@ internal fun getTranslateToLanguageList(): List<Language> {
                 localizedDisplayName = Locale.ITALIAN.displayLanguage,
             ),
         )
+    }
+}
+
+@Preview
+@Composable
+private fun TranslationsDialogBottomSheetPreview(
+    @PreviewParameter(PreviewThemeProvider::class) theme: Theme,
+) {
+    FirefoxTheme(theme) {
+        Surface {
+            TranslationsDialogBottomSheet(
+                translationsDialogState = TranslationsDialogState(
+                    positiveButtonType = PositiveButtonType.Enabled,
+                    toLanguages = getTranslateToLanguageList(),
+                    fromLanguages = getTranslateFromLanguageList(),
+                ),
+                learnMoreUrl = "",
+                showPageSettings = true,
+                showFirstTimeFlow = true,
+                onSettingClicked = {},
+                onLearnMoreClicked = {},
+                onPositiveButtonClicked = {},
+                onNegativeButtonClicked = {},
+                onFromDropdownSelected = {},
+                onToDropdownSelected = {},
+            )
+        }
     }
 }

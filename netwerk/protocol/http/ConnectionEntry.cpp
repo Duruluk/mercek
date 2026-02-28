@@ -15,6 +15,7 @@
 #include "ConnectionEntry.h"
 #include "HttpConnectionUDP.h"
 #include "nsQueryObject.h"
+#include "nsHttpConnectionMgr.h"
 #include "mozilla/StaticPrefs_network.h"
 #include "nsHttpHandler.h"
 #include "mozilla/net/neqo_glue_ffi_generated.h"
@@ -172,6 +173,10 @@ size_t ConnectionEntry::PendingQueueLength() const {
   return mPendingQ.PendingQueueLength();
 }
 
+bool ConnectionEntry::PendingQueueIsEmpty() const {
+  return mPendingQ.PendingQueueIsEmpty();
+}
+
 size_t ConnectionEntry::PendingQueueLengthForWindow(uint64_t windowId) const {
   return mPendingQ.PendingQueueLengthForWindow(windowId);
 }
@@ -299,6 +304,10 @@ uint32_t ConnectionEntry::TotalActiveConnections() const {
 
 size_t ConnectionEntry::UrgentStartQueueLength() {
   return mPendingQ.UrgentStartQueueLength();
+}
+
+bool ConnectionEntry::UrgentStartQueueIsEmpty() const {
+  return mPendingQ.UrgentStartQueueIsEmpty();
 }
 
 void ConnectionEntry::PrintPendingQ() { mPendingQ.PrintPendingQ(); }
@@ -717,6 +726,23 @@ HttpConnectionBase* ConnectionEntry::GetH2orH3ActiveConn() {
   return nullptr;
 }
 
+already_AddRefed<nsHttpConnection> ConnectionEntry::GetH2TunnelActiveConn() {
+  MOZ_ASSERT(OnSocketThread(), "not on socket thread");
+
+  for (const auto& conn : mActiveConns) {
+    RefPtr<nsHttpConnection> connTCP = do_QueryObject(conn);
+    if (connTCP && connTCP->UsingSpdy() && connTCP->CanDirectlyActivate()) {
+      LOG(
+          ("GetH2TunnelActiveConn() request for ent %p %s "
+           "found an H2 tunnel connection %p\n",
+           this, mConnInfo->HashKey().get(), connTCP.get()));
+      return connTCP.forget();
+    }
+  }
+
+  return nullptr;
+}
+
 void ConnectionEntry::CloseActiveConnections() {
   while (mActiveConns.Length()) {
     RefPtr<HttpConnectionBase> conn(mActiveConns[0]);
@@ -1006,6 +1032,14 @@ bool ConnectionEntry::MaybeProcessCoalescingKeys(nsIDNSAddrRecord* dnsRecord,
     return false;
   }
 
+  nsAutoCString suffix;
+  mConnInfo->GetOriginAttributes().CreateSuffix(suffix);
+
+  const char* anonFlag = mConnInfo->GetAnonymous() ? "~A:" : "~.:";
+  const char* fallbackFlag = mConnInfo->GetFallbackConnection() ? "~F:" : "~.:";
+  int32_t port = mConnInfo->OriginPort();
+
+  nsCString newKey;
   for (uint32_t i = 0; i < mAddresses.Length(); ++i) {
     if ((mAddresses[i].raw.family == AF_INET && mAddresses[i].inet.ip == 0) ||
         (mAddresses[i].raw.family == AF_INET6 &&
@@ -1019,45 +1053,38 @@ bool ConnectionEntry::MaybeProcessCoalescingKeys(nsIDNSAddrRecord* dnsRecord,
            mConnInfo->Origin()));
       continue;
     }
-    nsCString* newKey = mCoalescingKeys.AppendElement(nsCString());
-    newKey->SetLength(kIPv6CStrBufSize + 26);
-    mAddresses[i].ToStringBuffer(newKey->BeginWriting(), kIPv6CStrBufSize);
-    newKey->SetLength(strlen(newKey->BeginReading()));
-    if (mConnInfo->GetAnonymous()) {
-      newKey->AppendLiteral("~A:");
-    } else {
-      newKey->AppendLiteral("~.:");
-    }
-    if (mConnInfo->GetFallbackConnection()) {
-      newKey->AppendLiteral("~F:");
-    } else {
-      newKey->AppendLiteral("~.:");
-    }
-    newKey->AppendInt(mConnInfo->OriginPort());
-    newKey->AppendLiteral("/[");
-    nsAutoCString suffix;
-    mConnInfo->GetOriginAttributes().CreateSuffix(suffix);
-    newKey->Append(suffix);
-    newKey->AppendLiteral("]viaDNS");
+    newKey.Truncate();
+    newKey.SetCapacity(kIPv6CStrBufSize + suffix.Length() + 21);
+    newKey.SetLength(kIPv6CStrBufSize);
+    mAddresses[i].ToStringBuffer(newKey.BeginWriting(), kIPv6CStrBufSize);
+    newKey.SetLength(strlen(newKey.BeginReading()));
+    newKey.Append(anonFlag);
+    newKey.Append(fallbackFlag);
+    newKey.AppendInt(port);
+    newKey.AppendLiteral("/[");
+    newKey.Append(suffix);
+    newKey.AppendLiteral("]viaDNS");
+    HashNumber hash = HashString(newKey);
     LOG(
         ("ConnectionEntry::MaybeProcessCoalescingKeys "
          "Established New Coalescing Key # %d for host "
-         "%s [%s]",
-         i, mConnInfo->Origin(), newKey->get()));
+         "%s [%s] hash:%" PRIu32,
+         i, mConnInfo->Origin(), newKey.get(), hash));
+    mCoalescingKeys.AppendElement(hash);
   }
   return true;
 }
 
 nsresult ConnectionEntry::CreateDnsAndConnectSocket(
     nsAHttpTransaction* trans, uint32_t caps, bool speculative,
-    bool isFromPredictor, bool urgentStart, bool allow1918,
+    bool urgentStart, bool allow1918,
     PendingTransactionInfo* pendingTransInfo) {
   MOZ_ASSERT(OnSocketThread(), "not on socket thread");
   MOZ_ASSERT((speculative && !pendingTransInfo) ||
              (!speculative && pendingTransInfo));
 
-  RefPtr<DnsAndConnectSocket> sock = new DnsAndConnectSocket(
-      mConnInfo, trans, caps, speculative, isFromPredictor, urgentStart);
+  RefPtr<DnsAndConnectSocket> sock =
+      new DnsAndConnectSocket(mConnInfo, trans, caps, speculative, urgentStart);
 
   if (speculative) {
     sock->SetAllow1918(allow1918);
@@ -1139,14 +1166,13 @@ ConnectionEntry::GetServerCertHashes() {
   return mServerCertHashes;
 }
 
-const nsCString& ConnectionEntry::OriginFrameHashKey() {
+const HashNumber& ConnectionEntry::OriginFrameHashKey() {
   MOZ_ASSERT(OnSocketThread(), "not on socket thread");
-  if (mOriginFrameHashKey.IsEmpty()) {
-    nsHttpConnectionInfo::BuildOriginFrameHashKey(
-        mOriginFrameHashKey, mConnInfo, mConnInfo->GetOrigin(),
-        mConnInfo->OriginPort());
+  if (mOriginFrameHashKey.isNothing()) {
+    mOriginFrameHashKey.emplace(nsHttpConnectionInfo::BuildOriginFrameHashKey(
+        mConnInfo, mConnInfo->GetOrigin(), mConnInfo->OriginPort()));
   }
-  return mOriginFrameHashKey;
+  return mOriginFrameHashKey.ref();
 }
 
 }  // namespace net

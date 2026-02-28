@@ -14,10 +14,10 @@
 #ifndef ProfileAdditionalInformation_h
 #define ProfileAdditionalInformation_h
 
-#include "SharedLibraries.h"
 #include "js/Value.h"
 #include "js/Utility.h"
 #include "js/ProfilingSources.h"
+#include "mozilla/SharedLibraries.h"
 #include "nsString.h"
 #include "nsTArray.h"
 
@@ -84,7 +84,7 @@ struct ProfileGenerationAdditionalInformation {
   friend IPC::ParamTraits<mozilla::ProfileGenerationAdditionalInformation>;
 
  private:
-  JSString* CreateJSStringFromSourceData(
+  JSString* MaybeCreateJSStringFromSourceData(
       JSContext* aCx, const ProfilerJSSourceData& aSourceData) const;
 
   SharedLibraryInfo mSharedLibraries;

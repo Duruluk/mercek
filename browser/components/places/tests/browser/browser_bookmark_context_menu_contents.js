@@ -30,6 +30,42 @@ XPCOMUtils.defineLazyPreferenceGetter(
   "privacy.userContext.enabled"
 );
 
+/**
+ * Synthesize a mouse event that should open a popup, and retry if the
+ * popupshown event doesn't fire within a reasonable time.
+ * This is a workaround for test failures on Linux where the synthesized mouse
+ * event is apparently lost when this is the first test to run.
+ *
+ * @param {DOMElement} target
+ * @param {object} eventOptions
+ * @param {DOMElement} popupElement
+ * @returns {Promise<boolean>} true if the popupshown event was fired.
+ */
+async function synthesizeMouseWithRetry(target, eventOptions, popupElement) {
+  const isLinux = Services.appinfo.OS === "Linux";
+  let attempts = isLinux ? 10 : 1;
+  for (let i = 0; i < attempts; i++) {
+    const popupPromise = new Promise(resolve => {
+      function handler() {
+        popupElement.removeEventListener("popupshown", handler);
+        resolve(true);
+      }
+      popupElement.addEventListener("popupshown", handler);
+      // Add a timeout of 100ms, then retry if the event didn't fire.
+      // eslint-disable-next-line mozilla/no-arbitrary-setTimeout
+      setTimeout(() => {
+        popupElement.removeEventListener("popupshown", handler);
+        info("popupshown event did not fire within 100ms, retrying...");
+        resolve(false);
+      }, 100);
+    });
+    EventUtils.synthesizeMouseAtCenter(target, eventOptions);
+    if (await popupPromise) {
+      return;
+    }
+  }
+}
+
 add_setup(async function () {
   await SpecialPowers.pushPrefEnv({
     set: [["test.wait300msAfterTabSwitch", true]],
@@ -188,16 +224,13 @@ add_task(async function test_bookmark_contextmenu_contents() {
     let toolbarNode = getToolbarNodeForItemGuid(toolbarBookmark.guid);
 
     let contextMenu = document.getElementById("placesContext");
-    let popupShownPromise = BrowserTestUtils.waitForEvent(
-      contextMenu,
-      "popupshown"
+    // TODO (Bug 2018551): figure out why on Linux apparently some time is
+    // needed before the UI is ready to handle mouse events.
+    await synthesizeMouseWithRetry(
+      toolbarNode,
+      { button: 2, type: "contextmenu" },
+      contextMenu
     );
-
-    EventUtils.synthesizeMouseAtCenter(toolbarNode, {
-      button: 2,
-      type: "contextmenu",
-    });
-    await popupShownPromise;
     return contextMenu;
   }, optionItems);
 

@@ -322,8 +322,18 @@ void Promise::WaitForAll(nsIGlobalObject* aGlobal,
       return nullptr;
     };
     // Step 9.4 (and actually also step 4 and step 9.3)
-    (void)promise->ThenCatchWithCycleCollectedArgs(
+    Result resultPromise = promise->ThenCatchWithCycleCollectedArgs(
         fulfillmentHandlerSteps, rejectionHandlerSteps, result, arg);
+
+    // https://tc39.es/ecma262/multipage/control-abstraction-objects.html#sec-performpromisethen
+    // Step 12
+    // Promise;:ThenCatchWithCycleCollectedArgs is fairly similar to, but not
+    // exactly the same as PerformPromiseThen, in particular the step that marks
+    // the promise as handled is missing. It's performed here to not change the
+    // existing behavior of ThenCatchWithCycleCollectedArgs.
+    if (resultPromise.isOk()) {
+      (void)resultPromise.unwrap()->SetAnyPromiseIsHandled();
+    }
 
     // Step 9.5
     index++;
@@ -869,8 +879,9 @@ class PromiseWorkerProxyRunnable final : public WorkerThreadRunnable {
 
     // Here we convert the buffer to a JS::Value.
     JS::Rooted<JS::Value> value(aCx);
-    if (!mPromiseWorkerProxy->Read(aCx, &value)) {
-      JS_ClearPendingException(aCx);
+    IgnoredErrorResult rv;
+    mPromiseWorkerProxy->Read(aCx, &value, rv);
+    if (rv.Failed()) {
       return false;
     }
 
@@ -972,8 +983,9 @@ void PromiseWorkerProxy::RunCallback(JSContext* aCx,
   }
 
   // The |aValue| is written into the StructuredCloneHolderBase.
-  if (!Write(aCx, aValue)) {
-    JS_ClearPendingException(aCx);
+  IgnoredErrorResult rv;
+  Write(aCx, aValue, rv);
+  if (rv.Failed()) {
     MOZ_ASSERT(false,
                "cannot serialize the value with the StructuredCloneAlgorithm!");
   }

@@ -37,7 +37,6 @@
 #include "rtc_base/network_monitor_factory.h"
 #include "rtc_base/physical_socket_server.h"
 #include "rtc_base/socket_address.h"
-#include "rtc_base/third_party/sigslot/sigslot.h"
 #include "rtc_base/thread.h"
 #include "test/create_test_field_trials.h"
 #include "test/gmock.h"
@@ -166,7 +165,7 @@ std::vector<const Network*> CopyNetworkPointers(
 
 }  // namespace
 
-class NetworkTest : public ::testing::Test, public sigslot::has_slots<> {
+class NetworkTest : public ::testing::Test {
  public:
   void OnNetworksChanged() { callback_called_ = true; }
 
@@ -426,8 +425,7 @@ TEST_F(NetworkTest, DISABLED_TestCreateNetworks) {
 TEST_F(NetworkTest, TestUpdateNetworks) {
   PhysicalSocketServer socket_server;
   BasicNetworkManager manager(env_, &socket_server);
-  manager.SignalNetworksChanged.connect(static_cast<NetworkTest*>(this),
-                                        &NetworkTest::OnNetworksChanged);
+  manager.SubscribeNetworksChanged([this] { OnNetworksChanged(); });
   EXPECT_EQ(NetworkManager::ENUMERATION_ALLOWED,
             manager.enumeration_permission());
   manager.StartUpdating();
@@ -469,7 +467,7 @@ TEST_F(NetworkTest, TestBasicMergeNetworkList) {
 
   // Add ipv4_network1 to the list of networks.
   std::vector<std::unique_ptr<Network>> list;
-  list.push_back(std::make_unique<Network>(ipv4_network1));
+  list.push_back(ipv4_network1.Clone());
   bool changed;
   NetworkManager::Stats stats =
       MergeNetworkList(manager, std::move(list), &changed);
@@ -486,7 +484,7 @@ TEST_F(NetworkTest, TestBasicMergeNetworkList) {
   EXPECT_EQ(1, net_id1);
 
   // Replace ipv4_network1 with ipv4_network2.
-  list.push_back(std::make_unique<Network>(ipv4_network2));
+  list.push_back(ipv4_network2.Clone());
   stats = MergeNetworkList(manager, std::move(list), &changed);
   EXPECT_TRUE(changed);
   EXPECT_EQ(stats.ipv6_network_count, 0);
@@ -502,8 +500,8 @@ TEST_F(NetworkTest, TestBasicMergeNetworkList) {
   EXPECT_LT(net_id1, net_id2);
 
   // Add Network2 back.
-  list.push_back(std::make_unique<Network>(ipv4_network1));
-  list.push_back(std::make_unique<Network>(ipv4_network2));
+  list.push_back(ipv4_network1.Clone());
+  list.push_back(ipv4_network2.Clone());
   stats = MergeNetworkList(manager, std::move(list), &changed);
   EXPECT_TRUE(changed);
   EXPECT_EQ(stats.ipv6_network_count, 0);
@@ -520,8 +518,8 @@ TEST_F(NetworkTest, TestBasicMergeNetworkList) {
 
   // Call MergeNetworkList() again and verify that we don't get update
   // notification.
-  list.push_back(std::make_unique<Network>(ipv4_network2));
-  list.push_back(std::make_unique<Network>(ipv4_network1));
+  list.push_back(ipv4_network2.Clone());
+  list.push_back(ipv4_network1.Clone());
   stats = MergeNetworkList(manager, std::move(list), &changed);
   EXPECT_FALSE(changed);
   EXPECT_EQ(stats.ipv6_network_count, 0);
@@ -563,18 +561,17 @@ void SetupNetworks(std::vector<std::unique_ptr<Network>>* list) {
   Network ipv6_eth1_publicnetwork1_ip1("test_eth1", "Test NetworkAdapter 1",
                                        prefix, 64);
   ipv6_eth1_publicnetwork1_ip1.AddIP(ip);
-  list->push_back(std::make_unique<Network>(ipv6_eth0_linklocalnetwork));
-  list->push_back(std::make_unique<Network>(ipv6_eth1_linklocalnetwork));
-  list->push_back(std::make_unique<Network>(ipv6_eth0_publicnetwork1_ip1));
-  list->push_back(std::make_unique<Network>(ipv6_eth1_publicnetwork1_ip1));
+  list->push_back(ipv6_eth0_linklocalnetwork.Clone());
+  list->push_back(ipv6_eth1_linklocalnetwork.Clone());
+  list->push_back(ipv6_eth0_publicnetwork1_ip1.Clone());
+  list->push_back(ipv6_eth1_publicnetwork1_ip1.Clone());
 }
 
 // Test that the basic network merging case works.
 TEST_F(NetworkTest, TestIPv6MergeNetworkList) {
   PhysicalSocketServer socket_server;
   BasicNetworkManager manager(env_, &socket_server);
-  manager.SignalNetworksChanged.connect(static_cast<NetworkTest*>(this),
-                                        &NetworkTest::OnNetworksChanged);
+  manager.SubscribeNetworksChanged([this]() { OnNetworksChanged(); });
   std::vector<std::unique_ptr<Network>> networks;
   SetupNetworks(&networks);
   std::vector<const Network*> original_list = CopyNetworkPointers(networks);
@@ -595,8 +592,7 @@ TEST_F(NetworkTest, TestIPv6MergeNetworkList) {
 TEST_F(NetworkTest, TestNoChangeMerge) {
   PhysicalSocketServer socket_server;
   BasicNetworkManager manager(env_, &socket_server);
-  manager.SignalNetworksChanged.connect(static_cast<NetworkTest*>(this),
-                                        &NetworkTest::OnNetworksChanged);
+  manager.SubscribeNetworksChanged([this]() { OnNetworksChanged(); });
   std::vector<std::unique_ptr<Network>> networks;
   SetupNetworks(&networks);
   std::vector<const Network*> original_list = CopyNetworkPointers(networks);
@@ -626,8 +622,7 @@ TEST_F(NetworkTest, TestNoChangeMerge) {
 TEST_F(NetworkTest, MergeWithChangedIP) {
   PhysicalSocketServer socket_server;
   BasicNetworkManager manager(env_, &socket_server);
-  manager.SignalNetworksChanged.connect(static_cast<NetworkTest*>(this),
-                                        &NetworkTest::OnNetworksChanged);
+  manager.SubscribeNetworksChanged([this]() { OnNetworksChanged(); });
   std::vector<std::unique_ptr<Network>> original_list;
   SetupNetworks(&original_list);
   // Make a network that we're going to change.
@@ -636,8 +631,7 @@ TEST_F(NetworkTest, MergeWithChangedIP) {
   IPAddress prefix = TruncateIP(ip, 64);
   std::unique_ptr<Network> network_to_change = std::make_unique<Network>(
       "test_eth0", "Test Network Adapter 1", prefix, 64);
-  std::unique_ptr<Network> changed_network =
-      std::make_unique<Network>(*network_to_change);
+  std::unique_ptr<Network> changed_network = network_to_change->Clone();
   network_to_change->AddIP(ip);
   IPAddress changed_ip;
   EXPECT_TRUE(IPFromString("2401:fa01:4:1000:be30:f00:f00:f00", &changed_ip));
@@ -663,8 +657,7 @@ TEST_F(NetworkTest, MergeWithChangedIP) {
 TEST_F(NetworkTest, TestMultipleIPMergeNetworkList) {
   PhysicalSocketServer socket_server;
   BasicNetworkManager manager(env_, &socket_server);
-  manager.SignalNetworksChanged.connect(static_cast<NetworkTest*>(this),
-                                        &NetworkTest::OnNetworksChanged);
+  manager.SubscribeNetworksChanged([this]() { OnNetworksChanged(); });
   std::vector<std::unique_ptr<Network>> original_list;
   SetupNetworks(&original_list);
   const Network* const network_ptr = original_list[2].get();
@@ -685,10 +678,9 @@ TEST_F(NetworkTest, TestMultipleIPMergeNetworkList) {
 
   std::vector<std::unique_ptr<Network>> second_list;
   SetupNetworks(&second_list);
-  second_list.push_back(
-      std::make_unique<Network>(ipv6_eth0_publicnetwork1_ip2));
+  second_list.push_back(ipv6_eth0_publicnetwork1_ip2.Clone());
   changed = false;
-  const auto network_copy = std::make_unique<Network>(*second_list[2]);
+  const auto network_copy = second_list[2]->Clone();
   MergeNetworkList(manager, std::move(second_list), &changed);
   EXPECT_TRUE(changed);
   // There should still be four networks.
@@ -717,8 +709,7 @@ TEST_F(NetworkTest, TestMultipleIPMergeNetworkList) {
 TEST_F(NetworkTest, TestMultiplePublicNetworksOnOneInterfaceMerge) {
   PhysicalSocketServer socket_server;
   BasicNetworkManager manager(env_, &socket_server);
-  manager.SignalNetworksChanged.connect(static_cast<NetworkTest*>(this),
-                                        &NetworkTest::OnNetworksChanged);
+  manager.SubscribeNetworksChanged([this]() { OnNetworksChanged(); });
   std::vector<std::unique_ptr<Network>> original_list;
   SetupNetworks(&original_list);
   bool changed = false;
@@ -734,8 +725,7 @@ TEST_F(NetworkTest, TestMultiplePublicNetworksOnOneInterfaceMerge) {
   ipv6_eth0_publicnetwork2_ip1.AddIP(ip);
   std::vector<std::unique_ptr<Network>> second_list;
   SetupNetworks(&second_list);
-  second_list.push_back(
-      std::make_unique<Network>(ipv6_eth0_publicnetwork2_ip1));
+  second_list.push_back(ipv6_eth0_publicnetwork2_ip1.Clone());
   changed = false;
   MergeNetworkList(manager, std::move(second_list), &changed);
   EXPECT_TRUE(changed);
@@ -799,8 +789,8 @@ TEST_F(NetworkTest, IPv6NetworksPreferredOverIPv4) {
   ipv6_eth1_publicnetwork1_ip1.AddIP(ip);
 
   std::vector<std::unique_ptr<Network>> list;
-  list.push_back(std::make_unique<Network>(ipv4_network1));
-  list.push_back(std::make_unique<Network>(ipv6_eth1_publicnetwork1_ip1));
+  list.push_back(ipv4_network1.Clone());
+  list.push_back(ipv6_eth1_publicnetwork1_ip1.Clone());
   const Network* net1 = list[0].get();
   const Network* net2 = list[1].get();
 
@@ -1111,7 +1101,7 @@ TEST_F(NetworkTest, TestMergeNetworkListWithInactiveNetworks) {
   network1.AddIP(IPAddress(0x12345678));
   network2.AddIP(IPAddress(0x00010004));
   std::vector<std::unique_ptr<Network>> list;
-  auto net1 = std::make_unique<Network>(network1);
+  auto net1 = network1.Clone();
   const Network* const net1_ptr = net1.get();
   list.push_back(std::move(net1));
   bool changed;
@@ -1124,7 +1114,7 @@ TEST_F(NetworkTest, TestMergeNetworkListWithInactiveNetworks) {
   EXPECT_EQ(net1_ptr, current[0]);
 
   list.clear();
-  auto net2 = std::make_unique<Network>(network2);
+  auto net2 = network2.Clone();
   const Network* const net2_ptr = net2.get();
   list.push_back(std::move(net2));
   MergeNetworkList(manager, std::move(list), &changed);
@@ -1136,7 +1126,7 @@ TEST_F(NetworkTest, TestMergeNetworkListWithInactiveNetworks) {
   EXPECT_EQ(net2_ptr, current[0]);
   // Now network1 is inactive. Try to merge it again.
   list.clear();
-  list.push_back(std::make_unique<Network>(network1));
+  list.push_back(network1.Clone());
   MergeNetworkList(manager, std::move(list), &changed);
   EXPECT_TRUE(changed);
   list.clear();
@@ -1253,8 +1243,7 @@ TEST_F(NetworkTest, TestNetworkMonitoring) {
   FakeNetworkMonitorFactory factory;
   PhysicalSocketServer socket_server;
   BasicNetworkManager manager(env_, &socket_server, &factory);
-  manager.SignalNetworksChanged.connect(static_cast<NetworkTest*>(this),
-                                        &NetworkTest::OnNetworksChanged);
+  manager.SubscribeNetworksChanged([this]() { OnNetworksChanged(); });
   manager.StartUpdating();
   FakeNetworkMonitor* network_monitor = GetNetworkMonitor(manager);
   EXPECT_TRUE(network_monitor && network_monitor->started());
@@ -1285,8 +1274,7 @@ TEST_F(NetworkTest, MAYBE_DefaultLocalAddress) {
   FakeNetworkMonitorFactory factory;
   PhysicalSocketServer socket_server;
   TestBasicNetworkManager manager(env_, &socket_server, &factory);
-  manager.SignalNetworksChanged.connect(static_cast<NetworkTest*>(this),
-                                        &NetworkTest::OnNetworksChanged);
+  manager.SubscribeNetworksChanged([this]() { OnNetworksChanged(); });
   manager.StartUpdating();
   EXPECT_THAT(WaitUntil([&] { return callback_called_; }, IsTrue()), IsRtcOk());
 
@@ -1326,7 +1314,7 @@ TEST_F(NetworkTest, MAYBE_DefaultLocalAddress) {
   ipv6_network.AddIP(ip1);
   ipv6_network.AddIP(ip2);
   std::vector<std::unique_ptr<Network>> list;
-  list.push_back(std::make_unique<Network>(ipv6_network));
+  list.push_back(ipv6_network.Clone());
   bool changed;
   MergeNetworkList(manager, std::move(list), &changed);
   // If the set default address is not in any network, GetDefaultLocalAddress

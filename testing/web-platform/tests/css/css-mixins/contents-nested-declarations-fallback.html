@@ -9,9 +9,11 @@
   <body>
 
   <style>
-    @mixin --m1(@contents) {
-      @contents {
-        color: green;
+    @mixin --m1() {
+      @result {
+        @contents {
+          color: green;
+        }
       }
     }
     #e1::after {
@@ -28,9 +30,11 @@
 
 
   <style>
-    @mixin --m2(@contents) {
-      @contents {
-        color: red;
+    @mixin --m2() {
+      @result {
+        @contents {
+          color: red;
+        }
       }
     }
     /* Should match <div id=e2> with the specificity of :where(#e2) (zero),

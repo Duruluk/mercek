@@ -43,15 +43,23 @@ add_task(async function () {
     style: `
       #order-of-appearance {
         background-color: var(--appearance-order_first);
+
+        @media (width > 1px) {
+          background-color: var(--appearance-order_second);
+        }
       }
       #order-of-appearance {
-        --appearance-order_second: var(--winning-color);
-        background-color: var(--appearance-order_second);
+        --appearance-order_third: var(--winning-color);
+        background-color: var(--appearance-order_third);
       }`,
     expectedMatchedSelectors: [
       // Last rule in stylesheet wins
       {
         selector: "#order-of-appearance",
+        value: "var(--appearance-order_third)",
+      },
+      {
+        selector: "&",
         value: "var(--appearance-order_second)",
       },
       {
@@ -845,6 +853,28 @@ add_task(async function () {
       },
     ],
   });
+
+  await selectNode("#with-important-inherited", inspector);
+  await checkMatchedSelectorForProperty(view, {
+    property: "color",
+    expectedComputedValue: "rgb(0, 0, 255)",
+    expectedMatchedSelectors: [
+      {
+        selector: "& #with-important-inherited",
+        value: "blue",
+      },
+      {
+        selector: "#set-important-inherited",
+        value: "red",
+        match: false,
+      },
+      {
+        selector: ":root",
+        value: "canvastext",
+        match: false,
+      },
+    ],
+  });
 });
 
 async function checkBackgroundColorMatchedSelectors(
@@ -899,56 +929,4 @@ async function checkBackgroundColorMatchedSelectors(
     // Some test cases don't insert a style element
     content.document.getElementById(`style-${id}`)?.remove();
   });
-}
-
-async function checkMatchedSelectorForProperty(
-  view,
-  { property, expectedComputedValue, expectedMatchedSelectors }
-) {
-  const propertyView = getPropertyView(view, property);
-  ok(propertyView, `found PropertyView for "${property}"`);
-  const { valueNode } = propertyView;
-  is(
-    valueNode.textContent,
-    expectedComputedValue,
-    `Expected displayed computed value for "${property}"`
-  );
-
-  is(propertyView.hasMatchedSelectors, true, "hasMatchedSelectors is true");
-
-  info("Expanding the matched selectors");
-  propertyView.matchedExpanded = true;
-  await propertyView.refreshMatchedSelectors();
-
-  const selectorsEl =
-    propertyView.matchedSelectorsContainer.querySelectorAll(".rule-text");
-  is(
-    selectorsEl.length,
-    expectedMatchedSelectors.length,
-    "Expected number of selectors are displayed"
-  );
-
-  selectorsEl.forEach((selectorEl, index) => {
-    is(
-      selectorEl.querySelector(".fix-get-selection").innerText,
-      expectedMatchedSelectors[index].selector,
-      `Selector #${index} is the expected one`
-    );
-    is(
-      selectorEl.querySelector(".computed-other-property-value").innerText,
-      expectedMatchedSelectors[index].value,
-      `Selector #${index} ("${expectedMatchedSelectors[index].selector}") has the expected "${property}"`
-    );
-    const classToMatch = index === 0 ? "bestmatch" : "matched";
-    const expectedMatch = expectedMatchedSelectors[index].match ?? true;
-    is(
-      selectorEl.classList.contains(classToMatch),
-      expectedMatch,
-      `Selector #${index} ("${expectedMatchedSelectors[index].selector}") element does ${expectedMatch ? "" : "not "}have a matching class`
-    );
-  });
-}
-
-function getPropertyView(computedView, name) {
-  return computedView.propertyViews.find(view => view.name === name);
 }

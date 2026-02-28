@@ -52,7 +52,7 @@ class SVGOuterSVGFrame final : public SVGDisplayContainerFrame,
   AspectRatio GetIntrinsicRatio() const override;
 
   SizeComputationResult ComputeSize(
-      gfxContext* aRenderingContext, WritingMode aWritingMode,
+      const SizeComputationInput& aSizingInput, WritingMode aWritingMode,
       const LogicalSize& aCBSize, nscoord aAvailableISize,
       const LogicalSize& aMargin, const LogicalSize& aBorderPadding,
       const mozilla::StyleSizeOverrides& aSizeOverrides,
@@ -99,7 +99,7 @@ class SVGOuterSVGFrame final : public SVGDisplayContainerFrame,
   void AppendDirectlyOwnedAnonBoxes(nsTArray<OwnedAnonBox>& aResult) override;
 
   // ISVGSVGFrame interface:
-  void NotifyViewportOrTransformChanged(uint32_t aFlags) override;
+  void NotifyViewportOrTransformChanged(ChangeFlags aFlags) override;
 
   // ISVGDisplayableFrame methods:
   void PaintSVG(gfxContext& aContext, const gfxMatrix& aTransform,

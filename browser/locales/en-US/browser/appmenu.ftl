@@ -233,6 +233,10 @@ profiler-popup-presets-debug-description = Preset for debugging in { -brand-shor
 profiler-popup-presets-debug-label =
   .label = Debug
 
+profiler-popup-presets-web-compat-description = Recommended preset for debugging web compatibility issues in websites, rather than tracking performance.
+profiler-popup-presets-web-compat-label =
+  .label = Web Compat
+
 profiler-popup-presets-custom-label =
   .label = Custom
 
@@ -313,7 +317,7 @@ appmenuitem-relay-title = { -relay-brand-short-name }
 appmenuitem-relay-description = Mask your real email and phone
 appmenuitem-services-relay-description = Launch email masks dashboard
 appmenuitem-vpn-title = { -mozilla-vpn-brand-name }
-appmenuitem-vpn-description = Protect your online activity
+appmenuitem-vpn-description-2 = Get whole-device protection
 
 appmenu-services-header = My services
 # "Mozilla" is intentionally hardcoded to prevent forks from replacing it

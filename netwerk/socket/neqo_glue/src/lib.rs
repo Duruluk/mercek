@@ -28,8 +28,8 @@ use firefox_on_glean::{
 use libc::{c_int, AF_INET, AF_INET6};
 use libc::{c_uchar, size_t};
 use neqo_common::{
-    event::Provider as _, qdebug, qerror, qlog::Qlog, qwarn, Datagram, DatagramBatch, Decoder,
-    Encoder, Header, Role, Tos,
+    datagram, event::Provider as _, qdebug, qerror, qlog::Qlog, qwarn, Datagram, Decoder, Encoder,
+    Header, Role, Tos,
 };
 use neqo_crypto::{agent::CertificateCompressor, init, PRErrorCode};
 use neqo_http3::{
@@ -41,11 +41,11 @@ use neqo_transport::{
     Error as TransportError, Output, OutputBatch, RandomConnectionIdGenerator, StreamId, Version,
 };
 use nserror::{
-    nsresult, NS_BASE_STREAM_WOULD_BLOCK, NS_ERROR_CONNECTION_REFUSED, NS_ERROR_FAILURE,
-    NS_ERROR_FILE_ALREADY_EXISTS, NS_ERROR_ILLEGAL_VALUE, NS_ERROR_INVALID_ARG,
-    NS_ERROR_NET_HTTP3_PROTOCOL_ERROR, NS_ERROR_NET_INTERRUPT, NS_ERROR_NET_RESET,
-    NS_ERROR_NET_TIMEOUT, NS_ERROR_NOT_AVAILABLE, NS_ERROR_NOT_CONNECTED, NS_ERROR_OUT_OF_MEMORY,
-    NS_ERROR_SOCKET_ADDRESS_IN_USE, NS_ERROR_UNEXPECTED, NS_OK,
+    nsresult, NS_BASE_STREAM_WOULD_BLOCK, NS_ERROR_CONNECTION_REFUSED,
+    NS_ERROR_DOM_INVALID_HEADER_NAME, NS_ERROR_FILE_ALREADY_EXISTS, NS_ERROR_ILLEGAL_VALUE,
+    NS_ERROR_INVALID_ARG, NS_ERROR_NET_HTTP3_PROTOCOL_ERROR, NS_ERROR_NET_INTERRUPT,
+    NS_ERROR_NET_RESET, NS_ERROR_NET_TIMEOUT, NS_ERROR_NOT_AVAILABLE, NS_ERROR_NOT_CONNECTED,
+    NS_ERROR_OUT_OF_MEMORY, NS_ERROR_SOCKET_ADDRESS_IN_USE, NS_ERROR_UNEXPECTED, NS_OK,
 };
 use nsstring::{nsACString, nsCString};
 use thin_vec::ThinVec;
@@ -114,7 +114,7 @@ pub struct NeqoHttp3Conn {
     socket: Option<neqo_udp::Socket<BorrowedSocket>>,
     /// Buffered outbound datagram from previous send that failed with
     /// WouldBlock. To be sent once UDP socket has write-availability again.
-    buffered_outbound_datagram: Option<DatagramBatch>,
+    buffered_outbound_datagram: Option<datagram::Batch>,
 
     datagram_segment_size_sent: LocalMemoryDistribution<'static>,
     datagram_segment_size_received: LocalMemoryDistribution<'static>,
@@ -423,6 +423,8 @@ impl NeqoHttp3Conn {
         let pmtud_enabled =
             // Check if PMTUD is explicitly enabled,
             pmtud_enabled
+            // or enabled via pref,
+            || static_prefs::pref!("network.http.http3.pmtud")
             // but disable PMTUD if NSPR is used (socket == None) or
             // transmitted UDP datagrams might get fragmented by the IP layer.
             && socket.as_ref().map_or(false, |s| !s.may_fragment());
@@ -439,7 +441,6 @@ impl NeqoHttp3Conn {
             .pmtud_iface_mtu(cfg!(not(target_os = "openbsd")))
             // MLKEM support is configured further below. By default, disable it.
             .mlkem(false)
-            .datagram_size(1500)
             .pmtud(pmtud_enabled);
 
         // Set a short timeout when fuzzing.
@@ -559,7 +560,7 @@ impl NeqoHttp3Conn {
     fn record_stats_in_glean(&self) {
         use firefox_on_glean::metrics::networking as glean;
         use neqo_common::Ecn;
-        use neqo_transport::ecn;
+        use neqo_transport::{ecn, CongestionEvent};
 
         // Metric values must be recorded as integers. Glean does not support
         // floating point distributions. In order to represent values <1, they
@@ -628,8 +629,8 @@ impl NeqoHttp3Conn {
             && static_prefs::pref!("network.http.http3.ecn_mark")
             && stats.frame_rx.handshake_done != 0
         {
-            let tx_ect0_sum: u64 = stats.ecn_tx.into_values().map(|v| v[Ecn::Ect0]).sum();
-            let tx_ce_sum: u64 = stats.ecn_tx.into_values().map(|v| v[Ecn::Ce]).sum();
+            let tx_ect0_sum: u64 = stats.ecn_tx_acked.into_values().map(|v| v[Ecn::Ect0]).sum();
+            let tx_ce_sum: u64 = stats.ecn_tx_acked.into_values().map(|v| v[Ecn::Ce]).sum();
             if tx_ect0_sum > 0 {
                 if let Ok(ratio) = i64::try_from((tx_ce_sum * PRECISION_FACTOR) / tx_ect0_sum) {
                     glean::http_3_ecn_ce_ect0_ratio_sent.accumulate_single_sample_signed(ratio);
@@ -671,8 +672,9 @@ impl NeqoHttp3Conn {
             }
         }
 
-        // Ignore connections into the void.
+        // Ignore connections into the void for metrics where it makes sense.
         if stats.packets_rx != 0 {
+            // Calculate and collect packet loss ratio.
             if let Ok(loss) =
                 i64::try_from((stats.lost * PRECISION_FACTOR_USIZE) / stats.packets_tx)
             {
@@ -682,6 +684,48 @@ impl NeqoHttp3Conn {
                 qwarn!("{msg}");
                 debug_assert!(false, "{msg}");
             }
+
+            // Count whether the connection exited slow start.
+            if stats.cc.slow_start_exited {
+                glean::http_3_slow_start_exited.get("exited").add(1);
+            } else {
+                glean::http_3_slow_start_exited.get("not_exited").add(1);
+            }
+        }
+
+        // Ignore connections that never had loss induced congestion events (and prevent dividing by zero).
+        if stats.cc.congestion_events[CongestionEvent::Loss] != 0 {
+            if let Ok(spurious) = i64::try_from(
+                (stats.cc.congestion_events[CongestionEvent::Spurious] * PRECISION_FACTOR_USIZE)
+                    / stats.cc.congestion_events[CongestionEvent::Loss],
+            ) {
+                glean::http_3_spurious_congestion_event_ratio
+                    .accumulate_single_sample_signed(spurious);
+            } else {
+                let msg = "Failed to convert ratio to i64 for use with glean";
+                qwarn!("{msg}");
+                debug_assert!(false, "{msg}");
+            }
+        }
+
+        // Collect congestion event reason metric
+        if let Ok(ce_loss) = i32::try_from(stats.cc.congestion_events[CongestionEvent::Loss]) {
+            glean::http_3_congestion_event_reason
+                .get("loss")
+                .add(ce_loss);
+        } else {
+            let msg = "Failed to convert to i32 for use with glean";
+            qwarn!("{msg}");
+            debug_assert!(false, "{msg}");
+        }
+        if let Ok(ce_ecn) = i32::try_from(stats.cc.congestion_events[CongestionEvent::Ecn]) {
+            glean::http_3_congestion_event_reason
+                .get("ecn-ce")
+                .add(ce_ecn);
+        } else {
+            let msg = "Failed to convert to i32 for use with glean";
+            qwarn!("{msg}");
+            debug_assert!(false, "{msg}");
         }
     }
 
@@ -1144,39 +1188,59 @@ fn parse_headers(headers: &nsACString) -> Result<Vec<Header>, nsresult> {
     let mut hdrs = Vec::new();
     // this is only used for headers built by Firefox.
     // Firefox supplies all headers already prepared for sending over http1.
-    // They need to be split into (String, String) pairs.
-    match str::from_utf8(headers) {
-        Err(_) => {
-            return Err(NS_ERROR_INVALID_ARG);
-        }
-        Ok(h) => {
-            for elem in h.split("\r\n").skip(1) {
-                if elem.starts_with(':') {
-                    // colon headers are for http/2 and 3 and this is http/1
-                    // input, so that is probably a smuggling attack of some
-                    // kind.
-                    continue;
-                }
-                if elem.is_empty() {
-                    continue;
-                }
+    // They need to be split into (name, value) pairs where name is a String
+    // and value is a Vec<u8>.
 
-                let mut hdr_str = elem.splitn(2, ':');
-                let name = hdr_str
-                    .next()
-                    .expect("`elem` is not empty")
-                    .trim()
-                    .to_lowercase();
-                if is_excluded_header(&name) {
-                    continue;
-                }
-                let value = hdr_str
-                    .next()
-                    .map_or_else(String::new, |v| v.trim().to_string());
+    let headers_bytes: &[u8] = headers;
 
-                hdrs.push(Header::new(name, value));
-            }
+    // Split on either \r or \n. When splitting "\r\n" sequences, this produces
+    // an empty element between them which is filtered out by the is_empty check.
+    // This also handles malformed inputs with bare \r or \n.
+    for elem in headers_bytes.split(|&b| b == b'\r' || b == b'\n').skip(1) {
+        if elem.is_empty() {
+            continue;
         }
+        if elem.starts_with(b":") {
+            // colon headers are for http/2 and 3 and this is http/1
+            // input, so that is probably a smuggling attack of some
+            // kind.
+            continue;
+        }
+
+        let colon_pos = match elem.iter().position(|&b| b == b':') {
+            Some(pos) => pos,
+            None => continue, // No colon, skip this line
+        };
+
+        let name_bytes = &elem[..colon_pos];
+        // Safe: if colon is at the end, this yields an empty slice
+        let value_bytes = &elem[colon_pos + 1..];
+
+        // Header names must be valid UTF-8
+        let name = match str::from_utf8(name_bytes) {
+            Ok(n) => n.trim().to_lowercase(),
+            Err(_) => return Err(NS_ERROR_DOM_INVALID_HEADER_NAME),
+        };
+
+        if is_excluded_header(&name) {
+            continue;
+        }
+
+        // Trim leading and trailing optional whitespace (OWS) from value.
+        // Per RFC 9110, OWS is defined as *( SP / HTAB ), i.e., space and tab only.
+        let value = value_bytes
+            .iter()
+            .position(|&b| b != b' ' && b != b'\t')
+            .map_or(&value_bytes[0..0], |start| {
+                let end = value_bytes
+                    .iter()
+                    .rposition(|&b| b != b' ' && b != b'\t')
+                    .map_or(value_bytes.len(), |pos| pos + 1);
+                &value_bytes[start..end]
+            })
+            .to_vec();
+
+        hdrs.push(Header::new(name, value));
     }
     Ok(hdrs)
 }
@@ -1793,13 +1857,13 @@ fn convert_h3_to_h1_headers(headers: &[Header], ret_headers: &mut ThinVec<u8>) -
         .value();
 
     ret_headers.extend_from_slice(b"HTTP/3 ");
-    ret_headers.extend_from_slice(status_val.as_bytes());
+    ret_headers.extend_from_slice(status_val);
     ret_headers.extend_from_slice(b"\r\n");
 
     for hdr in headers.iter().filter(|&h| h.name() != ":status") {
         ret_headers.extend_from_slice(&sanitize_header(Cow::from(hdr.name().as_bytes())));
         ret_headers.extend_from_slice(b": ");
-        ret_headers.extend_from_slice(&sanitize_header(Cow::from(hdr.value().as_bytes())));
+        ret_headers.extend_from_slice(&sanitize_header(Cow::from(hdr.value())));
         ret_headers.extend_from_slice(b"\r\n");
     }
     ret_headers.extend_from_slice(b"\r\n");
@@ -2105,8 +2169,11 @@ pub extern "C" fn neqo_http3conn_authenticated(conn: &mut NeqoHttp3Conn, error: 
 pub extern "C" fn neqo_http3conn_set_resumption_token(
     conn: &mut NeqoHttp3Conn,
     token: &mut ThinVec<u8>,
-) {
-    _ = conn.conn.enable_resumption(Instant::now(), token);
+) -> nsresult {
+    match conn.conn.enable_resumption(Instant::now(), token) {
+        Ok(_) => NS_OK,
+        Err(_) => NS_ERROR_NET_HTTP3_PROTOCOL_ERROR,
+    }
 }
 
 #[no_mangle]
@@ -2377,6 +2444,7 @@ pub unsafe extern "C" fn neqo_http3conn_webtransport_set_sendorder(
 ///
 /// Note that this conversion is specific to `neqo_glue`, i.e. does not aim to
 /// implement a general-purpose conversion.
+/// Treat NS_ERROR_NET_RESET as a generic retryable error for the upper layer.
 ///
 /// Modeled after
 /// [`ErrorAccordingToNSPR`](https://searchfox.org/mozilla-central/rev/a965e3c683ecc035dee1de72bd33a8d91b1203ed/netwerk/base/nsSocketTransport2.cpp#164-168).
@@ -2427,16 +2495,6 @@ fn into_nsresult(e: &io::Error) -> nsresult {
 
         // TODO: nightly-only for now <https://doc.rust-lang.org/std/io/enum.ErrorKind.html#variant.FilesystemLoop>.
         // io::ErrorKind::FilesystemLoop => NS_ERROR_FILE_UNRESOLVABLE_SYMLINK,
-
-        // > NSPR's socket code can return these, but they're not worth breaking out
-        // > into their own error codes, distinct from NS_ERROR_FAILURE:
-        // >
-        // > PR_BAD_DESCRIPTOR_ERROR
-        // > PR_INVALID_ARGUMENT_ERROR
-        //
-        // <https://searchfox.org/mozilla-central/rev/a965e3c683ecc035dee1de72bd33a8d91b1203ed/netwerk/base/nsSocketTransport2.cpp#231>
-        io::ErrorKind::InvalidInput => NS_ERROR_FAILURE,
-
         io::ErrorKind::TimedOut => NS_ERROR_NET_TIMEOUT,
         io::ErrorKind::Interrupted => NS_ERROR_NET_INTERRUPT,
 
@@ -2456,7 +2514,7 @@ fn into_nsresult(e: &io::Error) -> nsresult {
         | io::ErrorKind::InvalidData
         | io::ErrorKind::WriteZero
         | io::ErrorKind::Unsupported
-        | io::ErrorKind::Other => NS_ERROR_FAILURE,
+        | io::ErrorKind::Other => NS_ERROR_NET_RESET,
 
         // TODO: available since Rust v1.83.0 only
         // <https://doc.rust-lang.org/std/io/enum.ErrorKind.html>.
@@ -2470,11 +2528,13 @@ fn into_nsresult(e: &io::Error) -> nsresult {
         // | io::ErrorKind::ArgumentListTooLong
         // | io::ErrorKind::NetworkDown
         // | io::ErrorKind::StaleNetworkFileHandle
-        // | io::ErrorKind::StorageFull => NS_ERROR_FAILURE,
+        // | io::ErrorKind::StorageFull => NS_ERROR_NET_RESET,
 
         // TODO: nightly-only for now <https://doc.rust-lang.org/std/io/enum.ErrorKind.html>.
-        // io::ErrorKind::CrossesDevices | io::ErrorKind::InvalidFilename => NS_ERROR_FAILURE,
-        _ => NS_ERROR_FAILURE,
+        // io::ErrorKind::CrossesDevices
+        // | io::ErrorKind::InvalidFilename
+        // | io::ErrorKind::InvalidInput => NS_ERROR_NET_RESET,
+        _ => NS_ERROR_NET_RESET,
     }
 }
 
@@ -2682,4 +2742,33 @@ pub unsafe extern "C" fn neqo_decoder_remaining(decoder: &mut NeqoDecoder) -> u6
 pub unsafe extern "C" fn neqo_decoder_offset(decoder: &mut NeqoDecoder) -> u64 {
     let decoder = decoder.decoder.as_mut().unwrap();
     decoder.offset() as u64
+}
+
+// Test function called from C++ gtest
+// Callback signature: fn(user_data, name_ptr, name_len, value_ptr, value_len)
+type HeaderCallback = extern "C" fn(*mut c_void, *const u8, usize, *const u8, usize);
+
+#[no_mangle]
+pub extern "C" fn neqo_glue_test_parse_headers(
+    headers_input: &nsACString,
+    callback: HeaderCallback,
+    user_data: *mut c_void,
+) -> bool {
+    match parse_headers(headers_input) {
+        Ok(headers) => {
+            for header in headers {
+                let name_bytes = header.name().as_bytes();
+                let value_bytes = header.value();
+                callback(
+                    user_data,
+                    name_bytes.as_ptr(),
+                    name_bytes.len(),
+                    value_bytes.as_ptr(),
+                    value_bytes.len(),
+                );
+            }
+            true
+        }
+        Err(_) => false,
+    }
 }

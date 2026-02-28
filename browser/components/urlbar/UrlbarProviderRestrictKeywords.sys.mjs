@@ -49,6 +49,13 @@ export class UrlbarProviderRestrictKeywords extends UrlbarProvider {
     return !queryContext.searchMode && queryContext.trimmedSearchString == "@";
   }
 
+  /**
+   * Starts querying.
+   *
+   * @param {UrlbarQueryContext} queryContext
+   * @param {(provider: UrlbarProvider, result: UrlbarResult) => void} addCallback
+   *   Callback invoked by the provider to add a new result.
+   */
   async startQuery(queryContext, addCallback) {
     let instance = this.queryInstance;
     let tokenToKeyword = await lazy.UrlbarTokenizer.getL10nRestrictKeywords();
@@ -66,15 +73,15 @@ export class UrlbarProviderRestrictKeywords extends UrlbarProvider {
         type: UrlbarUtils.RESULT_TYPE.RESTRICT,
         source: UrlbarUtils.RESULT_SOURCE.OTHER_LOCAL,
         hideRowLabel: true,
-        ...lazy.UrlbarResult.payloadAndSimpleHighlights(queryContext.tokens, {
+        payload: {
           icon,
           keyword: token,
-          l10nRestrictKeywords: [
-            l10nRestrictKeywords,
-            UrlbarUtils.HIGHLIGHT.TYPED,
-          ],
+          l10nRestrictKeywords,
           providesSearchMode: true,
-        }),
+        },
+        highlights: {
+          l10nRestrictKeywords: UrlbarUtils.HIGHLIGHT.TYPED,
+        },
       });
       addCallback(this, result);
     }

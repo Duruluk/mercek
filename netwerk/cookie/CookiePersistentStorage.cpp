@@ -10,6 +10,7 @@
 #include "CookieService.h"
 #include "CookieValidation.h"
 
+#include "mozilla/Components.h"
 #include "mozilla/FileUtils.h"
 #include "mozilla/StaticPrefs_network.h"
 #include "mozilla/glean/NetwerkMetrics.h"
@@ -50,6 +51,9 @@ constexpr auto IDX_UPDATE_TIME_INUSEC = 13;
 
 namespace mozilla {
 namespace net {
+
+NS_IMPL_ISUPPORTS_INHERITED(CookiePersistentStorage, CookieStorage,
+                            nsIAsyncShutdownBlocker)
 
 namespace {
 
@@ -709,7 +713,10 @@ void CookiePersistentStorage::Close() {
 
   if (mDBConn) {
     // Asynchronously close the connection. We will null it below.
+    // The shutdown blocker will be removed in HandleDBClosed().
     mDBConn->AsyncClose(mCloseListener);
+  } else {
+    RemoveShutdownBlocker();
   }
 
   CleanupDBConnection();
@@ -842,6 +849,33 @@ void CookiePersistentStorage::DeleteFromDB(
   }
 }
 
+// nsIAsyncShutdownBlocker
+
+NS_IMETHODIMP
+CookiePersistentStorage::BlockShutdown(nsIAsyncShutdownClient* aClient) {
+  Close();
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+CookiePersistentStorage::GetName(nsAString& aName) {
+  aName.AssignLiteral("CookiePersistentStorage: cookies.sqlite closing");
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+CookiePersistentStorage::GetState(nsIPropertyBag** aState) {
+  *aState = nullptr;
+  return NS_OK;
+}
+
+void CookiePersistentStorage::RemoveShutdownBlocker() {
+  if (mShutdownBarrier) {
+    mShutdownBarrier->RemoveBlocker(this);
+    mShutdownBarrier = nullptr;
+  }
+}
+
 void CookiePersistentStorage::Activate() {
   MOZ_ASSERT(!mThread, "already have a cookie thread");
 
@@ -866,6 +900,17 @@ void CookiePersistentStorage::Activate() {
   }
 
   mCookieFile->AppendNative(nsLiteralCString(COOKIES_FILE));
+
+  nsCOMPtr<nsIAsyncShutdownService> svc = components::AsyncShutdown::Service();
+  if (svc) {
+    nsCOMPtr<nsIAsyncShutdownClient> client;
+    svc->GetProfileBeforeChange(getter_AddRefs(client));
+    if (client) {
+      mShutdownBarrier = client;
+      client->AddBlocker(this, NS_LITERAL_STRING_FROM_CSTRING(__FILE__),
+                         __LINE__, u""_ns);
+    }
+  }
 
   NS_ENSURE_SUCCESS_VOID(NS_NewNamedThread("Cookie", getter_AddRefs(mThread)));
 
@@ -1818,6 +1863,7 @@ void CookiePersistentStorage::HandleDBClosed() {
       if (os) {
         os->NotifyObservers(nullptr, "cookie-db-closed", nullptr);
       }
+      RemoveShutdownBlocker();
       break;
     }
     case CookiePersistentStorage::CLOSING_FOR_REBUILD: {
@@ -1843,6 +1889,7 @@ void CookiePersistentStorage::HandleDBClosed() {
       if (os) {
         os->NotifyObservers(nullptr, "cookie-db-closed", nullptr);
       }
+      RemoveShutdownBlocker();
       break;
     }
   }

@@ -123,6 +123,9 @@ void GeckoProfilerRuntime::enable(bool enabled) {
     cx->jitActivation->setLastProfilingCallSite(nullptr);
   }
 
+  // Enable/disable JIT code info collection for the Gecko Profiler.
+  jit::ResetPerfSpewer(enabled);
+
   enabled_ = enabled;
 
   scriptSources_.writeLock()->clear();
@@ -450,7 +453,8 @@ void GeckoProfilerRuntime::checkStringsMapAfterMovingGC() {
 #endif
 
 // Get all script sources as a list of ProfilerJSSourceData.
-js::ProfilerJSSources GeckoProfilerRuntime::getProfilerScriptSources() {
+js::ProfilerJSSources GeckoProfilerRuntime::getProfilerScriptSources(
+    bool gatherSourceText) {
   js::ProfilerJSSources result;
 
   auto guard = scriptSources_.readLock();
@@ -475,6 +479,13 @@ js::ProfilerJSSources GeckoProfilerRuntime::getProfilerScriptSources() {
       if (filenameCopy) {
         strcpy(filenameCopy.get(), filename);
       }
+    }
+
+    // If not gathering source text, just store metadata
+    if (!gatherSourceText) {
+      (void)result.append(
+          ProfilerJSSourceData(sourceId, std::move(filenameCopy), filenameLen));
+      continue;
     }
 
     if (retrievableSource) {
@@ -667,8 +678,8 @@ JS_PUBLIC_API void js::RegisterContextProfilerMarkers(
 }
 
 JS_PUBLIC_API js::ProfilerJSSources js::GetProfilerScriptSources(
-    JSRuntime* rt) {
-  return rt->geckoProfiler().getProfilerScriptSources();
+    JSRuntime* rt, bool gatherSourceText) {
+  return rt->geckoProfiler().getProfilerScriptSources(gatherSourceText);
 }
 
 JS_PUBLIC_API ProfilerJSSourceData

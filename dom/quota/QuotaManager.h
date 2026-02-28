@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef mozilla_dom_quota_quotamanager_h__
-#define mozilla_dom_quota_quotamanager_h__
+#ifndef mozilla_dom_quota_quotamanager_h_
+#define mozilla_dom_quota_quotamanager_h_
 
 #include <cstdint>
 #include <utility>
@@ -754,6 +754,9 @@ class QuotaManager final : public BackgroundThreadObject {
 
   static void InvalidateQuotaCache();
 
+  OriginMetadataArray GetTemporaryOrigins(
+      PersistenceType aPersistenceType) const;
+
  private:
   virtual ~QuotaManager();
 
@@ -860,7 +863,19 @@ class QuotaManager final : public BackgroundThreadObject {
 
   OriginInfosNestedTraversable GetOriginInfosExceedingGlobalLimit() const;
 
-  OriginInfosNestedTraversable GetOriginInfosWithZeroUsage() const;
+  // Returns origins with zero usage. If aCutoffAccessTime is provided, origins
+  // whose last access time is newer than the cutoff are excluded.
+  //
+  // The cutoff time is expressed as an int64_t value in microseconds since the
+  // Unix epoch (1970-01-01 00:00:00 UTC), matching the format returned by
+  // PR_Now(). This is the same time unit used throughout Quota Manager for
+  // access and modification timestamps.
+  //
+  // Typically callers compute it as:
+  //     const int64_t cutoff = PR_Now() - (N * PR_USEC_PER_SEC);
+  // where N is the desired age threshold in seconds (for example, one week).
+  OriginInfosNestedTraversable GetOriginInfosWithZeroUsage(
+      const Maybe<int64_t>& aCutoffAccessTime = Nothing()) const;
 
   /**
    * Clears the given set of origins.
@@ -1204,4 +1219,4 @@ class QuotaManager final : public BackgroundThreadObject {
 
 }  // namespace mozilla::dom::quota
 
-#endif /* mozilla_dom_quota_quotamanager_h__ */
+#endif /* mozilla_dom_quota_quotamanager_h_ */

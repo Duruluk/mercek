@@ -22,11 +22,10 @@ class MIRGenerator;
 
 struct CompilationDependency : public TempObject {
   enum class Type {
-    GetIterator,
+    GetIteratorBytecode,
     ArraySpecies,
     TypedArraySpecies,
     RegExpPrototype,
-    StringPrototypeSymbols,
     EmulatesUndefined,
     ArrayExceedsInt32Length,
     ObjectFuseProperty,

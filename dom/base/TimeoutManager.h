@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef mozilla_dom_TimeoutManager_h__
-#define mozilla_dom_TimeoutManager_h__
+#ifndef mozilla_dom_TimeoutManager_h_
+#define mozilla_dom_TimeoutManager_h_
 
 #include "mozilla/dom/Timeout.h"
 #include "mozilla/dom/TimeoutBudgetManager.h"
@@ -30,7 +30,8 @@ class TimeoutManager final {
 
  public:
   TimeoutManager(nsIGlobalObject& aHandle, uint32_t aMaxIdleDeferMS,
-                 nsISerialEventTarget* aEventTarget);
+                 nsISerialEventTarget* aEventTarget,
+                 bool aIsChromeWorker = false);
   ~TimeoutManager();
   TimeoutManager(const TimeoutManager& rhs) = delete;
   void operator=(const TimeoutManager& rhs) = delete;
@@ -267,6 +268,8 @@ class TimeoutManager final {
   nsCOMPtr<nsISerialEventTarget> mEventTarget;
 
   const bool mIsWindow;
+
+  const bool mIsChromeWorker;
 
   uint32_t mNestingLevel{0};
 

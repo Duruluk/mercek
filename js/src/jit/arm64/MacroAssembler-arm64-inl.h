@@ -314,6 +314,14 @@ void MacroAssembler::add32(Imm32 imm, const Address& dest) {
   Str(scratch32, toMemOperand(dest));
 }
 
+void MacroAssembler::add32(const Address& src, Register dest) {
+  vixl::UseScratchRegisterScope temps(this);
+  const ARMRegister scratch32 = temps.AcquireW();
+  MOZ_ASSERT(scratch32.asUnsized() != src.base);
+  load32(src, scratch32.asUnsized());
+  Add(ARMRegister(dest, 32), ARMRegister(dest, 32), Operand(scratch32));
+}
+
 void MacroAssembler::addPtr(Register src, Register dest) {
   addPtr(src, dest, dest);
 }
@@ -502,6 +510,14 @@ void MacroAssembler::mulHighUnsigned32(Imm32 imm, Register src, Register dest) {
 
 void MacroAssembler::mulPtr(Register rhs, Register srcDest) {
   Mul(ARMRegister(srcDest, 64), ARMRegister(srcDest, 64), ARMRegister(rhs, 64));
+}
+
+void MacroAssembler::mulPtr(ImmWord rhs, Register srcDest) {
+  vixl::UseScratchRegisterScope temps(this);
+  const ARMRegister scratch64 = temps.AcquireX();
+  MOZ_ASSERT(srcDest != scratch64.asUnsized());
+  mov(rhs, scratch64.asUnsized());
+  mulPtr(scratch64.asUnsized(), srcDest);
 }
 
 void MacroAssembler::mul64(Imm64 imm, const Register64& dest) {
@@ -4247,6 +4263,16 @@ void MacroAssemblerCompat::storeStackPtr(const Address& dest) {
   } else {
     Str(GetStackPointer64(), toMemOperand(dest));
   }
+}
+
+void MacroAssemblerCompat::loadStackPtrFromPrivateValue(const Address& src) {
+  // On ARM64, a private value is stored the same as any pointer.
+  loadStackPtr(src);
+}
+
+void MacroAssemblerCompat::storeStackPtrToPrivateValue(const Address& dest) {
+  // On ARM64, a private value is stored the same as any pointer.
+  storeStackPtr(dest);
 }
 
 void MacroAssemblerCompat::branchTestStackPtr(Condition cond, Imm32 rhs,

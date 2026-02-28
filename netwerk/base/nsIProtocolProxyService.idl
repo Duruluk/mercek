@@ -203,10 +203,12 @@ interface nsIProtocolProxyService : nsISupports
     /**
      * Creates a new nsIProxyInfo instance for MASQUE proxy.
      *
+     * Note: MASQUE support in Firefox is still experimental. You can follow the
+     * implementation progress via Bug 1978893.
      */
     nsIProxyInfo newMASQUEProxyInfo(in AUTF8String aHost,
                                     in long aPort,
-                                    in AUTF8String aPathTemplate,
+                                    in AUTF8String aMasqueTemplate,
                                     in ACString aProxyAuthorizationHeader,
                                     in ACString aConnectionIsolationKey,
                                     in unsigned long aFlags,

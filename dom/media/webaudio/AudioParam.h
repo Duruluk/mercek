@@ -58,9 +58,15 @@ class AudioParam final : public nsWrapperCache, public AudioParamTimeline {
   }
 
   // Intended for use in AudioNode creation, when the setter should not throw.
-  void SetInitialValue(float aValue) {
+  // Clamp to float range, not nominal range. See
+  // https://github.com/WebAudio/web-audio-api/issues/2671
+  void SetInitialValue(double aValue) {
     IgnoredErrorResult rv;
-    SetValue(aValue, rv);
+    SetValue(
+        static_cast<float>(std::clamp(
+            aValue, static_cast<double>(std::numeric_limits<float>::lowest()),
+            static_cast<double>(std::numeric_limits<float>::max()))),
+        rv);
   }
 
   void SetValue(float aValue, ErrorResult& aRv) {

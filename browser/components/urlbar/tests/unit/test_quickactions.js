@@ -90,12 +90,8 @@ add_task(async function minimum_search_string() {
     UrlbarPrefs.set("quickactions.minimumSearchString", minimumSearchString);
     for (let i = 1; i < 4; i++) {
       let context = createContext(searchString.substring(0, i), {});
-      let controller = UrlbarTestUtils.newMockController();
       let result = await ActionsProviderQuickActions.queryActions(context);
-      let isActive = await ActionsProviderQuickActions.isActive(
-        context,
-        controller
-      );
+      let isActive = await ActionsProviderQuickActions.isActive(context);
 
       if (i >= minimumSearchString) {
         Assert.equal(result[0].key, "newaction", "Matched the new action");
@@ -109,18 +105,18 @@ add_task(async function minimum_search_string() {
 });
 
 add_task(async function interventions_disabled() {
-  let interventionsProvider = UrlbarProvidersManager.getProvider(
+  let providersManager = ProvidersManager.getInstanceForSap("urlbar");
+  let interventionsProvider = providersManager.getProvider(
     "UrlbarProviderInterventions"
   );
   // Mock the relevent method of Query so we don't have to start a real one.
   interventionsProvider.queryInstance = {
-    getProvider: name => UrlbarProvidersManager.getProvider(name),
+    getProvider: name => providersManager.getProvider(name),
   };
   let context = createContext("test", { isPrivate: false });
-  let controller = UrlbarTestUtils.newMockController();
 
   Assert.ok(
-    !(await interventionsProvider.isActive(context, controller)),
+    !(await interventionsProvider.isActive(context)),
     "Urlbar interventions are disabled when actions are enabled"
   );
   interventionsProvider.queryInstance = null;

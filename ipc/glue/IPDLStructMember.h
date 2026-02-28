@@ -20,7 +20,7 @@ namespace mozilla::ipc {
 template <typename T>
 struct IPDLStructMemberWrapper {
   template <typename... Args>
-  MOZ_IMPLICIT IPDLStructMemberWrapper(Args&&... aArgs)
+  constexpr MOZ_IMPLICIT IPDLStructMemberWrapper(Args&&... aArgs)
       : mVal(std::forward<Args>(aArgs)...) {}
   MOZ_IMPLICIT operator T&() { return mVal; }
   MOZ_IMPLICIT operator const T&() const { return mVal; }

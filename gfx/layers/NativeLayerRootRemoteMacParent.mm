@@ -3,6 +3,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "mozilla/CheckedInt.h"
 #include "mozilla/layers/NativeLayerRootRemoteMacParent.h"
 #include "xpcpublic.h"
 
@@ -96,10 +97,14 @@ mozilla::ipc::IPCResult NativeLayerRootRemoteMacParent::RecvRequestReadback(
   // TODO: we'll probably have to handle higher bit depth formats at some point
   // with the upcoming HDR work, but for now assume B8G8R8A8.
   auto readbackFormat = gfx::SurfaceFormat::B8G8R8A8;
-  size_t readbackSize =
-      aSize.width * aSize.height * gfx::BytesPerPixel(readbackFormat);
+  auto readbackSize = (CheckedUint32(aSize.width) * aSize.height *
+                       gfx::BytesPerPixel(readbackFormat));
+  if (!readbackSize.isValid()) {
+    return IPC_FAIL(this, "Invalid readback size.");
+  }
+
   Shmem buffer;
-  if (!AllocShmem(readbackSize, &buffer)) {
+  if (!AllocShmem(readbackSize.value(), &buffer)) {
     return IPC_FAIL(this, "Can't allocate shmem.");
   }
 

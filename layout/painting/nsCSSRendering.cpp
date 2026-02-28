@@ -24,7 +24,6 @@
 #include "gfxUtils.h"
 #include "imgIContainer.h"
 #include "mozilla/ComputedStyle.h"
-#include "mozilla/HashFunctions.h"
 #include "mozilla/PresShell.h"
 #include "mozilla/ProfilerLabels.h"
 #include "mozilla/SVGImageContext.h"
@@ -37,7 +36,6 @@
 #include "mozilla/gfx/Logging.h"
 #include "mozilla/gfx/PathHelpers.h"
 #include "nsBlockFrame.h"
-#include "nsCSSAnonBoxes.h"
 #include "nsCSSColorUtils.h"
 #include "nsCSSFrameConstructor.h"
 #include "nsCSSProps.h"
@@ -963,7 +961,7 @@ nsCSSRendering::CreateBorderRendererForNonThemedOutline(
     return Nothing();
   }
 
-  const nscoord width = ourOutline->GetOutlineWidth();
+  const nscoord width = ourOutline->mOutlineWidth;
 
   StyleBorderStyle outlineStyle;
   // Themed outlines are handled by our callers, if supported.
@@ -1043,11 +1041,12 @@ void nsCSSRendering::PaintNonThemedOutline(nsPresContext* aPresContext,
   PrintAsStringNewline();
 }
 
-void nsCSSRendering::PaintFocus(nsPresContext* aPresContext,
-                                DrawTarget* aDrawTarget,
-                                const nsRect& aFocusRect, nscolor aColor) {
+nsCSSBorderRenderer nsCSSRendering::GetBorderRendererForFocus(
+    nsIFrame* aForFrame, DrawTarget* aDrawTarget, const nsRect& aFocusRect,
+    nscolor aColor) {
+  auto* pc = aForFrame->PresContext();
   nscoord oneCSSPixel = nsPresContext::CSSPixelsToAppUnits(1);
-  nscoord oneDevPixel = aPresContext->DevPixelsToAppUnits(1);
+  nscoord oneDevPixel = pc->DevPixelsToAppUnits(1);
 
   Rect focusRect(NSRectToRect(aFocusRect, oneDevPixel));
 
@@ -1067,15 +1066,9 @@ void nsCSSRendering::PaintFocus(nsPresContext* aPresContext,
   // something that CSS can style, this function will then have access
   // to a ComputedStyle and can use the same logic that PaintBorder
   // and PaintOutline do.)
-  //
-  // WebRender layers-free mode don't use PaintFocus function. Just assign
-  // the backface-visibility to true for this case.
-  nsCSSBorderRenderer br(aPresContext, aDrawTarget, focusRect, focusRect,
-                         focusStyles, focusWidths, focusRadii, focusColors,
-                         true, Nothing());
-  br.DrawBorders();
-
-  PrintAsStringNewline();
+  return nsCSSBorderRenderer(pc, aDrawTarget, focusRect, focusRect, focusStyles,
+                             focusWidths, focusRadii, focusColors,
+                             !aForFrame->BackfaceIsHidden(), Nothing());
 }
 
 // Thebes Border Rendering Code End
@@ -1941,7 +1934,7 @@ ImgDrawResult nsCSSRendering::BuildWebRenderDisplayItemsForStyleImageLayer(
 }
 
 static bool IsOpaqueBorderEdge(const nsStyleBorder& aBorder,
-                               mozilla::Side aSide) {
+                               mozilla::Side aSide, const nsIFrame* aForFrame) {
   if (aBorder.GetComputedBorder().Side(aSide) == 0) {
     return true;
   }
@@ -1963,19 +1956,16 @@ static bool IsOpaqueBorderEdge(const nsStyleBorder& aBorder,
   if (!aBorder.mBorderImageSource.IsNone()) {
     return false;
   }
-
-  StyleColor color = aBorder.BorderColorFor(aSide);
-  // We don't know the foreground color here, so if it's being used
-  // we must assume it might be transparent.
-  return !color.MaybeTransparent();
+  return NS_GET_A(aBorder.BorderColorFor(aSide).CalcColor(aForFrame)) == 255;
 }
 
 /**
  * Returns true if all border edges are either missing or opaque.
  */
-static bool IsOpaqueBorder(const nsStyleBorder& aBorder) {
+static bool IsOpaqueBorder(const nsStyleBorder& aBorder,
+                           const nsIFrame* aForFrame) {
   for (const auto i : mozilla::AllPhysicalSides()) {
-    if (!IsOpaqueBorderEdge(aBorder, i)) {
+    if (!IsOpaqueBorderEdge(aBorder, i, aForFrame)) {
       return false;
     }
   }
@@ -2145,7 +2135,8 @@ void nsCSSRendering::GetImageLayerClip(
     haveRoundedCorners = GetRadii(aForFrame, aBorder, aBorderArea,
                                   clipBorderArea, aClipState->mRadii);
   }
-  bool isSolidBorder = aWillPaintBorder && IsOpaqueBorder(aBorder);
+  const bool isSolidBorder =
+      aWillPaintBorder && IsOpaqueBorder(aBorder, aForFrame);
   if (isSolidBorder && layerClip == StyleGeometryBox::BorderBox) {
     // If we have rounded corners, we need to inflate the background
     // drawing area a bit to avoid seams between the border and
@@ -4210,11 +4201,10 @@ void nsCSSRendering::PaintDecorationLine(
 void nsCSSRendering::PaintDecorationLineInternal(
     nsIFrame* aFrame, DrawTarget& aDrawTarget,
     const PaintDecorationLineParams& aParams, Rect aRect) {
-  Float lineThickness = std::max(NS_round(aParams.lineSize.height), 1.0);
-
+  const Float lineThickness = aParams.lineSize.height;
   DeviceColor color = ToDeviceColor(aParams.color);
   ColorPattern colorPat(color);
-  StrokeOptions strokeOptions(lineThickness);
+  StrokeOptions strokeOptions(aParams.lineSize.height);
   DrawOptions drawOptions;
 
   Float dash[2];
@@ -4492,8 +4482,7 @@ Rect nsCSSRendering::DecorationLineToPath(
     return path;
   }
 
-  Float lineThickness = std::max(NS_round(aParams.lineSize.height), 1.0);
-
+  const Float lineThickness = aParams.lineSize.height;
   // The block-direction position should be set to the middle of the line.
   if (aParams.vertical) {
     rect.x += lineThickness / 2;
@@ -4549,8 +4538,7 @@ gfxRect nsCSSRendering::GetTextDecorationRectInternal(
   // and horizontal coordinates at the end if vertical was requested.
   gfxRect r(left, 0, right - left, 0);
 
-  gfxFloat lineThickness = NS_round(aParams.lineSize.height);
-  lineThickness = std::max(lineThickness, 1.0);
+  const gfxFloat lineThickness = aParams.lineSize.height;
   gfxFloat defaultLineThickness = NS_round(aParams.defaultLineThickness);
   defaultLineThickness = std::max(defaultLineThickness, 1.0);
 

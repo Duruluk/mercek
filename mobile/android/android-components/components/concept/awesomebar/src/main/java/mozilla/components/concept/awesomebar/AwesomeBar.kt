@@ -7,6 +7,7 @@ package mozilla.components.concept.awesomebar
 import android.graphics.Bitmap
 import android.graphics.drawable.Drawable
 import android.view.View
+import mozilla.components.concept.awesomebar.AwesomeBar.Suggestion.Flag.BOOKMARK
 import java.util.UUID
 
 /**
@@ -73,6 +74,16 @@ interface AwesomeBar {
     fun setOnEditSuggestionListener(listener: (String) -> Unit)
 
     /**
+     * Update what search suggestions should be hidden.
+     */
+    fun updateHiddenSuggestions(hiddenSuggestions: Set<GroupedSuggestion>)
+
+    /**
+     * Add a callback for when the user clicked on the remove button for a history suggestion.
+     */
+    fun setOnRemoveSuggestionButtonClicked(listener: (GroupedSuggestion) -> Unit)
+
+    /**
      * Information about the [Suggestion]s that are currently displayed by the [AwesomeBar].
      */
     data class VisibilityState(
@@ -80,8 +91,103 @@ interface AwesomeBar {
          * An ordered map of the currently visible [SuggestionProviderGroup]s, and the visible [Suggestion]s in each
          * group. The groups and their suggestions are ordered top to bottom.
          */
-        val visibleProviderGroups: Map<SuggestionProviderGroup, List<Suggestion>> = emptyMap(),
+        val visibleProviderGroups: Map<SuggestionProviderGroup, List<SuggestionItem>> = emptyMap(),
     )
+
+    /**
+     * Pair of a [Suggestion] and the [SuggestionProviderGroup] identified by its id in which the
+     * [Suggestion] should be shown.
+     */
+    data class GroupedSuggestion(
+        val suggestion: SuggestionItem,
+        val groupId: String,
+    )
+
+    /**
+     * This interface decouples the [StocksOnlineSuggestionProvider] from the
+     * underlying data source (e.g. mocked data, network API, local cache, etc.).
+     */
+    interface StocksSuggestionDataSource {
+        /**
+         * Fetch stock suggestions for the given [query].
+         *
+         * @param query The current user input from the address/search bar.
+         *
+         * @return A list of [StockItem] representing stock suggestions relevant to the query.
+         * Implementations may return an empty list if no matches are found.
+         */
+        suspend fun fetch(query: String): List<StockItem>
+    }
+
+    /**
+     * Domain model representing a single stock suggestion result.
+     *
+     * This model is independent of UI classes and is used as an intermediate
+     * data representation before being mapped into an AwesomeBar-specific
+     * suggestion type (e.g. [AwesomeBar.StockSuggestion]).
+     *
+     * @property query The full query string that triggered this suggestion.
+     * @property name The full display name of the stock or fund.
+     * @property ticker The stock ticker symbol.
+     * @property changePercToday The percentage change today.
+     * @property lastPrice The last traded price, including currency.
+     * @property exchange The index the stock belongs to.
+     * @property currency The currency symbol associated with the stock.
+     */
+    data class StockItem(
+        val query: String,
+        val name: String,
+        val ticker: String,
+        val changePercToday: String,
+        val lastPrice: String,
+        val exchange: String,
+        val imageUrl: String?,
+    )
+
+    /**
+     * Represents the change percent used by the Stocks Suggestion.
+     */
+    sealed class ChangePercent(val value: String) {
+        /**
+         * Represents a positive percentage change.
+         */
+        class Positive(value: String) : ChangePercent(value)
+
+        /**
+         * Represents a negative percentage change.
+         */
+        class Negative(value: String) : ChangePercent(value)
+
+        /**
+         * Represents a neutral (zero) percentage change.
+         */
+        object Neutral : ChangePercent(value = "0")
+    }
+
+    /**
+     * Interface to be implemented by suggestion implementations.
+     */
+    interface SuggestionItem {
+        /**
+         * The provider this suggestion came from.
+         */
+        val provider: SuggestionProvider
+
+        /**
+         * A unique ID identifying this suggestion.
+         */
+        val id: String
+
+        /**
+         * A score used to rank suggestions of this provider against each other.
+         */
+        val score: Int
+
+        /**
+         * A callback to be executed when the suggestion was clicked by the user.
+         */
+        val onSuggestionClicked: (() -> Unit)?
+    }
 
     /**
      * A [Suggestion] to be displayed by an [AwesomeBar] implementation.
@@ -93,6 +199,8 @@ interface AwesomeBar {
      * @property title A user-readable title for the [Suggestion].
      * @property description A user-readable description for the [Suggestion].
      * @property editSuggestion The string that will be set to the url bar when using the edit suggestion arrow.
+     * @property isRemovalAllowed Whether this suggestion can be removed by the user.
+     * If so an appropriate icon will be shown to the end of the row.
      * @property icon A lambda that can be invoked by the [AwesomeBar] implementation to receive an icon [Bitmap] for
      * this [Suggestion]. The [AwesomeBar] will pass in its desired width and height for the Bitmap.
      * @property indicatorIcon A drawable for indicating different types of [Suggestion].
@@ -106,20 +214,22 @@ interface AwesomeBar {
      * to pass additional information about this suggestion.
      */
     data class Suggestion(
-        val provider: SuggestionProvider,
-        val id: String = UUID.randomUUID().toString(),
+        override val provider: SuggestionProvider,
+        override val id: String = UUID.randomUUID().toString(),
         val title: String? = null,
         val description: String? = null,
         val editSuggestion: String? = null,
+        val isRemovalAllowed: Boolean = false,
         val icon: Bitmap? = null,
         val indicatorIcon: Drawable? = null,
         val chips: List<Chip> = emptyList(),
         val flags: Set<Flag> = emptySet(),
-        val onSuggestionClicked: (() -> Unit)? = null,
+        override val onSuggestionClicked: (() -> Unit)? = null,
         val onChipClicked: ((Chip) -> Unit)? = null,
-        val score: Int = 0,
+        val onRemovalClicked: (() -> Unit)? = null,
+        override val score: Int = 0,
         val metadata: Map<String, Any>? = null,
-    ) {
+    ) : SuggestionItem {
         /**
          * Chips are compact actions that are shown as part of a suggestion. For example a [Suggestion] from a search
          * engine may offer multiple search suggestion chips for different search terms.
@@ -154,6 +264,33 @@ interface AwesomeBar {
                 flags == other.flags
         }
     }
+
+    /**
+     * [StockSuggestion] to be displayed by an [AwesomeBar] implementation for stock information.
+     *
+     * @property provider The provider this suggestion came from.
+     * @property id A unique ID (provider scope) identifying this [StockSuggestion].
+     * @property score A score used to rank suggestions of this provider against each other.
+     * @property onSuggestionClicked A callback to be executed when the [StockSuggestion] was clicked by the user.
+     * @property query The user input in the toolbar.
+     * @property ticker The stock ticker symbol (e.g., "AAPL", "GOOGL").
+     * @property name The full name of the stock.
+     * @property index The stock index or exchange where the stock is listed (e.g., "NASDAQ", "NYSE").
+     * @property lastPrice The ask price from the most recent quote for this ticker.
+     * @property changePercToday The percentage change since the previous day.
+     */
+    data class StockSuggestion(
+        override val provider: SuggestionProvider,
+        override val id: String = UUID.randomUUID().toString(),
+        override val score: Int = 0,
+        override val onSuggestionClicked: (() -> Unit)? = null,
+        val query: String,
+        val ticker: String,
+        val name: String,
+        val index: String,
+        val lastPrice: String,
+        val changePercToday: ChangePercent,
+    ) : SuggestionItem
 
     /**
      * A [SuggestionProvider] is queried by an [AwesomeBar] whenever the text in the address bar is changed by the user.
@@ -193,7 +330,7 @@ interface AwesomeBar {
          * @param text The current user input in the toolbar.
          * @return A list of suggestions to be displayed by the [AwesomeBar].
          */
-        suspend fun onInputChanged(text: String): List<Suggestion>
+        suspend fun onInputChanged(text: String): List<SuggestionItem>
 
         /**
          * Fired when the user has cancelled their interaction with the awesome bar.

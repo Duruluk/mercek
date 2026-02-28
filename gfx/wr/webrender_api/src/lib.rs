@@ -775,19 +775,6 @@ impl core::fmt::Debug for DebugFlags {
     }
 }
 
-/// Information specific to a primitive type that
-/// uniquely identifies a primitive template by key.
-#[derive(Debug, Clone, Eq, MallocSizeOf, PartialEq, Hash, Serialize, Deserialize)]
-pub enum PrimitiveKeyKind {
-    /// Clear an existing rect, used for special effects on some platforms.
-    Clear,
-    ///
-    Rectangle {
-        ///
-        color: PropertyBinding<ColorU>,
-    },
-}
-
 ///
 #[derive(Clone, Copy, Debug)]
 pub enum ScrollLocation {
@@ -805,6 +792,7 @@ pub enum ScrollLocation {
 pub enum CrashAnnotation {
     CompileShader = 0,
     DrawShader = 1,
+    FontFile = 2,
 }
 
 /// Handler to expose support for annotating crash reports.
@@ -859,4 +847,13 @@ pub enum TextureCacheCategory {
     Standalone,
     PictureTile,
     RenderTarget,
+}
+
+/// For debugging purposes
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "serialize", derive(Serialize))]
+#[cfg_attr(feature = "deserialize", derive(Deserialize))]
+pub enum RenderCommandInfo {
+    RenderTarget { kind: String, size: DeviceIntSize },
+    DrawCall { shader: String, instances: u32 },
 }

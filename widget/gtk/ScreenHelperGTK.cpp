@@ -72,12 +72,18 @@ static already_AddRefed<Screen> MakeScreenGtk(unsigned int aMonitor,
       ScreenHelperGTK::GetGTKMonitorScaleFactor(aMonitor);
   GdkScreen* defaultScreen = gdk_screen_get_default();
 
+  LOG_SCREEN("MakeScreenGtk() Monitor [%d] scale %d aIsHDR %d", aMonitor,
+             geometryScaleFactor, aIsHDR);
+
   GdkRectangle workarea;
   gdk_screen_get_monitor_workarea(defaultScreen, aMonitor, &workarea);
   LayoutDeviceIntRect availRect(workarea.x * geometryScaleFactor,
                                 workarea.y * geometryScaleFactor,
                                 workarea.width * geometryScaleFactor,
                                 workarea.height * geometryScaleFactor);
+
+  LOG_SCREEN("  workarea [%d, %d] -> [%d x %d]", availRect.x, availRect.y,
+             availRect.width, availRect.height);
 
   DesktopToLayoutDeviceScale contentsScale(1.0);
   CSSToLayoutDeviceScale defaultCssScale(geometryScaleFactor);
@@ -91,15 +97,20 @@ static already_AddRefed<Screen> MakeScreenGtk(unsigned int aMonitor,
       nsWaylandDisplay::MonitorConfig* config =
           WaylandDisplayGet()->GetMonitorConfig(workarea.x, workarea.y);
       (void)NS_WARN_IF(!config);
-      if (config && workarea.width > config->pixelWidth / geometryScaleFactor &&
-          workarea.height > config->pixelHeight / geometryScaleFactor) {
-        float fractionalScale = (float)config->pixelWidth / workarea.width;
-        LOG_SCREEN("Monitor %d uses fractional scale %f", aMonitor,
-                   fractionalScale);
-        availRect.width = config->pixelWidth;
-        availRect.height = config->pixelHeight;
-        defaultCssScale = CSSToLayoutDeviceScale(fractionalScale);
-        contentsScale.scale = fractionalScale;
+      if (config) {
+        LOG_SCREEN("  MonitorConfig pixel size [%d, %d] -> [%d x %d]",
+                   config->x, config->y, config->pixelWidth,
+                   config->pixelHeight);
+        if (workarea.width > config->pixelWidth / geometryScaleFactor &&
+            workarea.height > config->pixelHeight / geometryScaleFactor) {
+          float fractionalScale = (float)config->pixelWidth / workarea.width;
+          LOG_SCREEN("Monitor %d uses fractional scale %f", aMonitor,
+                     fractionalScale);
+          availRect.width = config->pixelWidth;
+          availRect.height = config->pixelHeight;
+          defaultCssScale = CSSToLayoutDeviceScale(fractionalScale);
+          contentsScale.scale = fractionalScale;
+        }
       }
     }
     // Don't report screen shift in Wayland, see bug 1795066.

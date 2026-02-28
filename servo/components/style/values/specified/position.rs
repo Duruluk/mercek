@@ -7,6 +7,7 @@
 //!
 //! [position]: https://drafts.csswg.org/css-backgrounds-3/#position
 
+use crate::derives::*;
 use crate::logical_geometry::{LogicalAxis, LogicalSide, PhysicalSide, WritingMode};
 use crate::parser::{Parse, ParserContext};
 use crate::selector_map::PrecomputedHashMap;
@@ -19,13 +20,13 @@ use crate::values::generics::position::PositionComponent as GenericPositionCompo
 use crate::values::generics::position::PositionOrAuto as GenericPositionOrAuto;
 use crate::values::generics::position::ZIndex as GenericZIndex;
 use crate::values::generics::position::{AspectRatio as GenericAspectRatio, GenericAnchorSide};
-use crate::values::generics::position::{GenericAnchorFunction, GenericInset};
+use crate::values::generics::position::{GenericAnchorFunction, GenericInset, TreeScoped};
 use crate::values::specified;
 use crate::values::specified::align::AlignFlags;
 use crate::values::specified::{AllowQuirks, Integer, LengthPercentage, NonNegativeNumber};
 use crate::values::DashedIdent;
 use crate::{Atom, Zero};
-use cssparser::Parser;
+use cssparser::{match_ignore_ascii_case, Parser};
 use num_traits::FromPrimitive;
 use selectors::parser::SelectorParseErrorKind;
 use servo_arc::Arc;
@@ -348,8 +349,8 @@ impl<S: Side> PositionComponent<S> {
 }
 
 /// https://drafts.csswg.org/css-anchor-position-1/#propdef-anchor-name
-#[repr(transparent)]
 #[derive(
+    Animate,
     Clone,
     Debug,
     MallocSizeOf,
@@ -362,25 +363,22 @@ impl<S: Side> PositionComponent<S> {
     ToTyped,
 )]
 #[css(comma)]
-pub struct AnchorName(
+#[repr(transparent)]
+pub struct AnchorNameIdent(
     #[css(iterable, if_empty = "none")]
     #[ignore_malloc_size_of = "Arc"]
+    #[animation(constant)]
     pub crate::ArcSlice<DashedIdent>,
 );
 
-impl AnchorName {
+impl AnchorNameIdent {
     /// Return the `none` value.
     pub fn none() -> Self {
         Self(Default::default())
     }
-
-    /// Returns whether this is the `none` value.
-    pub fn is_none(&self) -> bool {
-        self.0.is_empty()
-    }
 }
 
-impl Parse for AnchorName {
+impl Parse for AnchorNameIdent {
     fn parse<'i, 't>(
         context: &ParserContext,
         input: &mut Parser<'i, 't>,
@@ -397,11 +395,21 @@ impl Parse for AnchorName {
         while input.try_parse(|input| input.expect_comma()).is_ok() {
             idents.push(DashedIdent::parse(context, input)?);
         }
-        Ok(AnchorName(ArcSlice::from_iter(idents.drain(..))))
+        Ok(AnchorNameIdent(ArcSlice::from_iter(idents.drain(..))))
     }
 }
 
-/// https://drafts.csswg.org/css-anchor-position-1/#propdef-scope
+/// https://drafts.csswg.org/css-anchor-position-1/#propdef-anchor-name
+pub type AnchorName = TreeScoped<AnchorNameIdent>;
+
+impl AnchorName {
+    /// Return the `none` value.
+    pub fn none() -> Self {
+        Self::with_default_level(AnchorNameIdent::none())
+    }
+}
+
+/// Keyword for a scoped name.
 #[derive(
     Clone,
     Debug,
@@ -415,7 +423,7 @@ impl Parse for AnchorName {
     ToTyped,
 )]
 #[repr(u8)]
-pub enum AnchorScope {
+pub enum ScopedNameKeyword {
     /// `none`
     None,
     /// `all`
@@ -429,19 +437,14 @@ pub enum AnchorScope {
     ),
 }
 
-impl AnchorScope {
+impl ScopedNameKeyword {
     /// Return the `none` value.
     pub fn none() -> Self {
         Self::None
     }
-
-    /// Returns whether this is the `none` value.
-    pub fn is_none(&self) -> bool {
-        *self == Self::None
-    }
 }
 
-impl Parse for AnchorScope {
+impl Parse for ScopedNameKeyword {
     fn parse<'i, 't>(
         context: &ParserContext,
         input: &mut Parser<'i, 't>,
@@ -461,7 +464,20 @@ impl Parse for AnchorScope {
         while input.try_parse(|input| input.expect_comma()).is_ok() {
             idents.push(DashedIdent::parse(context, input)?);
         }
-        Ok(AnchorScope::Idents(ArcSlice::from_iter(idents.drain(..))))
+        Ok(ScopedNameKeyword::Idents(ArcSlice::from_iter(
+            idents.drain(..),
+        )))
+    }
+}
+
+/// A scoped name type, such as:
+/// * https://drafts.csswg.org/css-anchor-position-1/#propdef-scope
+pub type ScopedName = TreeScoped<ScopedNameKeyword>;
+
+impl ScopedName {
+    /// Return the `none` value.
+    pub fn none() -> Self {
+        Self::with_default_level(ScopedNameKeyword::none())
     }
 }
 
@@ -480,22 +496,29 @@ impl Parse for AnchorScope {
     ToTyped,
 )]
 #[repr(u8)]
-pub enum PositionAnchor {
+pub enum PositionAnchorKeyword {
+    /// `none`
+    None,
     /// `auto`
     Auto,
     /// `<dashed-ident>`
     Ident(DashedIdent),
 }
 
-impl PositionAnchor {
-    /// Return the `auto` value.
-    pub fn auto() -> Self {
-        Self::Auto
+impl PositionAnchorKeyword {
+    /// Return the `none` value.
+    pub fn none() -> Self {
+        Self::None
     }
+}
 
-    /// Returns whether this is the `auto` value.
-    pub fn is_auto(&self) -> bool {
-        *self == Self::Auto
+/// https://drafts.csswg.org/css-anchor-position-1/#propdef-position-anchor
+pub type PositionAnchor = TreeScoped<PositionAnchorKeyword>;
+
+impl PositionAnchor {
+    /// Return the `none` value.
+    pub fn none() -> Self {
+        Self::with_default_level(PositionAnchorKeyword::none())
     }
 }
 
@@ -1187,10 +1210,13 @@ impl PositionAreaKeyword {
     }
 
     /// Returns a value for the self-alignment properties in order to resolve
-    /// `normal`.
+    /// `normal`, in terms of the containing block's writing mode.
+    ///
+    /// Note that the caller must have converted the position-area to physical
+    /// values.
     ///
     /// <https://drafts.csswg.org/css-anchor-position/#position-area-alignment>
-    pub fn to_self_alignment(self) -> Option<AlignFlags> {
+    pub fn to_self_alignment(self, axis: LogicalAxis, cb_wm: &WritingMode) -> Option<AlignFlags> {
         let track = self.track()?;
         Some(match track {
             // "If the only the center track in an axis is selected, the default alignment in that axis is center."
@@ -1200,10 +1226,24 @@ impl PositionAreaKeyword {
             // "Otherwise, the default alignment in that axis is toward the non-specified side track: if it’s
             // specifying the “start” track of its axis, the default alignment in that axis is end; etc."
             _ => {
-                if track.start() {
-                    AlignFlags::END
+                debug_assert_eq!(self.group_type(), PositionAreaType::Physical);
+                if axis == LogicalAxis::Inline {
+                    // For the inline axis, map 'start' to 'end' unless the axis is inline-reversed,
+                    // meaning that its logical flow is counter to physical coordinates and therefore
+                    // physical 'start' already corresponds to logical 'end'.
+                    if track.start() == cb_wm.intersects(WritingMode::INLINE_REVERSED) {
+                        AlignFlags::START
+                    } else {
+                        AlignFlags::END
+                    }
                 } else {
-                    AlignFlags::START
+                    // For the block axis, only vertical-rl has reversed flow and therefore
+                    // does not map 'start' to 'end' here.
+                    if track.start() == cb_wm.is_vertical_rl() {
+                        AlignFlags::START
+                    } else {
+                        AlignFlags::END
+                    }
                 }
             },
         })
@@ -1372,9 +1412,21 @@ impl PositionArea {
     /// Turns this <position-area> value into a physical <position-area>.
     pub fn to_physical(mut self, cb_wm: WritingMode, self_wm: WritingMode) -> Self {
         self.make_missing_second_explicit();
-        self.first = self.first.to_physical(cb_wm, self_wm, LogicalAxis::Block);
-        self.second = self.second.to_physical(cb_wm, self_wm, LogicalAxis::Inline);
-        self.canonicalize_order();
+        // If both axes are None, to_physical and canonicalize_order are not useful.
+        // The first value refers to the block axis, the second to the inline axis;
+        // but as a physical type, they will be interpreted as the x- and y-axis
+        // respectively, so if the writing mode is horizontal we need to swap the
+        // values (block -> y, inline -> x).
+        if self.first.axis() == PositionAreaAxis::None
+            && self.second.axis() == PositionAreaAxis::None
+            && !cb_wm.is_vertical()
+        {
+            std::mem::swap(&mut self.first, &mut self.second);
+        } else {
+            self.first = self.first.to_physical(cb_wm, self_wm, LogicalAxis::Block);
+            self.second = self.second.to_physical(cb_wm, self_wm, LogicalAxis::Inline);
+            self.canonicalize_order();
+        }
         self
     }
 
@@ -2125,7 +2177,9 @@ impl Parse for AnchorFunction {
                 })
                 .ok();
             Ok(Self {
-                target_element: target_element.unwrap_or_else(DashedIdent::empty),
+                target_element: TreeScoped::with_default_level(
+                    target_element.unwrap_or_else(DashedIdent::empty),
+                ),
                 side,
                 fallback: fallback.into(),
             })

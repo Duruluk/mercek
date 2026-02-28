@@ -320,8 +320,7 @@ random-if(winWidget) fuzzy(0-25,0-2800) fails-if(useDrawSnapshot) HTTP == 289480
 == 296904-1.html 296904-1-ref.html
 == 299136-1.html 299136-1-ref.html
 == 299837-1.html 299837-1-ref.html
-pref(layout.css.grid-multi-pass-track-sizing.enabled,true) skip-if(Android) == chrome://reftest/content/bugs/299837-3.xhtml chrome://reftest/content/bugs/299837-3-ref.xhtml
-pref(layout.css.grid-multi-pass-track-sizing.enabled,false) skip-if(Android) == chrome://reftest/content/bugs/299837-3.xhtml chrome://reftest/content/bugs/299837-3-ref.xhtml # We may remove this duplicate test after enabling the pref by default in bug 1957244
+skip-if(Android) == chrome://reftest/content/bugs/299837-3.xhtml chrome://reftest/content/bugs/299837-3-ref.xhtml
 == 300691-1a.html 300691-1-ref.html
 == 300691-1b.html 300691-1-ref.html
 == 300691-1c.html 300691-1-ref.html
@@ -950,7 +949,6 @@ fuzzy(0-1,0-10) == 413361-1.html 413361-1-ref.html # bug 1128229
 == 413982.html 413982-ref.html
 == 414638.html 414638-ref.html
 == 414851-1.html 414851-1-ref.html
-== 416106-1.xhtml 416106-1-ref.xhtml
 == 416752-1.html 416752-1-ref.html
 == 417178-1.html 417178-1-ref.html
 == 417246-1.html 417246-1-ref.html
@@ -1012,7 +1010,7 @@ fuzzy(0-1,0-160000) == 424766-1.html 424766-1-ref.html
 == 425972-2.html 425972-2-ref.html
 != 425972-1.html 425972-2.html
 == 426629-1.html 426629-1-ref.html
-asserts(3) != 427017-1.xhtml about:blank # crash test (needs reftest-paged). existing assertions are bug 457400.
+asserts(2-2) != 427017-1.xhtml about:blank # crash test (needs reftest-paged). existing assertions are bug 457400.
 == 427129-scrollframe.html 427129-ref.html
 == 427129-table.html 427129-ref.html
 == 427129-image.html 427129-ref.html
@@ -1519,7 +1517,7 @@ fuzzy-if(winWidget,0-52,0-1051) == 586683-1.html 586683-1-ref.html
 == 589615-1b.html 589615-1-ref.html
 == 589672-1.html 589672-1-ref.html
 != 589682-1.html 589682-1-notref.html
-pref(dom.meta-viewport.enabled,true) == 593243-1.html 593243-1-ref.html
+skip-if(Android&&!emulator) pref(dom.meta-viewport.enabled,true) == 593243-1.html 593243-1-ref.html
 pref(dom.meta-viewport.enabled,true) == 593243-2.html 593243-2-ref.html
 == 593544-1.html 593544-1-ref.html
 == 594333-1.html 594333-1-ref.html
@@ -1936,7 +1934,7 @@ fuzzy(0-13,0-40000) fuzzy-if(winWidget,0-13,0-40000) == 1316719-1b.html 1316719-
 fuzzy(0-13,0-40000) fuzzy-if(winWidget,0-13,0-40000) == 1316719-1c.html 1316719-1-ref.html
 != 1318769-1.html 1318769-1-ref.html
 == 1322512-1.html 1322512-1-ref.html
-skip-if(winWidget&&isDebugBuild) == 1330051.svg 1330051-ref.svg
+== 1330051.svg 1330051-ref.svg
 != 1336591-1.html 1336591-1-ref.html
 == 1348481-1.html 1348481-ref.html
 == 1348481-2.html 1348481-ref.html
@@ -2068,7 +2066,7 @@ skip-if(!cocoaWidget) != 1608124-2.html 1608124-2-notref.html
 fuzzy(0-145,0-48536) == 1614788-1.svg 1614788-1-ref.svg # large fuzz necesary to test bug: 239,202824 is how much it differs when bug exists
 == blob-fallback-clip.html blob-fallback-clip-ref.html
 fuzzy-if(cocoaWidget,0-42,0-4) fuzzy-if(winWidget,249-249,999-999) == 1617515-1.html 1617515-1-ref.html
-== 1624118.html 1624118-ref.html
+skip-if(Android&&!emulator) == 1624118.html 1624118-ref.html
 fuzzy(0-2,0-21184) == 1626259-1.html 1626259-1-ref.html
 fuzzy(0-2,0-21184) == 1626259-2.html 1626259-2-ref.html
 != 1642583-1.html 1642583-1-ref.html
@@ -2121,7 +2119,7 @@ skip-if(Android) test-pref(ui.textScaleFactor,50) test-pref(browser.display.os-z
 pref(widget.disable-dark-scrollbar,false) == 1777135.html 1777135-ref.html
 test-pref(widget.non-native-theme.use-theme-accent,false) == 1778834.html 1778834-ref.html
 # do not adjust the fuzz without looking, this test was written as fuzzy on purpose (because that was the only way to make a test work)
-fuzzy(16-47,26939-44425) == 1780191-1.svg 1780191-1-ref.svg
+fuzzy(16-68,26939-44439) == 1780191-1.svg 1780191-1-ref.svg
 pref(layout.css.prefers-color-scheme.content-override,0) == 1787127.html 1787127-ref.html
 pref(layout.css.prefers-color-scheme.content-override,1) == 1787127.html 1787127-ref.html
 pref(layout.css.prefers-color-scheme.content-override,2) == 1787127.html 1787127-ref.html

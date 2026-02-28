@@ -10,6 +10,9 @@ loader.lazyRequireGetter(
   "resource://devtools/client/shared/link.js",
   true
 );
+const { getMdnLinkParams } = ChromeUtils.importESModule(
+  "resource://devtools/shared/mdn.mjs"
+);
 
 class InactiveCssTooltipHelper {
   constructor() {
@@ -44,7 +47,7 @@ class InactiveCssTooltipHelper {
    *   </p>
    * </div>
    *
-   * @param {Object} data
+   * @param {object} data
    *        An object in the following format: {
    *          fixId: "inactive-css-not-grid-item-fix-2", // Fluent id containing the
    *                                                     // Inactive CSS fix.
@@ -61,12 +64,12 @@ class InactiveCssTooltipHelper {
     const { doc } = tooltip;
 
     const documentUrl = new URL(
-      learnMoreURL || `https://developer.mozilla.org/docs/Web/CSS/${property}`
+      (learnMoreURL ||
+        `https://developer.mozilla.org/docs/Web/CSS/Reference/Properties/${property}`) +
+        "?" +
+        getMdnLinkParams("inspector-inactive-css")
     );
     this._currentTooltip = tooltip;
-    const { searchParams } = documentUrl;
-    searchParams.append("utm_source", "devtools");
-    searchParams.append("utm_medium", "inspector-inactive-css");
     this._currentUrl = documentUrl.toString();
 
     const templateNode = doc.createElementNS(XHTML_NS, "template");
@@ -90,7 +93,6 @@ class InactiveCssTooltipHelper {
    *
    * @param {DOMEvent} event
    *        The click event originating from the tooltip.
-   *
    */
   addTab(event) {
     // The XUL panel swallows click events so handlers can't be added directly

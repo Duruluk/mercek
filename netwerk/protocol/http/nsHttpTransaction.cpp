@@ -30,6 +30,7 @@
 #include "nsHttpChunkedDecoder.h"
 #include "nsHttpDigestAuth.h"
 #include "nsHttpHandler.h"
+#include "nsHttpConnectionMgr.h"
 #include "nsHttpNTLMAuth.h"
 #ifdef MOZ_AUTH_EXTENSION
 #  include "nsHttpNegotiateAuth.h"
@@ -60,6 +61,7 @@
 #include "nsQueryObject.h"
 #include "nsSocketTransportService2.h"
 #include "nsStringStream.h"
+#include "nsThreadUtils.h"
 #include "nsTransportUtils.h"
 #include "sslerr.h"
 #include "SpeculativeTransaction.h"
@@ -74,6 +76,19 @@
 using namespace mozilla::net;
 
 namespace mozilla::net {
+
+//-----------------------------------------------------------------------------
+// nsHttpTransaction::UpdateSecurityCallbacks
+//-----------------------------------------------------------------------------
+
+NS_IMPL_ISUPPORTS_INHERITED(nsHttpTransaction::UpdateSecurityCallbacks,
+                            Runnable, nsIRunnablePriority)
+
+NS_IMETHODIMP
+nsHttpTransaction::UpdateSecurityCallbacks::GetPriority(uint32_t* aPriority) {
+  *aPriority = mPriority;
+  return NS_OK;
+}
 
 //-----------------------------------------------------------------------------
 // nsHttpTransaction <public>
@@ -422,6 +437,12 @@ nsresult nsHttpTransaction::AsyncRead(nsIStreamListener* listener,
       nsInputStreamPump::Create(getter_AddRefs(transactionPump), mPipeIn);
   NS_ENSURE_SUCCESS(rv, rv);
 
+  // If this is for a TRR request, we increase the priority of the
+  // OnInputStreamReady runnables
+  if (mIsTRRTransaction) {
+    transactionPump->SetHighPriority(true);
+  }
+
   rv = transactionPump->AsyncRead(listener);
   NS_ENSURE_SUCCESS(rv, rv);
 
@@ -440,6 +461,10 @@ void nsHttpTransaction::SetH2WSConnRefTaken() {
     nsCOMPtr<nsIRunnable> event =
         NewRunnableMethod("nsHttpTransaction::SetH2WSConnRefTaken", this,
                           &nsHttpTransaction::SetH2WSConnRefTaken);
+    if (mIsTRRTransaction) {
+      event = new PrioritizableRunnable(
+          event.forget(), nsIRunnablePriority::PRIORITY_MEDIUMHIGH);
+    }
     gSocketTransportService->Dispatch(event, NS_DISPATCH_NORMAL);
     return;
   }
@@ -544,12 +569,6 @@ void nsHttpTransaction::OnActivated() {
   mActivated = true;
   gHttpHandler->ConnMgr()->AddActiveTransaction(this);
   FinalizeConnInfo();
-  if (mConnection) {
-    RefPtr<HttpConnectionBase> conn = mConnection->HttpConnection();
-    if (conn) {
-      conn->RecordConnectionAddressType();
-    }
-  }
 }
 
 void nsHttpTransaction::GetSecurityCallbacks(nsIInterfaceRequestor** cb) {
@@ -566,8 +585,10 @@ void nsHttpTransaction::SetSecurityCallbacks(
   }
 
   if (gSocketTransportService) {
-    RefPtr<UpdateSecurityCallbacks> event =
-        new UpdateSecurityCallbacks(this, aCallbacks);
+    RefPtr<UpdateSecurityCallbacks> event = new UpdateSecurityCallbacks(
+        this, aCallbacks,
+        mIsTRRTransaction ? nsIRunnablePriority::PRIORITY_MEDIUMHIGH
+                          : nsIRunnablePriority::PRIORITY_NORMAL);
     gSocketTransportService->Dispatch(event, nsIEventTarget::DISPATCH_NORMAL);
   }
 }
@@ -897,6 +918,10 @@ void nsHttpTransaction::DontReuseConnection() {
     nsCOMPtr<nsIRunnable> event =
         NewRunnableMethod("nsHttpTransaction::DontReuseConnection", this,
                           &nsHttpTransaction::DontReuseConnection);
+    if (mIsTRRTransaction) {
+      event = new PrioritizableRunnable(
+          event.forget(), nsIRunnablePriority::PRIORITY_MEDIUMHIGH);
+    }
     gSocketTransportService->Dispatch(event, NS_DISPATCH_NORMAL);
     return;
   }
@@ -1313,11 +1338,13 @@ static void MaybeRemoveSSLToken(nsITransportSecurityInfo* aSecurityInfo) {
        static_cast<uint32_t>(rv)));
 }
 
-const int64_t TELEMETRY_REQUEST_SIZE_10M = (int64_t)10 * (int64_t)(1 << 20);
+const int64_t TELEMETRY_REQUEST_SIZE_1M = (int64_t)(1 << 20);
+const int64_t TELEMETRY_REQUEST_SIZE_10M =
+    (int64_t)10 * TELEMETRY_REQUEST_SIZE_1M;
 const int64_t TELEMETRY_REQUEST_SIZE_50M =
-    (int64_t)5 * TELEMETRY_REQUEST_SIZE_10M;
+    (int64_t)50 * TELEMETRY_REQUEST_SIZE_1M;
 const int64_t TELEMETRY_REQUEST_SIZE_100M =
-    (int64_t)10 * TELEMETRY_REQUEST_SIZE_10M;
+    (int64_t)100 * TELEMETRY_REQUEST_SIZE_1M;
 
 void nsHttpTransaction::Close(nsresult reason) {
   LOG(("nsHttpTransaction::Close [this=%p reason=%" PRIx32 "]\n", this,
@@ -1331,6 +1358,15 @@ void nsHttpTransaction::Close(nsresult reason) {
   if (mDNSRequest) {
     mDNSRequest->Cancel(NS_ERROR_ABORT);
     mDNSRequest = nullptr;
+  }
+
+  // If an HTTP/3 backup timer is active and this transaction ends in error,
+  // treat it as NS_ERROR_NET_RESET so the transaction will retry once.
+  // NOTE: This is a temporary workaround; the proper fix belongs in
+  // the Happy Eyeballs project.
+  if (NS_FAILED(reason) && AllowedErrorForTransactionRetry(reason) &&
+      mHttp3BackupTimerCreated && mHttp3BackupTimer) {
+    reason = NS_ERROR_NET_RESET;
   }
 
   MaybeCancelFallbackTimer();
@@ -1384,7 +1420,7 @@ void nsHttpTransaction::Close(nsresult reason) {
   // to make sure this transaction can be restarted with the same conncetion
   // info.
   bool shouldRestartTransactionForHTTPSRR =
-      mOrigConnInfo && AllowedErrorForHTTPSRRFallback(reason) &&
+      mOrigConnInfo && AllowedErrorForTransactionRetry(reason) &&
       !mDoNotRemoveAltSvc;
 
   //
@@ -1494,6 +1530,12 @@ void nsHttpTransaction::Close(nsresult reason) {
           }
           if (psm::IsNSSErrorCode(-1 * NS_ERROR_GET_CODE(aStatus))) {
             return TRANSACTION_RESTART_HTTPS_RR_SEC_ERROR;
+          }
+          if (aStatus == NS_ERROR_NOT_CONNECTED ||
+              aStatus == NS_ERROR_SOCKET_ADDRESS_IN_USE ||
+              aStatus == NS_ERROR_FILE_ALREADY_EXISTS ||
+              aStatus == NS_ERROR_NET_INTERRUPT) {
+            return TRANSACTION_RESTART_OTHERS;
           }
           MOZ_ASSERT_UNREACHABLE("Unexpected reason");
           return TRANSACTION_RESTART_OTHERS;
@@ -1629,6 +1671,13 @@ void nsHttpTransaction::Close(nsresult reason) {
       glean::http::dns_httpssvc_connection_failed_reason.AccumulateSingleSample(
           HTTPSSVC_CONNECTION_OK);
     }
+
+    if (mConnection) {
+      RefPtr<HttpConnectionBase> conn = mConnection->HttpConnection();
+      if (conn) {
+        conn->RecordConnectionAddressType();
+      }
+    }
   }
 
   // mTimings.responseEnd is normally recorded based on the end of a
@@ -1712,11 +1761,6 @@ void nsHttpTransaction::Close(nsresult reason) {
       }
       default:
         break;
-    }
-
-    if (!serverKey.IsEmpty()) {
-      glean::network::http_fetch_duration.Get(serverKey).AccumulateRawDuration(
-          elapsed);
     }
   }
 
@@ -1840,6 +1884,11 @@ nsresult nsHttpTransaction::Restart() {
   if (++mRestartCount >= gHttpHandler->MaxRequestAttempts()) {
     LOG(("reached max request attempts, failing transaction @%p\n", this));
     return NS_ERROR_NET_RESET;
+  }
+
+  // Let's not restart during shutdown.
+  if (AppShutdown::IsInOrBeyond(ShutdownPhase::AppShutdownConfirmed)) {
+    return NS_ERROR_ILLEGAL_DURING_SHUTDOWN;
   }
 
   LOG(("restarting transaction @%p\n", this));
@@ -3443,6 +3492,10 @@ void nsHttpTransaction::OnBackupConnectionReady(bool aTriggeredByHTTPSRR) {
   }
 
   if (mConnection) {
+    if (mConnection->Version() != HttpVersion::v3_0) {
+      LOG(("Already have non-HTTP/3 conn:%p", mConnection.get()));
+      return;
+    }
     // The transaction will only be restarted when we already have a connection.
     // When there is no connection, this transaction will be moved to another
     // connection entry.
@@ -3646,21 +3699,23 @@ nsHttpTransaction::GetName(nsACString& aName) {
 bool nsHttpTransaction::GetSupportsHTTP3() { return mSupportsHTTP3; }
 
 void nsHttpTransaction::CollectTelemetryForUploads() {
-  if ((mRequestSize < TELEMETRY_REQUEST_SIZE_10M) ||
+  if ((mRequestSize < TELEMETRY_REQUEST_SIZE_1M) ||
       mTimings.requestStart.IsNull() || mTimings.responseStart.IsNull()) {
     return;
   }
 
-  // We will briefly continue to collect HTTP_UPLOAD_BANDWIDTH_MBPS
-  // (a keyed histogram) while live experiments depend on it.
-  // Once complete, we can remove and use the glean probes,
-  // http_1/2/3_upload_throughput.
   nsAutoCString protocolVersion(nsHttp::GetProtocolVersion(mHttpVersion));
   TimeDuration sendTime = mTimings.responseStart - mTimings.requestStart;
   double megabits = static_cast<double>(mRequestSize) * 8.0 / 1000000.0;
   uint32_t mpbs = static_cast<uint32_t>(megabits / sendTime.ToSeconds());
-  glean::http::upload_bandwidth_mbps.Get(protocolVersion)
-      .AccumulateSingleSample(mpbs);
+
+  if (mRequestSize <= TELEMETRY_REQUEST_SIZE_10M) {
+    if (mHttpVersion == HttpVersion::v3_0) {
+      glean::networking::http_3_upload_throughput_1_10.AccumulateSingleSample(
+          mpbs);
+    }
+    return;
+  }
 
   switch (mHttpVersion) {
     case HttpVersion::v1_0:

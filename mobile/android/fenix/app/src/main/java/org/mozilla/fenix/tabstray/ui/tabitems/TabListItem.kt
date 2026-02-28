@@ -51,6 +51,7 @@ import org.mozilla.fenix.compose.DismissibleItemBackground
 import org.mozilla.fenix.compose.SwipeToDismissBox2
 import org.mozilla.fenix.compose.SwipeToDismissState2
 import org.mozilla.fenix.compose.TabThumbnail
+import org.mozilla.fenix.compose.thumbnailImageData
 import org.mozilla.fenix.ext.toShortUrl
 import org.mozilla.fenix.tabstray.TabsTrayTestTag
 import org.mozilla.fenix.tabstray.ext.toDisplayTitle
@@ -251,10 +252,10 @@ private fun Thumbnail(
     val density = LocalDensity.current
     val thumbnailSize = with(density) { ThumbnailWidth.toPx() }.toInt()
     TabThumbnail(
-        tab = tab,
+        tabThumbnailImageData = tab.thumbnailImageData(),
         thumbnailSizePx = thumbnailSize,
         modifier = Modifier
-            .sharedTabTransition(tab = tab)
+            .sharedTabTransition(tabId = tab.id)
             .size(
                 width = ThumbnailWidth,
                 height = ThumbnailHeight,

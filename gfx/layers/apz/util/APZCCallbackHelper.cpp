@@ -38,7 +38,6 @@
 #include "nsPIDOMWindow.h"
 #include "nsRefreshDriver.h"
 #include "nsString.h"
-#include "nsView.h"
 
 static mozilla::LazyLogModule sApzHlpLog("apz.helper");
 #define APZCCH_LOG(...) MOZ_LOG(sApzHlpLog, LogLevel::Debug, (__VA_ARGS__))
@@ -534,11 +533,10 @@ PresShell* APZCCallbackHelper::GetRootContentDocumentPresShellForContent(
 }
 
 nsEventStatus APZCCallbackHelper::DispatchWidgetEvent(WidgetGUIEvent& aEvent) {
-  nsEventStatus status = nsEventStatus_eConsumeNoDefault;
   if (aEvent.mWidget) {
-    aEvent.mWidget->DispatchEvent(&aEvent, status);
+    return aEvent.mWidget->DispatchEvent(&aEvent);
   }
-  return status;
+  return nsEventStatus_eConsumeNoDefault;
 }
 
 nsEventStatus APZCCallbackHelper::DispatchSynthesizedMouseEvent(

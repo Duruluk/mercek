@@ -30,12 +30,32 @@ nsresult SVGAnimatedPathSegList::SetBaseValueString(const nsAString& aValue) {
 
 enum class PositionType { Absolute, Relative };
 
-static StyleCommandEndPoint<float> MakeEndPoint(PositionType type, float x,
-                                                float y) {
+static StyleEndPoint<float> MakeEndPoint(PositionType type, float x, float y) {
   if (type == PositionType::Absolute) {
-    return StyleCommandEndPoint<float>::ToPosition({x, y});
+    return StyleEndPoint<float>::ToPosition({x, y});
   } else {
-    return StyleCommandEndPoint<float>::ByCoordinate({x, y});
+    return StyleEndPoint<float>::ByCoordinate({x, y});
+  }
+}
+
+static StyleCurveControlPoint<float> MakeControlPoint(PositionType type,
+                                                      float x, float y) {
+  if (type == PositionType::Absolute) {
+    return StyleCurveControlPoint<float>::Absolute({x, y});
+  } else {
+    const auto rcp =
+        StyleRelativeControlPoint<float>{{x, y}, StyleControlReference::Start};
+    return StyleCurveControlPoint<float>::Relative(rcp);
+  }
+}
+
+static StyleAxisEndPoint<float> MakeAxisEndPoint(PositionType type,
+                                                 float end_point) {
+  if (type == PositionType::Absolute) {
+    const auto pos = StyleAxisPosition<float>::LengthPercent(end_point);
+    return StyleAxisEndPoint<float>::ToPosition(pos);
+  } else {
+    return StyleAxisEndPoint<float>::ByCoordinate(end_point);
   }
 }
 
@@ -87,29 +107,36 @@ class MOZ_STACK_CLASS SVGPathSegmentInitWrapper final {
         return StylePathCommand::CubicCurve(
             MakeEndPoint(PositionType::Absolute, mInit.mValues[4],
                          mInit.mValues[5]),
-            {mInit.mValues[0], mInit.mValues[1]},
-            {mInit.mValues[2], mInit.mValues[3]});
+            MakeControlPoint(PositionType::Absolute, mInit.mValues[0],
+                             mInit.mValues[1]),
+            MakeControlPoint(PositionType::Absolute, mInit.mValues[2],
+                             mInit.mValues[3]));
       case 'c':
         return StylePathCommand::CubicCurve(
             MakeEndPoint(PositionType::Relative, mInit.mValues[4],
                          mInit.mValues[5]),
-            {mInit.mValues[0], mInit.mValues[1]},
-            {mInit.mValues[2], mInit.mValues[3]});
+            MakeControlPoint(PositionType::Relative, mInit.mValues[0],
+                             mInit.mValues[1]),
+            MakeControlPoint(PositionType::Relative, mInit.mValues[2],
+                             mInit.mValues[3]));
       case 'Q':
         return StylePathCommand::QuadCurve(
             MakeEndPoint(PositionType::Absolute, mInit.mValues[2],
                          mInit.mValues[3]),
-            {mInit.mValues[0], mInit.mValues[1]});
+            MakeControlPoint(PositionType::Absolute, mInit.mValues[0],
+                             mInit.mValues[1]));
       case 'q':
         return StylePathCommand::QuadCurve(
             MakeEndPoint(PositionType::Relative, mInit.mValues[2],
                          mInit.mValues[3]),
-            {mInit.mValues[0], mInit.mValues[1]});
+            MakeControlPoint(PositionType::Relative, mInit.mValues[0],
+                             mInit.mValues[1]));
       case 'A':
         return StylePathCommand::Arc(
             MakeEndPoint(PositionType::Absolute, mInit.mValues[5],
                          mInit.mValues[6]),
-            {mInit.mValues[0], mInit.mValues[1]},
+            StyleArcRadii<float>(mInit.mValues[0],
+                                 StyleOptional<float>::Some(mInit.mValues[1])),
             mInit.mValues[4] ? StyleArcSweep::Cw : StyleArcSweep::Ccw,
             mInit.mValues[3] ? StyleArcSize::Large : StyleArcSize::Small,
             mInit.mValues[2]);
@@ -117,28 +144,35 @@ class MOZ_STACK_CLASS SVGPathSegmentInitWrapper final {
         return StylePathCommand::Arc(
             MakeEndPoint(PositionType::Relative, mInit.mValues[5],
                          mInit.mValues[6]),
-            {mInit.mValues[0], mInit.mValues[1]},
+            StyleArcRadii<float>(mInit.mValues[0],
+                                 StyleOptional<float>::Some(mInit.mValues[1])),
             mInit.mValues[4] ? StyleArcSweep::Cw : StyleArcSweep::Ccw,
             mInit.mValues[3] ? StyleArcSize::Large : StyleArcSize::Small,
             mInit.mValues[2]);
       case 'H':
-        return StylePathCommand::HLine(StyleByTo::To, mInit.mValues[0]);
+        return StylePathCommand::HLine(
+            MakeAxisEndPoint(PositionType::Absolute, mInit.mValues[0]));
       case 'h':
-        return StylePathCommand::HLine(StyleByTo::By, mInit.mValues[0]);
+        return StylePathCommand::HLine(
+            MakeAxisEndPoint(PositionType::Relative, mInit.mValues[0]));
       case 'V':
-        return StylePathCommand::VLine(StyleByTo::To, mInit.mValues[0]);
+        return StylePathCommand::VLine(
+            MakeAxisEndPoint(PositionType::Absolute, mInit.mValues[0]));
       case 'v':
-        return StylePathCommand::VLine(StyleByTo::By, mInit.mValues[0]);
+        return StylePathCommand::VLine(
+            MakeAxisEndPoint(PositionType::Relative, mInit.mValues[0]));
       case 'S':
         return StylePathCommand::SmoothCubic(
             MakeEndPoint(PositionType::Absolute, mInit.mValues[2],
                          mInit.mValues[3]),
-            {mInit.mValues[0], mInit.mValues[1]});
+            MakeControlPoint(PositionType::Absolute, mInit.mValues[0],
+                             mInit.mValues[1]));
       case 's':
         return StylePathCommand::SmoothCubic(
             MakeEndPoint(PositionType::Relative, mInit.mValues[2],
                          mInit.mValues[3]),
-            {mInit.mValues[0], mInit.mValues[1]});
+            MakeControlPoint(PositionType::Relative, mInit.mValues[0],
+                             mInit.mValues[1]));
       case 'T':
         return StylePathCommand::SmoothQuad(MakeEndPoint(
             PositionType::Absolute, mInit.mValues[0], mInit.mValues[1]));
@@ -216,7 +250,7 @@ nsresult SVGAnimatedPathSegList::SetAnimValue(const SVGPathData& aNewAnimValue,
   // that will override an existing animation.
 
   if (!mAnimVal) {
-    mAnimVal = MakeUnique<SVGPathData>();
+    mAnimVal = std::make_unique<SVGPathData>();
   }
   *mAnimVal = aNewAnimValue;
   aElement->DidAnimatePathSegList();
@@ -232,8 +266,9 @@ bool SVGAnimatedPathSegList::IsRendered() const {
   return mAnimVal ? !mAnimVal->IsEmpty() : !mBaseVal.IsEmpty();
 }
 
-UniquePtr<SMILAttr> SVGAnimatedPathSegList::ToSMILAttr(SVGElement* aElement) {
-  return MakeUnique<SMILAnimatedPathSegList>(this, aElement);
+std::unique_ptr<SMILAttr> SVGAnimatedPathSegList::ToSMILAttr(
+    SVGElement* aElement) {
+  return std::make_unique<SMILAnimatedPathSegList>(this, aElement);
 }
 
 nsresult SVGAnimatedPathSegList::SMILAnimatedPathSegList::ValueFromString(

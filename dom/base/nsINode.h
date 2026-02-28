@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsINode_h___
-#define nsINode_h___
+#ifndef nsINode_h_
+#define nsINode_h_
 
 #include <iosfwd>
 
@@ -118,6 +118,7 @@ struct DOMPointInit;
 struct GetRootNodeOptions;
 enum class AllowRangeCrossShadowBoundary : bool;  // defined in AbstractRange.h
 enum class CallerType : uint32_t;
+struct AriaNotificationOptions;
 }  // namespace dom
 }  // namespace mozilla
 
@@ -251,6 +252,9 @@ enum class BatchRemovalOrder {
 };
 
 struct BatchRemovalState {
+  // Whether we're the fist kid getting removed in the batch. Note that that's
+  // different to whether we're the first _child_, if we're removing
+  // back-to-front.
   bool mIsFirst = true;
 };
 
@@ -283,7 +287,7 @@ class nsMutationGuard {
    * years for sGeneration to fully wrap around so we can ignore a guard living
    * through a full wrap around.
    */
-  bool Mutated(uint8_t aIgnoreCount) {
+  bool Mutated(uint8_t aIgnoreCount) const {
     return (sGeneration - mStartingGeneration) > aIgnoreCount;
   }
 
@@ -798,6 +802,11 @@ class nsINode : public mozilla::dom::EventTarget {
     return mNodeInfo->GetDocument();
   }
 
+  // Returns our owning NodeInfo manager.
+  nsNodeInfoManager* NodeInfoManager() const {
+    return mNodeInfo->NodeInfoManager();
+  }
+
   /**
    * Return the "owner document" of this node as an nsINode*.  Implemented
    * in Document.h.
@@ -1047,18 +1056,15 @@ class nsINode : public mozilla::dom::EventTarget {
 
   template <BatchRemovalOrder aOrder = BatchRemovalOrder::FrontToBack>
   void RemoveAllChildren(bool aNotify) {
-    if (!HasChildren()) {
-      return;
-    }
     BatchRemovalState state{};
-    do {
+    while (HasChildren()) {
       nsIContent* nodeToRemove = aOrder == BatchRemovalOrder::FrontToBack
                                      ? GetFirstChild()
                                      : GetLastChild();
       RemoveChildNode(nodeToRemove, aNotify, &state, nullptr,
                       MutationEffectOnScript::KeepTrustWorthiness);
       state.mIsFirst = false;
-    } while (HasChildren());
+    }
   }
 
   /**
@@ -1260,7 +1266,12 @@ class nsINode : public mozilla::dom::EventTarget {
    * null.  It may return 'this' (e.g. for document nodes, and nodes that
    * are the roots of disconnected subtrees).
    */
-  nsINode* SubtreeRoot() const;
+  nsINode* SubtreeRoot() const {
+#ifdef DEBUG
+    AssertSubtreeRootIsInSync();
+#endif
+    return mSubtreeRoot;
+  }
 
   /*
    * Get context object's shadow-including root if options's composed is true,
@@ -1385,6 +1396,9 @@ class nsINode : public mozilla::dom::EventTarget {
   T* FirstAncestorOfType() const;
 
  private:
+#ifdef DEBUG
+  void AssertSubtreeRootIsInSync() const;
+#endif
   /**
    * Walks aNode, its attributes and, if aDeep is true, its descendant nodes.
    * If aClone is true the nodes will be cloned. If aNewNodeInfoManager is
@@ -1530,6 +1544,13 @@ class nsINode : public mozilla::dom::EventTarget {
   };
 
   /**
+   * Helper to allocate slot memory from the appropriate arena,
+   * or from the heap if no arena is available.
+   * Always returns allocated memory.
+   */
+  void* AllocateSlots(size_t aSize);
+
+  /**
    * Functions for managing flags and slots
    */
 #ifdef DEBUG
@@ -1644,7 +1665,12 @@ class nsINode : public mozilla::dom::EventTarget {
   /**
    * Gets the root of the node tree for this content if it is in a shadow tree.
    */
-  mozilla::dom::ShadowRoot* GetContainingShadow() const;
+  mozilla::dom::ShadowRoot* GetContainingShadow() const {
+    return IsInShadowTree()
+               ? reinterpret_cast<mozilla::dom::ShadowRoot*>(mSubtreeRoot)
+               : nullptr;
+  }
+
   /**
    * Gets the shadow host if this content is in a shadow tree. That is, the host
    * of |GetContainingShadow|, if its not null.
@@ -1712,6 +1738,12 @@ class nsINode : public mozilla::dom::EventTarget {
   bool IsGeneratedContentContainerForMarker() const {
     return IsRootOfNativeAnonymousSubtree() &&
            mNodeInfo->NameAtom() == nsGkAtoms::mozgeneratedcontentmarker;
+  }
+
+  /** Whether this is the container of a ::backdrop pseudo-element. */
+  bool IsGeneratedContentContainerForBackdrop() const {
+    return IsRootOfNativeAnonymousSubtree() &&
+           mNodeInfo->NameAtom() == nsGkAtoms::mozgeneratedcontentbackdrop;
   }
 
   /**
@@ -2273,7 +2305,7 @@ class nsINode : public mozilla::dom::EventTarget {
     ClearBoolFlag(ElementCreatedFromPrototypeAndHasUnmodifiedL10n);
   }
 
-  mozilla::dom::ShadowRoot* GetShadowRoot() const;
+  inline mozilla::dom::ShadowRoot* GetShadowRoot() const;
 
   // Return the shadow root of the node if it is a shadow host and
   // it meets the requirements for being a shadow host of a selection.
@@ -2324,13 +2356,9 @@ class nsINode : public mozilla::dom::EventTarget {
   void ClearHandlingClick() { ClearBoolFlag(NodeHandlingClick); }
 
   void SetSubtreeRootPointer(nsINode* aSubtreeRoot) {
-    NS_ASSERTION(aSubtreeRoot, "aSubtreeRoot can never be null!");
-    NS_ASSERTION(!(IsContent() && IsInUncomposedDoc()) && !IsInShadowTree(),
-                 "Shouldn't be here!");
+    MOZ_ASSERT(aSubtreeRoot, "aSubtreeRoot can never be null!");
     mSubtreeRoot = aSubtreeRoot;
   }
-
-  void ClearSubtreeRootPointer() { mSubtreeRoot = nullptr; }
 
  public:
   // Makes nsINode object keep aObject alive. If a callback is provided, it's
@@ -2625,7 +2653,7 @@ class nsINode : public mozilla::dom::EventTarget {
   }
 #define TOUCH_EVENT EVENT
 #define DOCUMENT_ONLY_EVENT EVENT
-#include "mozilla/EventNameList.h"
+#include "mozilla/EventNameList.inc"
 #undef DOCUMENT_ONLY_EVENT
 #undef TOUCH_EVENT
 #undef EVENT
@@ -2633,6 +2661,9 @@ class nsINode : public mozilla::dom::EventTarget {
   NodeSelectorFlags GetSelectorFlags() const {
     return static_cast<NodeSelectorFlags>(mSelectorFlags.Get());
   }
+
+  void AriaNotify(const nsAString& aAnnouncement,
+                  const mozilla::dom::AriaNotificationOptions& aOptions);
 
  protected:
   static bool Traverse(nsINode* tmp, nsCycleCollectionTraversalCallback& cb);
@@ -2663,15 +2694,13 @@ class nsINode : public mozilla::dom::EventTarget {
   nsCOMPtr<nsIContent> mNextSibling;
   nsIContent* MOZ_NON_OWNING_REF mPreviousOrLastSibling;
 
-  union {
-    // Pointer to our primary frame.  Might be null.
-    nsIFrame* mPrimaryFrame;
+  // Pointer to the root of our subtree.
+  // This reference is non-owning and safe, since it either points to the
+  // object itself, or to an ancestor (which keeps us alive).
+  nsINode* MOZ_NON_OWNING_REF mSubtreeRoot;
 
-    // Pointer to the root of our subtree.  Might be null.
-    // This reference is non-owning and safe, since it either points to the
-    // object itself, or is reset by ClearSubtreeRootPointer.
-    nsINode* MOZ_NON_OWNING_REF mSubtreeRoot;
-  };
+  // Pointer to our primary frame.  Might be null.
+  nsIFrame* mPrimaryFrame = nullptr;
 
   // Storage for more members that are usually not needed; allocated lazily.
   nsSlots* mSlots;
@@ -2784,4 +2813,4 @@ inline nsISupports* ToSupports(nsINode* aPointer) { return aPointer; }
 #define NS_IMPL_FROMNODE_HTML_WITH_TAG(_class, _tag) \
   NS_IMPL_FROMNODE_WITH_TAG(_class, kNameSpaceID_XHTML, _tag)
 
-#endif /* nsINode_h___ */
+#endif /* nsINode_h_ */

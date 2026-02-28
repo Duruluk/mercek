@@ -62,7 +62,7 @@
   white-space: nowrap;
 
   &[selected] {
-    border-radius: var(--focus-outline-offset);
+    border-radius: var(--border-radius-xsmall);
     outline: var(--focus-outline);
     outline-offset: var(--focus-outline-offset);
   }
@@ -231,7 +231,7 @@
 
 .urlbarView-dynamic-weather-temperature {
   margin-inline-end: 0.3em;
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   font-size: 1.385em;
   vertical-align: middle;
 }

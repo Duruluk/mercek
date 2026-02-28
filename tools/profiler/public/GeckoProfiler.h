@@ -21,8 +21,8 @@
 // If your file only uses particular APIs (e.g., only markers), please consider
 // including only the needed headers instead of this one, to reduce compilation
 // dependencies.
-#include "BaseProfiler.h"
 #include "ProfileAdditionalInformation.h"
+#include "mozilla/BaseProfiler.h"
 #include "mozilla/ProfilerCounts.h"
 #include "mozilla/ProfilerLabels.h"
 #include "mozilla/ProfilerMarkers.h"
@@ -105,7 +105,6 @@ static inline void profiler_record_wakeup_count(
 #else  // !MOZ_GECKO_PROFILER
 
 #  include "js/ProfilingStack.h"
-#  include "mozilla/Assertions.h"
 #  include "mozilla/Attributes.h"
 #  include "mozilla/BaseProfilerRAIIMacro.h"
 #  include "mozilla/Maybe.h"
@@ -262,8 +261,9 @@ class ProfilerStackCollector {
 
   virtual void CollectJitReturnAddr(void* aAddr) = 0;
 
-  virtual void CollectWasmFrame(JS::ProfilingCategoryPair aCategory,
-                                const char* aLabel) = 0;
+  virtual void CollectWasmOrSyncJITFrame(JS::ProfilingCategoryPair aCategory,
+                                         const char* aLabel,
+                                         uint32_t aSourceId) = 0;
 
   virtual void CollectProfilingStackFrame(
       const js::ProfilingStackFrame& aFrame) = 0;

@@ -24,11 +24,15 @@ use wgt::{
 #[cfg(feature = "trace")]
 use crate::device::trace;
 use crate::{
-    binding_model::{self, BindGroup, BindGroupLayout, BindGroupLayoutEntryError},
+    api_log,
+    binding_model::{
+        self, BindGroup, BindGroupLateBufferBindingInfo, BindGroupLayout, BindGroupLayoutEntryError,
+    },
     command, conv,
     device::{
-        bgl, create_validator, life::WaitIdleError, map_buffer, AttachmentData,
-        DeviceLostInvocation, HostMap, MissingDownlevelFlags, MissingFeatures, RenderPassContext,
+        bgl, create_validator, features_to_naga_capabilities, life::WaitIdleError, map_buffer,
+        AttachmentData, DeviceLostInvocation, HostMap, MissingDownlevelFlags, MissingFeatures,
+        RenderPassContext,
     },
     hal_label,
     init_tracker::{
@@ -39,6 +43,7 @@ use crate::{
     lock::{rank, Mutex, RwLock},
     pipeline,
     pool::ResourcePool,
+    present,
     resource::{
         self, Buffer, ExternalTexture, Fallible, Labeled, ParentDevice, QuerySet,
         RawResourceAccess, Sampler, StagingBuffer, Texture, TextureView,
@@ -48,7 +53,7 @@ use crate::{
     snatch::{SnatchGuard, SnatchLock, Snatchable},
     timestamp_normalization::TIMESTAMP_NORMALIZATION_BUFFER_USES,
     track::{BindGroupStates, DeviceTracker, TrackerIndexAllocators, UsageScope, UsageScopePool},
-    validation::{self, validate_color_attachment_bytes_per_sample},
+    validation,
     weak_vec::WeakVec,
     FastHashMap, LabelHelpers, OnceCellOrLock,
 };
@@ -204,6 +209,7 @@ pub struct Device {
     pub(crate) adapter: Arc<Adapter>,
     pub(crate) queue: OnceCellOrLock<Weak<Queue>>,
     pub(crate) zero_buffer: ManuallyDrop<Box<dyn hal::DynBuffer>>,
+    pub(crate) empty_bgl: ManuallyDrop<Box<dyn hal::DynBindGroupLayout>>,
     /// The `label` from the descriptor used to create the resource.
     label: String,
 
@@ -268,7 +274,7 @@ pub struct Device {
     pub(crate) default_external_texture_params_buffer: ManuallyDrop<Box<dyn hal::DynBuffer>>,
     // needs to be dropped last
     #[cfg(feature = "trace")]
-    pub(crate) trace: Mutex<Option<trace::Trace>>,
+    pub(crate) trace: Mutex<Option<Box<dyn trace::Trace + Send + Sync + 'static>>>,
 }
 
 pub(crate) enum DeferredDestroy {
@@ -293,6 +299,8 @@ impl Drop for Device {
 
         // SAFETY: We are in the Drop impl and we don't use self.zero_buffer anymore after this point.
         let zero_buffer = unsafe { ManuallyDrop::take(&mut self.zero_buffer) };
+        // SAFETY: We are in the Drop impl and we don't use self.empty_bgl anymore after this point.
+        let empty_bgl = unsafe { ManuallyDrop::take(&mut self.empty_bgl) };
         // SAFETY: We are in the Drop impl and we don't use
         // self.default_external_texture_params_buffer anymore after this point.
         let default_external_texture_params_buffer =
@@ -307,6 +315,7 @@ impl Drop for Device {
         }
         unsafe {
             self.raw.destroy_buffer(zero_buffer);
+            self.raw.destroy_bind_group_layout(empty_bgl);
             self.raw
                 .destroy_buffer(default_external_texture_params_buffer);
             self.raw.destroy_fence(fence);
@@ -336,6 +345,34 @@ impl Device {
             Err(MissingDownlevelFlags(flags))
         }
     }
+
+    /// # Safety
+    ///
+    /// - See [wgpu::Device::start_graphics_debugger_capture][api] for details the safety.
+    ///
+    /// [api]: ../../wgpu/struct.Device.html#method.start_graphics_debugger_capture
+    pub unsafe fn start_graphics_debugger_capture(&self) {
+        api_log!("Device::start_graphics_debugger_capture");
+
+        if !self.is_valid() {
+            return;
+        }
+        unsafe { self.raw().start_graphics_debugger_capture() };
+    }
+
+    /// # Safety
+    ///
+    /// - See [wgpu::Device::stop_graphics_debugger_capture][api] for details the safety.
+    ///
+    /// [api]: ../../wgpu/struct.Device.html#method.stop_graphics_debugger_capture
+    pub unsafe fn stop_graphics_debugger_capture(&self) {
+        api_log!("Device::stop_graphics_debugger_capture");
+
+        if !self.is_valid() {
+            return;
+        }
+        unsafe { self.raw().stop_graphics_debugger_capture() };
+    }
 }
 
 impl Device {
@@ -353,9 +390,41 @@ impl Device {
             }
         };
         #[cfg(feature = "trace")]
-        let trace_dir_name: Option<&std::path::PathBuf> = match &desc.trace {
+        let trace: Option<Box<dyn trace::Trace + Send + Sync + 'static>> = match &desc.trace {
             wgt::Trace::Off => None,
-            wgt::Trace::Directory(d) => Some(d),
+            wgt::Trace::Directory(dir) => match trace::DiskTrace::new(dir.clone()) {
+                Ok(mut trace) => {
+                    trace::Trace::add(
+                        &mut trace,
+                        trace::Action::Init {
+                            desc: wgt::DeviceDescriptor {
+                                trace: wgt::Trace::Off,
+                                ..desc.clone()
+                            },
+                            backend: adapter.backend(),
+                        },
+                    );
+                    Some(Box::new(trace))
+                }
+                Err(e) => {
+                    log::error!("Unable to start a trace in '{dir:?}': {e}");
+                    None
+                }
+            },
+            wgt::Trace::Memory => {
+                let mut trace = trace::MemoryTrace::new();
+                trace::Trace::add(
+                    &mut trace,
+                    trace::Action::Init {
+                        desc: wgt::DeviceDescriptor {
+                            trace: wgt::Trace::Off,
+                            ..desc.clone()
+                        },
+                        backend: adapter.backend(),
+                    },
+                );
+                Some(Box::new(trace))
+            }
             // The enum is non_exhaustive, so we must have a fallback arm (that should be
             // unreachable in practice).
             t => {
@@ -388,6 +457,15 @@ impl Device {
         }
         .map_err(DeviceError::from_hal)?;
 
+        let empty_bgl = unsafe {
+            raw_device.create_bind_group_layout(&hal::BindGroupLayoutDescriptor {
+                label: None,
+                flags: hal::BindGroupLayoutFlags::empty(),
+                entries: &[],
+            })
+        }
+        .map_err(DeviceError::from_hal)?;
+
         let default_external_texture_params_buffer = unsafe {
             raw_device.create_buffer(&hal::BufferDescriptor {
                 label: hal_label(
@@ -401,20 +479,24 @@ impl Device {
         }
         .map_err(DeviceError::from_hal)?;
 
+        // Cloned as we need them below anyway.
         let alignments = adapter.raw.capabilities.alignments.clone();
         let downlevel = adapter.raw.capabilities.downlevel.clone();
+        let limits = &adapter.raw.capabilities.limits;
 
         let enable_indirect_validation = instance_flags
             .contains(wgt::InstanceFlags::VALIDATION_INDIRECT_CALL)
-            && downlevel
-                .flags
-                .contains(wgt::DownlevelFlags::INDIRECT_EXECUTION);
+            && downlevel.flags.contains(
+                wgt::DownlevelFlags::INDIRECT_EXECUTION | wgt::DownlevelFlags::COMPUTE_SHADERS,
+            )
+            && limits.max_storage_buffers_per_shader_stage >= 2;
 
         let indirect_validation = if enable_indirect_validation {
             Some(crate::indirect_validation::IndirectValidation::new(
                 raw_device.as_ref(),
                 &desc.required_limits,
                 &desc.required_features,
+                instance_flags,
                 adapter.backend(),
             )?)
         } else {
@@ -426,6 +508,7 @@ impl Device {
             adapter: adapter.clone(),
             queue: OnceCellOrLock::new(),
             zero_buffer: ManuallyDrop::new(zero_buffer),
+            empty_bgl: ManuallyDrop::new(empty_bgl),
             default_external_texture_params_buffer: ManuallyDrop::new(
                 default_external_texture_params_buffer,
             ),
@@ -448,25 +531,7 @@ impl Device {
             tracker_indices: TrackerIndexAllocators::new(),
             bgl_pool: ResourcePool::new(),
             #[cfg(feature = "trace")]
-            trace: Mutex::new(
-                rank::DEVICE_TRACE,
-                trace_dir_name.and_then(|path| match trace::Trace::new(path.clone()) {
-                    Ok(mut trace) => {
-                        trace.add(trace::Action::Init {
-                            desc: wgt::DeviceDescriptor {
-                                trace: wgt::Trace::Off,
-                                ..desc.clone()
-                            },
-                            backend: adapter.backend(),
-                        });
-                        Some(trace)
-                    }
-                    Err(e) => {
-                        log::error!("Unable to start a trace in '{path:?}': {e}");
-                        None
-                    }
-                }),
-            ),
+            trace: Mutex::new(rank::DEVICE_TRACE, trace),
             alignments,
             limits: desc.required_limits.clone(),
             features: desc.required_features,
@@ -532,7 +597,7 @@ impl Device {
                     buffer: params_buffer,
                     usage: hal::StateTransition {
                         from: wgt::BufferUses::MAP_WRITE,
-                        to: wgt::BufferUses::COPY_SRC,
+                        to: wgt::BufferUses::COPY_DST,
                     },
                 }]);
             pending_writes.command_encoder.copy_buffer_to_buffer(
@@ -591,6 +656,14 @@ impl Device {
         } else {
             Err(DeviceError::Lost)
         }
+    }
+
+    /// Stop tracing and return the trace object.
+    ///
+    /// This is mostly useful for in-memory traces.
+    #[cfg(feature = "trace")]
+    pub fn take_trace(&self) -> Option<Box<dyn trace::Trace + Send + Sync + 'static>> {
+        self.trace.lock().take()
     }
 
     /// Checks that we are operating within the memory budget reported by the native APIs.
@@ -680,6 +753,38 @@ impl Device {
 
     pub fn set_queue(&self, queue: &Arc<Queue>) {
         assert!(self.queue.set(Arc::downgrade(queue)).is_ok());
+    }
+
+    pub fn poll(
+        &self,
+        poll_type: wgt::PollType<crate::SubmissionIndex>,
+    ) -> Result<wgt::PollStatus, WaitIdleError> {
+        let (user_closures, result) = self.poll_and_return_closures(poll_type);
+        user_closures.fire();
+        result
+    }
+
+    /// Poll the device, returning any `UserClosures` that need to be executed.
+    ///
+    /// The caller must invoke the `UserClosures` even if this function returns
+    /// an error. This is an internal helper, used by `Device::poll` and
+    /// `Global::poll_all_devices`, so that `poll_all_devices` can invoke
+    /// closures once after all devices have been polled.
+    pub(crate) fn poll_and_return_closures(
+        &self,
+        poll_type: wgt::PollType<crate::SubmissionIndex>,
+    ) -> (UserClosures, Result<wgt::PollStatus, WaitIdleError>) {
+        let snatch_guard = self.snatchable_lock.read();
+        let fence = self.fence.read();
+        let maintain_result = self.maintain(fence, poll_type, snatch_guard);
+
+        self.lose_if_oom();
+
+        // Some deferred destroys are scheduled in maintain so run this right after
+        // to avoid holding on to them until the next device poll.
+        self.deferred_resource_destruction();
+
+        maintain_result
     }
 
     /// Check the current status of the GPU and process any submissions that have
@@ -787,7 +892,20 @@ impl Device {
                 user_closures.mappings,
                 user_closures.blas_compact_ready,
                 queue_empty,
-            ) = queue_result
+            ) = queue_result;
+            // DEADLOCK PREVENTION: We must drop `snatch_guard` before `queue` goes out of scope.
+            //
+            // `Queue::drop` acquires the snatch guard. If we still hold it when `queue` is dropped
+            // at the end of this block, we would deadlock. This can happen in the following scenario:
+            //
+            // - Thread A calls `Device::maintain` while Thread B holds the last strong ref to the queue.
+            // - Thread A calls `self.get_queue()`, obtaining a new strong ref, and enters this branch.
+            // - Thread B drops its strong ref, making Thread A's ref the last one.
+            // - When `queue` goes out of scope here, `Queue::drop` runs and tries to acquire the
+            //   snatch guard — but Thread A (this thread) still holds it, causing a deadlock.
+            drop(snatch_guard);
+        } else {
+            drop(snatch_guard);
         };
 
         // Based on the queue empty status, and the current finished submission index, determine the result of the poll.
@@ -842,7 +960,6 @@ impl Device {
 
         // Don't hold the locks while calling release_gpu_resources.
         drop(fence);
-        drop(snatch_guard);
 
         if should_release_gpu_resource {
             self.release_gpu_resources();
@@ -851,7 +968,7 @@ impl Device {
         (user_closures, result)
     }
 
-    pub(crate) fn create_buffer(
+    pub fn create_buffer(
         self: &Arc<Self>,
         desc: &resource::BufferDescriptor,
     ) -> Result<Arc<Buffer>, resource::CreateBufferError> {
@@ -914,7 +1031,7 @@ impl Device {
         }
 
         if desc.mapped_at_creation {
-            if desc.size % wgt::COPY_BUFFER_ALIGNMENT != 0 {
+            if !desc.size.is_multiple_of(wgt::COPY_BUFFER_ALIGNMENT) {
                 return Err(resource::CreateBufferError::UnalignedSize);
             }
             if !desc.usage.contains(wgt::BufferUsages::MAP_WRITE) {
@@ -1027,6 +1144,54 @@ impl Device {
             .insert_single(&buffer, buffer_use);
 
         Ok(buffer)
+    }
+
+    #[cfg(feature = "replay")]
+    pub fn set_buffer_data(
+        self: &Arc<Self>,
+        buffer: &Arc<Buffer>,
+        offset: wgt::BufferAddress,
+        data: &[u8],
+    ) -> resource::BufferAccessResult {
+        use crate::resource::RawResourceAccess;
+
+        let device = &buffer.device;
+
+        device.check_is_valid()?;
+        buffer.check_usage(wgt::BufferUsages::MAP_WRITE)?;
+
+        let last_submission = device
+            .get_queue()
+            .and_then(|queue| queue.lock_life().get_buffer_latest_submission_index(buffer));
+
+        if let Some(last_submission) = last_submission {
+            device.wait_for_submit(last_submission)?;
+        }
+
+        let snatch_guard = device.snatchable_lock.read();
+        let raw_buf = buffer.try_raw(&snatch_guard)?;
+
+        let mapping = unsafe {
+            device
+                .raw()
+                .map_buffer(raw_buf, offset..offset + data.len() as u64)
+        }
+        .map_err(|e| device.handle_hal_error(e))?;
+
+        unsafe { core::ptr::copy_nonoverlapping(data.as_ptr(), mapping.ptr.as_ptr(), data.len()) };
+
+        if !mapping.is_coherent {
+            #[allow(clippy::single_range_in_vec_init)]
+            unsafe {
+                device
+                    .raw()
+                    .flush_mapped_ranges(raw_buf, &[offset..offset + data.len() as u64])
+            };
+        }
+
+        unsafe { device.raw().unmap_buffer(raw_buf) };
+
+        Ok(())
     }
 
     pub(crate) fn create_texture_from_hal(
@@ -1161,7 +1326,7 @@ impl Device {
         }
     }
 
-    pub(crate) fn create_texture(
+    pub fn create_texture(
         self: &Arc<Self>,
         desc: &resource::TextureDescriptor,
     ) -> Result<Arc<Texture>, resource::CreateTextureError> {
@@ -1213,7 +1378,7 @@ impl Device {
         if desc.format.is_compressed() {
             let (block_width, block_height) = desc.format.block_dimensions();
 
-            if desc.size.width % block_width != 0 {
+            if !desc.size.width.is_multiple_of(block_width) {
                 return Err(CreateTextureError::InvalidDimension(
                     TextureDimensionError::NotMultipleOfBlockWidth {
                         width: desc.size.width,
@@ -1223,7 +1388,7 @@ impl Device {
                 ));
             }
 
-            if desc.size.height % block_height != 0 {
+            if !desc.size.height.is_multiple_of(block_height) {
                 return Err(CreateTextureError::InvalidDimension(
                     TextureDimensionError::NotMultipleOfBlockHeight {
                         height: desc.size.height,
@@ -1250,10 +1415,27 @@ impl Device {
             }
         }
 
-        {
-            let (width_multiple, height_multiple) = desc.format.size_multiple_requirement();
+        let mips = desc.mip_level_count;
+        let max_levels_allowed = desc.size.max_mips(desc.dimension).min(hal::MAX_MIP_LEVELS);
+        if mips == 0 || mips > max_levels_allowed {
+            return Err(CreateTextureError::InvalidMipLevelCount {
+                requested: mips,
+                maximum: max_levels_allowed,
+            });
+        }
 
-            if desc.size.width % width_multiple != 0 {
+        {
+            let (mut width_multiple, mut height_multiple) = desc.format.size_multiple_requirement();
+
+            if desc.format.is_multi_planar_format() {
+                // TODO(https://github.com/gfx-rs/wgpu/issues/8491): fix
+                // `mip_level_size` calculation for these formats and relax this
+                // restriction.
+                width_multiple <<= desc.mip_level_count.saturating_sub(1);
+                height_multiple <<= desc.mip_level_count.saturating_sub(1);
+            }
+
+            if !desc.size.width.is_multiple_of(width_multiple) {
                 return Err(CreateTextureError::InvalidDimension(
                     TextureDimensionError::WidthNotMultipleOf {
                         width: desc.size.width,
@@ -1263,7 +1445,7 @@ impl Device {
                 ));
             }
 
-            if desc.size.height % height_multiple != 0 {
+            if !desc.size.height.is_multiple_of(height_multiple) {
                 return Err(CreateTextureError::InvalidDimension(
                     TextureDimensionError::HeightNotMultipleOf {
                         height: desc.size.height,
@@ -1295,6 +1477,11 @@ impl Device {
             .map_err(|error| CreateTextureError::MissingFeatures(desc.format, error))?;
 
         if desc.sample_count > 1 {
+            // <https://www.w3.org/TR/2025/CRD-webgpu-20251120/#:~:text=If%20descriptor%2EsampleCount%20%3E%201>
+            //
+            // Note that there are also some checks related to the sample count
+            // in [`conv::check_texture_dimension_size`].
+
             if desc.mip_level_count != 1 {
                 return Err(CreateTextureError::InvalidMipLevelCount {
                     requested: desc.mip_level_count,
@@ -1302,7 +1489,9 @@ impl Device {
                 });
             }
 
-            if desc.size.depth_or_array_layers != 1 {
+            if desc.size.depth_or_array_layers != 1
+                && !self.features.contains(wgt::Features::MULTISAMPLE_ARRAY)
+            {
                 return Err(CreateTextureError::InvalidDimension(
                     TextureDimensionError::MultisampledDepthOrArrayLayer(
                         desc.size.depth_or_array_layers,
@@ -1346,16 +1535,24 @@ impl Device {
             };
         }
 
-        let mips = desc.mip_level_count;
-        let max_levels_allowed = desc.size.max_mips(desc.dimension).min(hal::MAX_MIP_LEVELS);
-        if mips == 0 || mips > max_levels_allowed {
-            return Err(CreateTextureError::InvalidMipLevelCount {
-                requested: mips,
-                maximum: max_levels_allowed,
-            });
-        }
+        let missing_allowed_usages = match desc.format.planes() {
+            Some(planes) => {
+                let mut planes_usages = wgt::TextureUsages::all();
+                for plane in 0..planes {
+                    let aspect = wgt::TextureAspect::from_plane(plane).unwrap();
+                    let format = desc.format.aspect_specific_format(aspect).unwrap();
+                    let format_features = self
+                        .describe_format_features(format)
+                        .map_err(|error| CreateTextureError::MissingFeatures(desc.format, error))?;
 
-        let missing_allowed_usages = desc.usage - format_features.allowed_usages;
+                    planes_usages &= format_features.allowed_usages;
+                }
+
+                desc.usage - planes_usages
+            }
+            None => desc.usage - format_features.allowed_usages,
+        };
+
         if !missing_allowed_usages.is_empty() {
             // detect downlevel incompatibilities
             let wgpu_allowed_usages = desc
@@ -1482,7 +1679,7 @@ impl Device {
         Ok(texture)
     }
 
-    pub(crate) fn create_texture_view(
+    pub fn create_texture_view(
         self: &Arc<Self>,
         texture: &Arc<Texture>,
         desc: &resource::TextureViewDescriptor,
@@ -1599,11 +1796,17 @@ impl Device {
 
         // check if multisampled texture is seen as anything but 2D
         if texture.desc.sample_count > 1 && resolved_dimension != TextureViewDimension::D2 {
-            return Err(
-                resource::CreateTextureViewError::InvalidMultisampledTextureViewDimension(
-                    resolved_dimension,
-                ),
-            );
+            // Multisample is allowed on 2D arrays, only if explicitly supported
+            let multisample_array_exception = resolved_dimension == TextureViewDimension::D2Array
+                && self.features.contains(wgt::Features::MULTISAMPLE_ARRAY);
+
+            if !multisample_array_exception {
+                return Err(
+                    resource::CreateTextureViewError::InvalidMultisampledTextureViewDimension(
+                        resolved_dimension,
+                    ),
+                );
+            }
         }
 
         // check if the dimension is compatible with the texture
@@ -1635,7 +1838,7 @@ impl Device {
                 }
             }
             TextureViewDimension::CubeArray => {
-                if resolved_array_layer_count % 6 != 0 {
+                if !resolved_array_layer_count.is_multiple_of(6) {
                     return Err(
                         resource::CreateTextureViewError::InvalidCubemapArrayTextureDepth {
                             depth: resolved_array_layer_count,
@@ -1722,13 +1925,15 @@ impl Device {
                 ));
             }
 
-            if aspects != hal::FormatAspects::from(texture.desc.format) {
+            if !texture.desc.format.is_multi_planar_format()
+                && aspects != hal::FormatAspects::from(texture.desc.format)
+            {
                 break 'error Err(TextureViewNotRenderableReason::Aspects(aspects));
             }
 
             Ok(texture
                 .desc
-                .compute_render_extent(desc.range.base_mip_level))
+                .compute_render_extent(desc.range.base_mip_level, desc.range.aspect.to_plane()))
         };
 
         // filter the usages based on the other criteria
@@ -1818,7 +2023,7 @@ impl Device {
         Ok(view)
     }
 
-    pub(crate) fn create_external_texture(
+    pub fn create_external_texture(
         self: &Arc<Self>,
         desc: &resource::ExternalTextureDescriptor,
         planes: &[Arc<TextureView>],
@@ -1896,7 +2101,7 @@ impl Device {
         };
         let params = self.create_buffer(&params_desc)?;
         self.get_queue().unwrap().write_buffer(
-            Fallible::Valid(params.clone()),
+            params.clone(),
             0,
             bytemuck::bytes_of(&params_data),
         )?;
@@ -1913,7 +2118,7 @@ impl Device {
         Ok(external_texture)
     }
 
-    pub(crate) fn create_sampler(
+    pub fn create_sampler(
         self: &Arc<Self>,
         desc: &resource::SamplerDescriptor,
     ) -> Result<Arc<Sampler>, resource::CreateSamplerError> {
@@ -2024,7 +2229,7 @@ impl Device {
         Ok(sampler)
     }
 
-    pub(crate) fn create_shader_module<'a>(
+    pub fn create_shader_module<'a>(
         self: &Arc<Self>,
         desc: &pipeline::ShaderModuleDescriptor<'a>,
         source: pipeline::ShaderModuleSource<'a>,
@@ -2034,8 +2239,13 @@ impl Device {
         let (module, source) = match source {
             #[cfg(feature = "wgsl")]
             pipeline::ShaderModuleSource::Wgsl(code) => {
-                profiling::scope!("naga::front::wgsl::parse_str");
-                let module = naga::front::wgsl::parse_str(&code).map_err(|inner| {
+                profiling::scope!("naga::front::wgsl::parse");
+                let capabilities =
+                    features_to_naga_capabilities(self.features, self.downlevel.flags);
+                let mut options = naga::front::wgsl::Options::new();
+                options.capabilities = capabilities;
+                let mut frontend = naga::front::wgsl::Frontend::new_with_options(options);
+                let module = frontend.parse(&code).map_err(|inner| {
                     pipeline::CreateShaderModuleError::Parsing(naga::error::ShaderError {
                         source: code.to_string(),
                         label: desc.label.as_ref().map(|l| l.to_string()),
@@ -2152,17 +2362,16 @@ impl Device {
         Ok(module)
     }
 
+    /// Not a public API. For use by `player` only.
     #[allow(unused_unsafe)]
-    pub(crate) unsafe fn create_shader_module_passthrough<'a>(
+    #[doc(hidden)]
+    pub unsafe fn create_shader_module_passthrough<'a>(
         self: &Arc<Self>,
         descriptor: &pipeline::ShaderModuleDescriptorPassthrough<'a>,
     ) -> Result<Arc<pipeline::ShaderModule>, pipeline::CreateShaderModuleError> {
         self.check_is_valid()?;
-        self.require_features(wgt::Features::EXPERIMENTAL_PASSTHROUGH_SHADERS)?;
+        self.require_features(wgt::Features::PASSTHROUGH_SHADERS)?;
 
-        // TODO: when we get to use if-let chains, this will be a little nicer!
-
-        log::info!("Backend: {}", self.backend());
         let hal_shader = match self.backend() {
             wgt::Backend::Vulkan => hal::ShaderInput::SpirV(
                 descriptor
@@ -2174,33 +2383,37 @@ impl Device {
                 if let Some(dxil) = &descriptor.dxil {
                     hal::ShaderInput::Dxil {
                         shader: dxil,
-                        entry_point: descriptor.entry_point.clone(),
                         num_workgroups: descriptor.num_workgroups,
                     }
                 } else if let Some(hlsl) = &descriptor.hlsl {
                     hal::ShaderInput::Hlsl {
                         shader: hlsl,
-                        entry_point: descriptor.entry_point.clone(),
                         num_workgroups: descriptor.num_workgroups,
                     }
                 } else {
                     return Err(pipeline::CreateShaderModuleError::NotCompiledForBackend);
                 }
             }
-            wgt::Backend::Metal => hal::ShaderInput::Msl {
-                shader: descriptor
-                    .msl
-                    .as_ref()
-                    .ok_or(pipeline::CreateShaderModuleError::NotCompiledForBackend)?,
-                entry_point: descriptor.entry_point.clone(),
-                num_workgroups: descriptor.num_workgroups,
-            },
+            wgt::Backend::Metal => {
+                if let Some(metallib) = &descriptor.metallib {
+                    hal::ShaderInput::MetalLib {
+                        file: metallib,
+                        num_workgroups: descriptor.num_workgroups,
+                    }
+                } else if let Some(msl) = &descriptor.msl {
+                    hal::ShaderInput::Msl {
+                        shader: msl,
+                        num_workgroups: descriptor.num_workgroups,
+                    }
+                } else {
+                    return Err(pipeline::CreateShaderModuleError::NotCompiledForBackend);
+                }
+            }
             wgt::Backend::Gl => hal::ShaderInput::Glsl {
                 shader: descriptor
                     .glsl
                     .as_ref()
                     .ok_or(pipeline::CreateShaderModuleError::NotCompiledForBackend)?,
-                entry_point: descriptor.entry_point.clone(),
                 num_workgroups: descriptor.num_workgroups,
             },
             wgt::Backend::Noop => {
@@ -2272,8 +2485,12 @@ impl Device {
             .bind_group_layouts
             .iter()
             .enumerate()
-            .map(|(group_index, bgl)| pipeline::LateSizedBufferGroup {
-                shader_sizes: bgl
+            .map(|(group_index, bgl)| {
+                let Some(bgl) = bgl else {
+                    return pipeline::LateSizedBufferGroup::default();
+                };
+
+                let shader_sizes = bgl
                     .entries
                     .values()
                     .filter_map(|entry| match entry.ty {
@@ -2291,12 +2508,36 @@ impl Device {
                         }
                         _ => None,
                     })
-                    .collect(),
+                    .collect();
+                pipeline::LateSizedBufferGroup { shader_sizes }
             })
             .collect()
     }
 
-    pub(crate) fn create_bind_group_layout(
+    pub fn create_bind_group_layout(
+        self: &Arc<Self>,
+        desc: &binding_model::BindGroupLayoutDescriptor,
+    ) -> Result<Arc<BindGroupLayout>, binding_model::CreateBindGroupLayoutError> {
+        self.check_is_valid()?;
+
+        let entry_map = bgl::EntryMap::from_entries(&desc.entries)?;
+
+        let bgl_result = self.bgl_pool.get_or_init(entry_map, |entry_map| {
+            let bgl =
+                self.create_bind_group_layout_internal(&desc.label, entry_map, bgl::Origin::Pool)?;
+            bgl.exclusive_pipeline
+                .set(binding_model::ExclusivePipeline::None)
+                .unwrap();
+            Ok(bgl)
+        });
+
+        match bgl_result {
+            Ok(layout) => Ok(layout),
+            Err(e) => Err(e),
+        }
+    }
+
+    fn create_bind_group_layout_internal(
         self: &Arc<Self>,
         label: &crate::Label,
         entry_map: bgl::EntryMap,
@@ -2387,8 +2628,10 @@ impl Device {
                 Bt::StorageTexture {
                     access,
                     view_dimension,
-                    format: _,
+                    format,
                 } => {
+                    use wgt::{StorageTextureAccess as Access, TextureFormatFeatureFlags as Flags};
+
                     match view_dimension {
                         TextureViewDimension::Cube | TextureViewDimension::CubeArray => {
                             return Err(binding_model::CreateBindGroupLayoutError::Entry {
@@ -2409,6 +2652,30 @@ impl Device {
                         }
                         _ => (),
                     }
+
+                    let format_features =
+                        self.describe_format_features(format).map_err(|error| {
+                            binding_model::CreateBindGroupLayoutError::Entry {
+                                binding: entry.binding,
+                                error: BindGroupLayoutEntryError::MissingFeatures(error),
+                            }
+                        })?;
+
+                    let required_feature_flag = match access {
+                        Access::WriteOnly => Flags::STORAGE_WRITE_ONLY,
+                        Access::ReadOnly => Flags::STORAGE_READ_ONLY,
+                        Access::ReadWrite => Flags::STORAGE_READ_WRITE,
+                        Access::Atomic => Flags::STORAGE_ATOMIC,
+                    };
+
+                    if !format_features.flags.contains(required_feature_flag) {
+                        return Err(binding_model::CreateBindGroupLayoutError::UnsupportedStorageTextureAccess {
+                            binding: entry.binding,
+                            access,
+                            format,
+                        });
+                    }
+
                     (
                         Some(
                             wgt::Features::TEXTURE_BINDING_ARRAY
@@ -2525,7 +2792,7 @@ impl Device {
             .map_err(|e| self.handle_hal_error(e))?;
 
         let bgl = BindGroupLayout {
-            raw: ManuallyDrop::new(raw),
+            raw: binding_model::RawBindGroupLayout::Owning(ManuallyDrop::new(raw)),
             device: self.clone(),
             entries: entry_map,
             origin,
@@ -2587,7 +2854,7 @@ impl Device {
 
         let (align, align_limit_name) =
             binding_model::buffer_binding_type_alignment(&self.limits, binding_ty);
-        if bb.offset % align as u64 != 0 {
+        if !bb.offset.is_multiple_of(align as u64) {
             return Err(Error::UnalignedBufferOffset(
                 bb.offset,
                 align_limit_name,
@@ -2603,18 +2870,27 @@ impl Device {
 
         buffer.check_usage(pub_usage)?;
 
-        let (bb, bind_size) = buffer.binding(bb.offset, bb.size, snatch_guard)?;
-
-        if matches!(binding_ty, wgt::BufferBindingType::Storage { .. }) {
-            let storage_buf_size_alignment = 4;
-
-            let aligned = bind_size % u64::from(storage_buf_size_alignment) == 0;
-            if !aligned {
-                return Err(Error::UnalignedEffectiveBufferBindingSizeForStorage {
-                    alignment: storage_buf_size_alignment,
-                    size: bind_size,
-                });
+        let req_size = match bb.size.map(wgt::BufferSize::new) {
+            // Requested a non-zero size
+            Some(non_zero @ Some(_)) => non_zero,
+            // Requested size not specified
+            None => None,
+            // Requested zero size
+            Some(None) => {
+                return Err(binding_model::CreateBindGroupError::BindingZeroSize(
+                    buffer.error_ident(),
+                ))
             }
+        };
+        let (bb, bind_size) = buffer.binding(bb.offset, req_size, snatch_guard)?;
+
+        if matches!(binding_ty, wgt::BufferBindingType::Storage { .. })
+            && bind_size % u64::from(wgt::STORAGE_BINDING_SIZE_ALIGNMENT) != 0
+        {
+            return Err(Error::UnalignedEffectiveBufferBindingSizeForStorage {
+                alignment: wgt::STORAGE_BINDING_SIZE_ALIGNMENT,
+                size: bind_size,
+            });
         }
 
         let bind_end = bb.offset + bind_size;
@@ -2913,7 +3189,7 @@ impl Device {
 
     // This function expects the provided bind group layout to be resolved
     // (not passing a duplicate) beforehand.
-    pub(crate) fn create_bind_group(
+    pub fn create_bind_group(
         self: &Arc<Self>,
         desc: binding_model::ResolvedBindGroupDescriptor,
     ) -> Result<Arc<BindGroup>, binding_model::CreateBindGroupError> {
@@ -3115,10 +3391,16 @@ impl Device {
             .map_err(|e| self.handle_hal_error(e))?;
 
         // collect in the order of BGL iteration
-        let late_buffer_binding_sizes = layout
+        let late_buffer_binding_infos = layout
             .entries
             .indices()
-            .flat_map(|binding| late_buffer_binding_sizes.get(&binding).cloned())
+            .flat_map(|binding| {
+                let size = late_buffer_binding_sizes.get(&binding).cloned()?;
+                Some(BindGroupLateBufferBindingInfo {
+                    binding_index: binding,
+                    size,
+                })
+            })
             .collect();
 
         let bind_group = BindGroup {
@@ -3131,7 +3413,7 @@ impl Device {
             used_buffer_ranges,
             used_texture_ranges,
             dynamic_binding_info,
-            late_buffer_binding_sizes,
+            late_buffer_binding_infos,
         };
 
         let bind_group = Arc::new(bind_group);
@@ -3278,52 +3560,14 @@ impl Device {
                     });
                 }
 
-                let internal_use = match access {
-                    wgt::StorageTextureAccess::WriteOnly => {
-                        if !view
-                            .format_features
-                            .flags
-                            .contains(wgt::TextureFormatFeatureFlags::STORAGE_WRITE_ONLY)
-                        {
-                            return Err(Error::StorageWriteNotSupported(view.desc.format));
-                        }
-                        wgt::TextureUses::STORAGE_WRITE_ONLY
-                    }
-                    wgt::StorageTextureAccess::ReadOnly => {
-                        if !view
-                            .format_features
-                            .flags
-                            .contains(wgt::TextureFormatFeatureFlags::STORAGE_READ_ONLY)
-                        {
-                            return Err(Error::StorageReadNotSupported(view.desc.format));
-                        }
-                        wgt::TextureUses::STORAGE_READ_ONLY
-                    }
-                    wgt::StorageTextureAccess::ReadWrite => {
-                        if !view
-                            .format_features
-                            .flags
-                            .contains(wgt::TextureFormatFeatureFlags::STORAGE_READ_WRITE)
-                        {
-                            return Err(Error::StorageReadWriteNotSupported(view.desc.format));
-                        }
-
-                        wgt::TextureUses::STORAGE_READ_WRITE
-                    }
-                    wgt::StorageTextureAccess::Atomic => {
-                        if !view
-                            .format_features
-                            .flags
-                            .contains(wgt::TextureFormatFeatureFlags::STORAGE_ATOMIC)
-                        {
-                            return Err(Error::StorageAtomicNotSupported(view.desc.format));
-                        }
-
-                        wgt::TextureUses::STORAGE_ATOMIC
-                    }
-                };
                 view.check_usage(wgt::TextureUsages::STORAGE_BINDING)?;
-                Ok(internal_use)
+
+                Ok(match access {
+                    wgt::StorageTextureAccess::ReadOnly => wgt::TextureUses::STORAGE_READ_ONLY,
+                    wgt::StorageTextureAccess::WriteOnly => wgt::TextureUses::STORAGE_WRITE_ONLY,
+                    wgt::StorageTextureAccess::ReadWrite => wgt::TextureUses::STORAGE_READ_WRITE,
+                    wgt::StorageTextureAccess::Atomic => wgt::TextureUses::STORAGE_ATOMIC,
+                })
             }
             wgt::BindingType::ExternalTexture => {
                 if view.desc.dimension != TextureViewDimension::D2 {
@@ -3368,9 +3612,17 @@ impl Device {
         }
     }
 
-    pub(crate) fn create_pipeline_layout(
+    pub fn create_pipeline_layout(
         self: &Arc<Self>,
         desc: &binding_model::ResolvedPipelineLayoutDescriptor,
+    ) -> Result<Arc<binding_model::PipelineLayout>, binding_model::CreatePipelineLayoutError> {
+        self.create_pipeline_layout_impl(desc, false)
+    }
+
+    fn create_pipeline_layout_impl(
+        self: &Arc<Self>,
+        desc: &binding_model::ResolvedPipelineLayoutDescriptor,
+        ignore_exclusive_pipeline_check: bool,
     ) -> Result<Arc<binding_model::PipelineLayout>, binding_model::CreatePipelineLayoutError> {
         use crate::binding_model::CreatePipelineLayoutError as Error;
 
@@ -3385,48 +3637,43 @@ impl Device {
             });
         }
 
-        if !desc.push_constant_ranges.is_empty() {
-            self.require_features(wgt::Features::PUSH_CONSTANTS)?;
+        if desc.immediate_size != 0 {
+            self.require_features(wgt::Features::IMMEDIATES)?;
         }
-
-        let mut used_stages = wgt::ShaderStages::empty();
-        for (index, pc) in desc.push_constant_ranges.iter().enumerate() {
-            if pc.stages.intersects(used_stages) {
-                return Err(Error::MoreThanOnePushConstantRangePerStage {
-                    index,
-                    provided: pc.stages,
-                    intersected: pc.stages & used_stages,
-                });
-            }
-            used_stages |= pc.stages;
-
-            let device_max_pc_size = self.limits.max_push_constant_size;
-            if device_max_pc_size < pc.range.end {
-                return Err(Error::PushConstantRangeTooLarge {
-                    index,
-                    range: pc.range.clone(),
-                    max: device_max_pc_size,
-                });
-            }
-
-            if pc.range.start % wgt::PUSH_CONSTANT_ALIGNMENT != 0 {
-                return Err(Error::MisalignedPushConstantRange {
-                    index,
-                    bound: pc.range.start,
-                });
-            }
-            if pc.range.end % wgt::PUSH_CONSTANT_ALIGNMENT != 0 {
-                return Err(Error::MisalignedPushConstantRange {
-                    index,
-                    bound: pc.range.end,
-                });
-            }
+        if self.limits.max_immediate_size < desc.immediate_size {
+            return Err(Error::ImmediateRangeTooLarge {
+                size: desc.immediate_size,
+                max: self.limits.max_immediate_size,
+            });
+        }
+        if !desc
+            .immediate_size
+            .is_multiple_of(wgt::IMMEDIATE_DATA_ALIGNMENT)
+        {
+            return Err(Error::MisalignedImmediateSize {
+                size: desc.immediate_size,
+            });
         }
 
         let mut count_validator = binding_model::BindingTypeMaxCountValidator::default();
 
-        for bgl in desc.bind_group_layouts.iter() {
+        for (index, bgl) in desc.bind_group_layouts.iter().enumerate() {
+            let Some(bgl) = bgl else {
+                continue;
+            };
+
             bgl.same_device(self)?;
+
+            if !ignore_exclusive_pipeline_check {
+                let exclusive_pipeline = bgl.exclusive_pipeline.get().unwrap();
+                if !matches!(exclusive_pipeline, binding_model::ExclusivePipeline::None) {
+                    return Err(Error::BglHasExclusivePipeline {
+                        index,
+                        pipeline: alloc::format!("{exclusive_pipeline}"),
+                    });
+                }
+            }
+
             count_validator.merge(&bgl.binding_count_validator);
         }
 
@@ -3434,16 +3681,18 @@ impl Device {
             .validate(&self.limits)
             .map_err(Error::TooManyBindings)?;
 
-        let bind_group_layouts = desc
-            .bind_group_layouts
-            .iter()
-            .cloned()
+        let get_bgl_iter = || {
+            desc.bind_group_layouts
+                .iter()
+                .map(|bgl| bgl.as_ref().filter(|bgl| !bgl.entries.is_empty()))
+        };
+
+        let bind_group_layouts = get_bgl_iter()
+            .map(|bgl| bgl.cloned())
             .collect::<ArrayVec<_, { hal::MAX_BIND_GROUPS }>>();
 
-        let raw_bind_group_layouts = desc
-            .bind_group_layouts
-            .iter()
-            .map(|bgl| bgl.raw())
+        let raw_bind_group_layouts = get_bgl_iter()
+            .map(|bgl| bgl.map(|bgl| bgl.raw()))
             .collect::<ArrayVec<_, { hal::MAX_BIND_GROUPS }>>();
 
         let additional_flags = if self.indirect_validation.is_some() {
@@ -3458,7 +3707,7 @@ impl Device {
                 | hal::PipelineLayoutFlags::NUM_WORK_GROUPS
                 | additional_flags,
             bind_group_layouts: &raw_bind_group_layouts,
-            push_constant_ranges: desc.push_constant_ranges.as_ref(),
+            immediate_size: desc.immediate_size,
         };
 
         let raw = unsafe { self.raw().create_pipeline_layout(&hal_desc) }
@@ -3471,7 +3720,7 @@ impl Device {
             device: self.clone(),
             label: desc.label.to_string(),
             bind_group_layouts,
-            push_constant_ranges: desc.push_constant_ranges.iter().cloned().collect(),
+            immediate_size: desc.immediate_size,
         };
 
         let layout = Arc::new(layout);
@@ -3479,7 +3728,7 @@ impl Device {
         Ok(layout)
     }
 
-    pub(crate) fn derive_pipeline_layout(
+    fn create_derived_pipeline_layout(
         self: &Arc<Self>,
         mut derived_group_layouts: Box<ArrayVec<bgl::EntryMap, { hal::MAX_BIND_GROUPS }>>,
     ) -> Result<Arc<binding_model::PipelineLayout>, pipeline::ImplicitLayoutError> {
@@ -3495,18 +3744,22 @@ impl Device {
         let bind_group_layouts = derived_group_layouts
             .into_iter()
             .map(|mut bgl_entry_map| {
+                if bgl_entry_map.is_empty() {
+                    return Ok(None);
+                }
+
                 bgl_entry_map.sort();
                 match unique_bind_group_layouts.entry(bgl_entry_map) {
-                    hashbrown::hash_map::Entry::Occupied(v) => Ok(Arc::clone(v.get())),
+                    hashbrown::hash_map::Entry::Occupied(v) => Ok(Some(Arc::clone(v.get()))),
                     hashbrown::hash_map::Entry::Vacant(e) => {
-                        match self.create_bind_group_layout(
+                        match self.create_bind_group_layout_internal(
                             &None,
                             e.key().clone(),
                             bgl::Origin::Derived,
                         ) {
                             Ok(bgl) => {
                                 e.insert(bgl.clone());
-                                Ok(bgl)
+                                Ok(Some(bgl))
                             }
                             Err(e) => Err(e),
                         }
@@ -3518,14 +3771,14 @@ impl Device {
         let layout_desc = binding_model::ResolvedPipelineLayoutDescriptor {
             label: None,
             bind_group_layouts: Cow::Owned(bind_group_layouts),
-            push_constant_ranges: Cow::Borrowed(&[]), //TODO?
+            immediate_size: 0, //TODO?
         };
 
-        let layout = self.create_pipeline_layout(&layout_desc)?;
+        let layout = self.create_pipeline_layout_impl(&layout_desc, true)?;
         Ok(layout)
     }
 
-    pub(crate) fn create_compute_pipeline(
+    pub fn create_compute_pipeline(
         self: &Arc<Self>,
         desc: pipeline::ResolvedComputePipelineDescriptor,
     ) -> Result<Arc<pipeline::ComputePipeline>, pipeline::CreateComputePipelineError> {
@@ -3549,9 +3802,7 @@ impl Device {
         };
 
         let mut binding_layout_source = match pipeline_layout {
-            Some(ref pipeline_layout) => {
-                validation::BindingLayoutSource::Provided(pipeline_layout.get_binding_maps())
-            }
+            Some(pipeline_layout) => validation::BindingLayoutSource::Provided(pipeline_layout),
             None => validation::BindingLayoutSource::new_derived(&self.limits),
         };
         let mut shader_binding_sizes = FastHashMap::default();
@@ -3560,10 +3811,10 @@ impl Device {
         let final_entry_point_name;
 
         {
-            let stage = wgt::ShaderStages::COMPUTE;
+            let stage = validation::ShaderStageForValidation::Compute;
 
             final_entry_point_name = shader_module.finalize_entry_point_name(
-                stage,
+                stage.to_naga(),
                 desc.stage.entry_point.as_ref().map(|ep| ep.as_ref()),
             )?;
 
@@ -3574,18 +3825,14 @@ impl Device {
                     &final_entry_point_name,
                     stage,
                     io,
-                    None,
                 )?;
             }
         }
 
         let pipeline_layout = match binding_layout_source {
-            validation::BindingLayoutSource::Provided(_) => {
-                drop(binding_layout_source);
-                pipeline_layout.unwrap()
-            }
+            validation::BindingLayoutSource::Provided(pipeline_layout) => pipeline_layout,
             validation::BindingLayoutSource::Derived(entries) => {
-                self.derive_pipeline_layout(entries)?
+                self.create_derived_pipeline_layout(entries)?
             }
         };
 
@@ -3646,6 +3893,10 @@ impl Device {
 
         if is_auto_layout {
             for bgl in pipeline.layout.bind_group_layouts.iter() {
+                let Some(bgl) = bgl else {
+                    continue;
+                };
+
                 // `bind_group_layouts` might contain duplicate entries, so we need to ignore the result.
                 let _ = bgl
                     .exclusive_pipeline
@@ -3658,7 +3909,7 @@ impl Device {
         Ok(pipeline)
     }
 
-    pub(crate) fn create_render_pipeline(
+    pub fn create_render_pipeline(
         self: &Arc<Self>,
         desc: pipeline::ResolvedGeneralRenderPipelineDescriptor,
     ) -> Result<Arc<pipeline::RenderPipeline>, pipeline::CreateRenderPipelineError> {
@@ -3704,14 +3955,12 @@ impl Device {
         let mut vertex_steps;
         let mut vertex_buffers;
         let mut total_attributes;
-        let mut shader_expects_dual_source_blending = false;
-        let mut pipeline_expects_dual_source_blending = false;
+        let mut dual_source_blending = false;
+        let mut has_depth_attachment = false;
         if let pipeline::RenderPipelineVertexProcessor::Vertex(ref vertex) = desc.vertex {
             vertex_steps = Vec::with_capacity(vertex.buffers.len());
             vertex_buffers = Vec::with_capacity(vertex.buffers.len());
             total_attributes = 0;
-            shader_expects_dual_source_blending = false;
-            pipeline_expects_dual_source_blending = false;
             for (i, vb_state) in vertex.buffers.iter().enumerate() {
                 // https://gpuweb.github.io/gpuweb/#abstract-opdef-validating-gpuvertexbufferlayout
 
@@ -3800,7 +4049,7 @@ impl Device {
                         self.require_features(wgt::Features::VERTEX_ATTRIBUTE_64BIT)?;
                     }
 
-                    let previous = io.insert(
+                    let previous = io.varyings.insert(
                         attribute.shader_location,
                         validation::InterfaceVar::vertex_attribute(attribute.format),
                     );
@@ -3884,16 +4133,7 @@ impl Device {
                             cs.format,
                         ));
                     }
-                    let blendable = format_features.flags.contains(Tfff::BLENDABLE);
-                    let filterable = format_features.flags.contains(Tfff::FILTERABLE);
-                    let adapter_specific = self
-                        .features
-                        .contains(wgt::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES);
-                    // according to WebGPU specifications the texture needs to be
-                    // [`TextureFormatFeatureFlags::FILTERABLE`] if blending is set - use
-                    // [`Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES`] to elude
-                    // this limitation
-                    if cs.blend.is_some() && (!blendable || (!filterable && !adapter_specific)) {
+                    if cs.blend.is_some() && !format_features.flags.contains(Tfff::BLENDABLE) {
                         break 'error Some(pipeline::ColorStateError::FormatNotBlendable(
                             cs.format,
                         ));
@@ -3922,20 +4162,32 @@ impl Device {
                     }
 
                     if let Some(blend_mode) = cs.blend {
-                        for factor in [
-                            blend_mode.color.src_factor,
-                            blend_mode.color.dst_factor,
-                            blend_mode.alpha.src_factor,
-                            blend_mode.alpha.dst_factor,
-                        ] {
-                            if factor.ref_second_blend_source() {
-                                self.require_features(wgt::Features::DUAL_SOURCE_BLENDING)?;
-                                if i == 0 {
-                                    pipeline_expects_dual_source_blending = true;
-                                    break;
-                                } else {
-                                    return Err(pipeline::CreateRenderPipelineError
-                                        ::BlendFactorOnUnsupportedTarget { factor, target: i as u32 });
+                        for component in [&blend_mode.color, &blend_mode.alpha] {
+                            for factor in [component.src_factor, component.dst_factor] {
+                                if factor.ref_second_blend_source() {
+                                    self.require_features(wgt::Features::DUAL_SOURCE_BLENDING)?;
+                                    if i == 0 {
+                                        dual_source_blending = true;
+                                    } else {
+                                        break 'error Some(
+                                            pipeline::ColorStateError::BlendFactorOnUnsupportedTarget {
+                                                factor,
+                                                target: i as u32,
+                                            }
+                                        );
+                                    }
+                                }
+
+                                if [wgt::BlendOperation::Min, wgt::BlendOperation::Max]
+                                    .contains(&component.operation)
+                                    && factor != wgt::BlendFactor::One
+                                {
+                                    break 'error Some(
+                                        pipeline::ColorStateError::InvalidMinMaxBlendFactor {
+                                            factor,
+                                            target: i as u32,
+                                        },
+                                    );
                                 }
                             }
                         }
@@ -3949,19 +4201,24 @@ impl Device {
             }
         }
 
-        let limit = self.limits.max_color_attachment_bytes_per_sample;
-        let formats = color_targets
-            .iter()
-            .map(|cs| cs.as_ref().map(|cs| cs.format));
-        if let Err(total) = validate_color_attachment_bytes_per_sample(formats, limit) {
-            return Err(pipeline::CreateRenderPipelineError::ColorAttachment(
-                command::ColorAttachmentError::TooManyBytesPerSample { total, limit },
-            ));
-        }
+        validation::validate_color_attachment_bytes_per_sample(
+            color_targets.iter().flatten().map(|cs| cs.format),
+            self.limits.max_color_attachment_bytes_per_sample,
+        )
+        .map_err(pipeline::CreateRenderPipelineError::ColorAttachment)?;
 
         if let Some(ds) = depth_stencil_state {
+            // See <https://gpuweb.github.io/gpuweb/#abstract-opdef-validating-gpudepthstencilstate>.
             target_specified = true;
             let error = 'error: {
+                if !ds.format.is_depth_stencil_format() {
+                    // This error case is not redundant with the aspect check below when
+                    // neither depth nor stencil is enabled at all.
+                    break 'error Some(pipeline::DepthStencilStateError::FormatNotDepthOrStencil(
+                        ds.format,
+                    ));
+                }
+
                 let format_features = self.describe_format_features(ds.format)?;
                 if !format_features
                     .allowed_usages
@@ -3973,9 +4230,28 @@ impl Device {
                 }
 
                 let aspect = hal::FormatAspects::from(ds.format);
-                if ds.is_depth_enabled() && !aspect.contains(hal::FormatAspects::DEPTH) {
+                if aspect.contains(hal::FormatAspects::DEPTH) {
+                    has_depth_attachment = true;
+                } else if ds.is_depth_enabled() {
                     break 'error Some(pipeline::DepthStencilStateError::FormatNotDepth(ds.format));
                 }
+                if has_depth_attachment {
+                    let Some(depth_write_enabled) = ds.depth_write_enabled else {
+                        break 'error Some(
+                            pipeline::DepthStencilStateError::MissingDepthWriteEnabled(ds.format),
+                        );
+                    };
+
+                    let depth_compare_required = depth_write_enabled
+                        || ds.stencil.front.depth_fail_op != wgt::StencilOperation::Keep
+                        || ds.stencil.back.depth_fail_op != wgt::StencilOperation::Keep;
+                    if depth_compare_required && ds.depth_compare.is_none() {
+                        break 'error Some(pipeline::DepthStencilStateError::MissingDepthCompare(
+                            ds.format,
+                        ));
+                    }
+                }
+
                 if ds.stencil.is_enabled() && !aspect.contains(hal::FormatAspects::STENCIL) {
                     break 'error Some(pipeline::DepthStencilStateError::FormatNotStencil(
                         ds.format,
@@ -4009,6 +4285,16 @@ impl Device {
             if ds.bias.clamp != 0.0 {
                 self.require_downlevel_flags(wgt::DownlevelFlags::DEPTH_BIAS_CLAMP)?;
             }
+
+            if (ds.bias.is_enabled() || ds.bias.clamp != 0.0)
+                && !desc.primitive.topology.is_triangles()
+            {
+                return Err(pipeline::CreateRenderPipelineError::DepthStencilState(
+                    pipeline::DepthStencilStateError::DepthBiasWithIncompatibleTopology(
+                        desc.primitive.topology,
+                    ),
+                ));
+            }
         }
 
         if !target_specified {
@@ -4027,9 +4313,7 @@ impl Device {
         };
 
         let mut binding_layout_source = match pipeline_layout {
-            Some(ref pipeline_layout) => {
-                validation::BindingLayoutSource::Provided(pipeline_layout.get_binding_maps())
-            }
+            Some(pipeline_layout) => validation::BindingLayoutSource::Provided(pipeline_layout),
             None => validation::BindingLayoutSource::new_derived(&self.limits),
         };
 
@@ -4051,17 +4335,23 @@ impl Device {
             pipeline::RenderPipelineVertexProcessor::Vertex(ref vertex) => {
                 vertex_stage = {
                     let stage_desc = &vertex.stage;
-                    let stage = wgt::ShaderStages::VERTEX;
+                    let stage = validation::ShaderStageForValidation::Vertex {
+                        topology: desc.primitive.topology,
+                        compare_function: desc.depth_stencil.as_ref().and_then(|d| d.depth_compare),
+                    };
+                    let stage_bit = stage.to_wgt_bit();
 
                     let vertex_shader_module = &stage_desc.module;
                     vertex_shader_module.same_device(self)?;
 
-                    let stage_err =
-                        |error| pipeline::CreateRenderPipelineError::Stage { stage, error };
+                    let stage_err = |error| pipeline::CreateRenderPipelineError::Stage {
+                        stage: stage_bit,
+                        error,
+                    };
 
                     _vertex_entry_point_name = vertex_shader_module
                         .finalize_entry_point_name(
-                            stage,
+                            stage.to_naga(),
                             stage_desc.entry_point.as_ref().map(|ep| ep.as_ref()),
                         )
                         .map_err(stage_err)?;
@@ -4074,10 +4364,9 @@ impl Device {
                                 &_vertex_entry_point_name,
                                 stage,
                                 io,
-                                desc.depth_stencil.as_ref().map(|d| d.depth_compare),
                             )
                             .map_err(stage_err)?;
-                        validated_stages |= stage;
+                        validated_stages |= stage_bit;
                     }
                     Some(hal::ProgrammableStage {
                         module: vertex_shader_module.raw(),
@@ -4093,16 +4382,19 @@ impl Device {
 
                 task_stage = if let Some(task) = task {
                     let stage_desc = &task.stage;
-                    let stage = wgt::ShaderStages::TASK;
+                    let stage = validation::ShaderStageForValidation::Task;
+                    let stage_bit = stage.to_wgt_bit();
                     let task_shader_module = &stage_desc.module;
                     task_shader_module.same_device(self)?;
 
-                    let stage_err =
-                        |error| pipeline::CreateRenderPipelineError::Stage { stage, error };
+                    let stage_err = |error| pipeline::CreateRenderPipelineError::Stage {
+                        stage: stage_bit,
+                        error,
+                    };
 
                     _task_entry_point_name = task_shader_module
                         .finalize_entry_point_name(
-                            stage,
+                            stage.to_naga(),
                             stage_desc.entry_point.as_ref().map(|ep| ep.as_ref()),
                         )
                         .map_err(stage_err)?;
@@ -4115,10 +4407,9 @@ impl Device {
                                 &_task_entry_point_name,
                                 stage,
                                 io,
-                                desc.depth_stencil.as_ref().map(|d| d.depth_compare),
                             )
                             .map_err(stage_err)?;
-                        validated_stages |= stage;
+                        validated_stages |= stage_bit;
                     }
                     Some(hal::ProgrammableStage {
                         module: task_shader_module.raw(),
@@ -4132,16 +4423,19 @@ impl Device {
                 };
                 mesh_stage = {
                     let stage_desc = &mesh.stage;
-                    let stage = wgt::ShaderStages::MESH;
+                    let stage = validation::ShaderStageForValidation::Mesh;
+                    let stage_bit = stage.to_wgt_bit();
                     let mesh_shader_module = &stage_desc.module;
                     mesh_shader_module.same_device(self)?;
 
-                    let stage_err =
-                        |error| pipeline::CreateRenderPipelineError::Stage { stage, error };
+                    let stage_err = |error| pipeline::CreateRenderPipelineError::Stage {
+                        stage: stage_bit,
+                        error,
+                    };
 
                     _mesh_entry_point_name = mesh_shader_module
                         .finalize_entry_point_name(
-                            stage,
+                            stage.to_naga(),
                             stage_desc.entry_point.as_ref().map(|ep| ep.as_ref()),
                         )
                         .map_err(stage_err)?;
@@ -4154,10 +4448,9 @@ impl Device {
                                 &_mesh_entry_point_name,
                                 stage,
                                 io,
-                                desc.depth_stencil.as_ref().map(|d| d.depth_compare),
                             )
                             .map_err(stage_err)?;
-                        validated_stages |= stage;
+                        validated_stages |= stage_bit;
                     }
                     Some(hal::ProgrammableStage {
                         module: mesh_shader_module.raw(),
@@ -4173,16 +4466,23 @@ impl Device {
         let fragment_entry_point_name;
         let fragment_stage = match desc.fragment {
             Some(ref fragment_state) => {
-                let stage = wgt::ShaderStages::FRAGMENT;
+                let stage = validation::ShaderStageForValidation::Fragment {
+                    dual_source_blending,
+                    has_depth_attachment,
+                };
+                let stage_bit = stage.to_wgt_bit();
 
                 let shader_module = &fragment_state.stage.module;
                 shader_module.same_device(self)?;
 
-                let stage_err = |error| pipeline::CreateRenderPipelineError::Stage { stage, error };
+                let stage_err = |error| pipeline::CreateRenderPipelineError::Stage {
+                    stage: stage_bit,
+                    error,
+                };
 
                 fragment_entry_point_name = shader_module
                     .finalize_entry_point_name(
-                        stage,
+                        stage.to_naga(),
                         fragment_state
                             .stage
                             .entry_point
@@ -4191,29 +4491,17 @@ impl Device {
                     )
                     .map_err(stage_err)?;
 
-                if validated_stages == wgt::ShaderStages::VERTEX {
-                    if let Some(ref interface) = shader_module.interface {
-                        io = interface
-                            .check_stage(
-                                &mut binding_layout_source,
-                                &mut shader_binding_sizes,
-                                &fragment_entry_point_name,
-                                stage,
-                                io,
-                                desc.depth_stencil.as_ref().map(|d| d.depth_compare),
-                            )
-                            .map_err(stage_err)?;
-                        validated_stages |= stage;
-                    }
-                }
-
                 if let Some(ref interface) = shader_module.interface {
-                    shader_expects_dual_source_blending = interface
-                        .fragment_uses_dual_source_blending(&fragment_entry_point_name)
-                        .map_err(|error| pipeline::CreateRenderPipelineError::Stage {
+                    io = interface
+                        .check_stage(
+                            &mut binding_layout_source,
+                            &mut shader_binding_sizes,
+                            &fragment_entry_point_name,
                             stage,
-                            error,
-                        })?;
+                            io,
+                        )
+                        .map_err(stage_err)?;
+                    validated_stages |= stage_bit;
                 }
 
                 Some(hal::ProgrammableStage {
@@ -4228,19 +4516,8 @@ impl Device {
             None => None,
         };
 
-        if !pipeline_expects_dual_source_blending && shader_expects_dual_source_blending {
-            return Err(
-                pipeline::CreateRenderPipelineError::ShaderExpectsPipelineToUseDualSourceBlending,
-            );
-        }
-        if pipeline_expects_dual_source_blending && !shader_expects_dual_source_blending {
-            return Err(
-                pipeline::CreateRenderPipelineError::PipelineExpectsShaderToUseDualSourceBlending,
-            );
-        }
-
         if validated_stages.contains(wgt::ShaderStages::FRAGMENT) {
-            for (i, output) in io.iter() {
+            for (i, output) in io.varyings.iter() {
                 match color_targets.get(*i as usize) {
                     Some(Some(state)) => {
                         validation::check_texture_format(state.format, &output.ty).map_err(
@@ -4256,7 +4533,7 @@ impl Device {
                         )?;
                     }
                     _ => {
-                        log::warn!(
+                        log::debug!(
                             "The fragment stage {:?} output @location({}) values are ignored",
                             fragment_stage
                                 .as_ref()
@@ -4276,18 +4553,18 @@ impl Device {
         }
 
         let pipeline_layout = match binding_layout_source {
-            validation::BindingLayoutSource::Provided(_) => {
-                drop(binding_layout_source);
-                pipeline_layout.unwrap()
-            }
+            validation::BindingLayoutSource::Provided(pipeline_layout) => pipeline_layout,
             validation::BindingLayoutSource::Derived(entries) => {
-                self.derive_pipeline_layout(entries)?
+                self.create_derived_pipeline_layout(entries)?
             }
         };
 
         // Multiview is only supported if the feature is enabled
-        if desc.multiview.is_some() {
+        if let Some(mv_mask) = desc.multiview_mask {
             self.require_features(wgt::Features::MULTIVIEW)?;
+            if !(mv_mask.get() + 1).is_power_of_two() {
+                self.require_features(wgt::Features::SELECTIVE_MULTIVIEW)?;
+            }
         }
 
         if !self
@@ -4337,7 +4614,7 @@ impl Device {
                 multisample: desc.multisample,
                 fragment_stage,
                 color_targets,
-                multiview: desc.multiview,
+                multiview_mask: desc.multiview_mask,
                 cache: cache.as_ref().map(|it| it.raw()),
             };
             unsafe { self.raw().create_render_pipeline(&pipeline_desc) }.map_err(
@@ -4371,7 +4648,7 @@ impl Device {
                 depth_stencil: depth_stencil_state.as_ref().map(|state| state.format),
             },
             sample_count: samples,
-            multiview: desc.multiview,
+            multiview_mask: desc.multiview_mask,
         };
 
         let mut flags = pipeline::PipelineFlags::empty();
@@ -4417,6 +4694,7 @@ impl Device {
             pass_context,
             _shader_modules: shader_modules,
             flags,
+            topology: desc.primitive.topology,
             strip_index_format: desc.primitive.strip_index_format,
             vertex_steps,
             late_sized_buffer_groups,
@@ -4429,6 +4707,10 @@ impl Device {
 
         if is_auto_layout {
             for bgl in pipeline.layout.bind_group_layouts.iter() {
+                let Some(bgl) = bgl else {
+                    continue;
+                };
+
                 // `bind_group_layouts` might contain duplicate entries, so we need to ignore the result.
                 let _ = bgl
                     .exclusive_pipeline
@@ -4553,7 +4835,7 @@ impl Device {
         Ok(())
     }
 
-    pub(crate) fn create_query_set(
+    pub fn create_query_set(
         self: &Arc<Self>,
         desc: &resource::QuerySetDescriptor,
     ) -> Result<Arc<QuerySet>, resource::CreateQuerySetError> {
@@ -4598,6 +4880,274 @@ impl Device {
         let query_set = Arc::new(query_set);
 
         Ok(query_set)
+    }
+
+    pub fn configure_surface(
+        self: &Arc<Self>,
+        surface: &crate::instance::Surface,
+        config: &wgt::SurfaceConfiguration<Vec<TextureFormat>>,
+    ) -> Option<present::ConfigureSurfaceError> {
+        use present::ConfigureSurfaceError as E;
+        profiling::scope!("surface_configure");
+
+        fn validate_surface_configuration(
+            config: &mut hal::SurfaceConfiguration,
+            caps: &hal::SurfaceCapabilities,
+            max_texture_dimension_2d: u32,
+        ) -> Result<(), E> {
+            let width = config.extent.width;
+            let height = config.extent.height;
+
+            if width > max_texture_dimension_2d || height > max_texture_dimension_2d {
+                return Err(E::TooLarge {
+                    width,
+                    height,
+                    max_texture_dimension_2d,
+                });
+            }
+
+            if !caps.present_modes.contains(&config.present_mode) {
+                // Automatic present mode checks.
+                //
+                // The "Automatic" modes are never supported by the backends.
+                let fallbacks = match config.present_mode {
+                    wgt::PresentMode::AutoVsync => {
+                        &[wgt::PresentMode::FifoRelaxed, wgt::PresentMode::Fifo][..]
+                    }
+                    // Always end in FIFO to make sure it's always supported
+                    wgt::PresentMode::AutoNoVsync => &[
+                        wgt::PresentMode::Immediate,
+                        wgt::PresentMode::Mailbox,
+                        wgt::PresentMode::Fifo,
+                    ][..],
+                    _ => {
+                        return Err(E::UnsupportedPresentMode {
+                            requested: config.present_mode,
+                            available: caps.present_modes.clone(),
+                        });
+                    }
+                };
+
+                let new_mode = fallbacks
+                    .iter()
+                    .copied()
+                    .find(|fallback| caps.present_modes.contains(fallback))
+                    .unwrap_or_else(|| {
+                        unreachable!(
+                            "Fallback system failed to choose present mode. \
+                            This is a bug. Mode: {:?}, Options: {:?}",
+                            config.present_mode, &caps.present_modes
+                        );
+                    });
+
+                api_log!(
+                    "Automatically choosing presentation mode by rule {:?}. Chose {new_mode:?}",
+                    config.present_mode
+                );
+                config.present_mode = new_mode;
+            }
+            if !caps.formats.contains(&config.format) {
+                return Err(E::UnsupportedFormat {
+                    requested: config.format,
+                    available: caps.formats.clone(),
+                });
+            }
+            if !caps
+                .composite_alpha_modes
+                .contains(&config.composite_alpha_mode)
+            {
+                let new_alpha_mode = 'alpha: {
+                    // Automatic alpha mode checks.
+                    let fallbacks = match config.composite_alpha_mode {
+                        wgt::CompositeAlphaMode::Auto => &[
+                            wgt::CompositeAlphaMode::Opaque,
+                            wgt::CompositeAlphaMode::Inherit,
+                        ][..],
+                        _ => {
+                            return Err(E::UnsupportedAlphaMode {
+                                requested: config.composite_alpha_mode,
+                                available: caps.composite_alpha_modes.clone(),
+                            });
+                        }
+                    };
+
+                    for &fallback in fallbacks {
+                        if caps.composite_alpha_modes.contains(&fallback) {
+                            break 'alpha fallback;
+                        }
+                    }
+
+                    unreachable!(
+                        "Fallback system failed to choose alpha mode. This is a bug. \
+                                  AlphaMode: {:?}, Options: {:?}",
+                        config.composite_alpha_mode, &caps.composite_alpha_modes
+                    );
+                };
+
+                api_log!(
+                    "Automatically choosing alpha mode by rule {:?}. Chose {new_alpha_mode:?}",
+                    config.composite_alpha_mode
+                );
+                config.composite_alpha_mode = new_alpha_mode;
+            }
+            if !caps.usage.contains(config.usage) {
+                return Err(E::UnsupportedUsage {
+                    requested: config.usage,
+                    available: caps.usage,
+                });
+            }
+            if width == 0 || height == 0 {
+                return Err(E::ZeroArea);
+            }
+            Ok(())
+        }
+
+        log::debug!("configuring surface with {config:?}");
+
+        let error = 'error: {
+            // User callbacks must not be called while we are holding locks.
+            let user_callbacks;
+            {
+                if let Err(e) = self.check_is_valid() {
+                    break 'error e.into();
+                }
+
+                let caps = match surface.get_capabilities(&self.adapter) {
+                    Ok(caps) => caps,
+                    Err(_) => break 'error E::UnsupportedQueueFamily,
+                };
+
+                let mut hal_view_formats = Vec::new();
+                for format in config.view_formats.iter() {
+                    if *format == config.format {
+                        continue;
+                    }
+                    if !caps.formats.contains(&config.format) {
+                        break 'error E::UnsupportedFormat {
+                            requested: config.format,
+                            available: caps.formats,
+                        };
+                    }
+                    if config.format.remove_srgb_suffix() != format.remove_srgb_suffix() {
+                        break 'error E::InvalidViewFormat(*format, config.format);
+                    }
+                    hal_view_formats.push(*format);
+                }
+
+                if !hal_view_formats.is_empty() {
+                    if let Err(missing_flag) =
+                        self.require_downlevel_flags(wgt::DownlevelFlags::SURFACE_VIEW_FORMATS)
+                    {
+                        break 'error E::MissingDownlevelFlags(missing_flag);
+                    }
+                }
+
+                let maximum_frame_latency = config.desired_maximum_frame_latency.clamp(
+                    *caps.maximum_frame_latency.start(),
+                    *caps.maximum_frame_latency.end(),
+                );
+                let mut hal_config = hal::SurfaceConfiguration {
+                    maximum_frame_latency,
+                    present_mode: config.present_mode,
+                    composite_alpha_mode: config.alpha_mode,
+                    format: config.format,
+                    extent: wgt::Extent3d {
+                        width: config.width,
+                        height: config.height,
+                        depth_or_array_layers: 1,
+                    },
+                    usage: conv::map_texture_usage(
+                        config.usage,
+                        hal::FormatAspects::COLOR,
+                        wgt::TextureFormatFeatureFlags::STORAGE_READ_ONLY
+                            | wgt::TextureFormatFeatureFlags::STORAGE_WRITE_ONLY
+                            | wgt::TextureFormatFeatureFlags::STORAGE_READ_WRITE,
+                    ),
+                    view_formats: hal_view_formats,
+                };
+
+                if let Err(error) = validate_surface_configuration(
+                    &mut hal_config,
+                    &caps,
+                    self.limits.max_texture_dimension_2d,
+                ) {
+                    break 'error error;
+                }
+
+                // Wait for all work to finish before configuring the surface.
+                let snatch_guard = self.snatchable_lock.read();
+                let fence = self.fence.read();
+
+                let maintain_result;
+                (user_callbacks, maintain_result) =
+                    self.maintain(fence, wgt::PollType::wait_indefinitely(), snatch_guard);
+
+                match maintain_result {
+                    // We're happy
+                    Ok(wgt::PollStatus::QueueEmpty) => {}
+                    Ok(wgt::PollStatus::WaitSucceeded) => {
+                        // After the wait, the queue should be empty. It can only be non-empty
+                        // if another thread is submitting at the same time.
+                        break 'error E::GpuWaitTimeout;
+                    }
+                    Ok(wgt::PollStatus::Poll) => {
+                        unreachable!("Cannot get a Poll result from a Wait action.")
+                    }
+                    Err(WaitIdleError::Timeout) if cfg!(target_arch = "wasm32") => {
+                        // On wasm, you cannot actually successfully wait for the surface.
+                        // However WebGL does not actually require you do this, so ignoring
+                        // the failure is totally fine. See https://github.com/gfx-rs/wgpu/issues/7363
+                    }
+                    Err(e) => {
+                        break 'error e.into();
+                    }
+                }
+
+                // All textures must be destroyed before the surface can be re-configured.
+                if let Some(present) = surface.presentation.lock().take() {
+                    if present.acquired_texture.is_some() {
+                        break 'error E::PreviousOutputExists;
+                    }
+                }
+
+                // TODO: Texture views may still be alive that point to the texture.
+                // this will allow the user to render to the surface texture, long after
+                // it has been removed.
+                //
+                // https://github.com/gfx-rs/wgpu/issues/4105
+
+                let surface_raw = surface.raw(self.backend()).unwrap();
+                match unsafe { surface_raw.configure(self.raw(), &hal_config) } {
+                    Ok(()) => (),
+                    Err(error) => {
+                        break 'error match error {
+                            hal::SurfaceError::Outdated | hal::SurfaceError::Lost => {
+                                E::InvalidSurface
+                            }
+                            hal::SurfaceError::Device(error) => {
+                                E::Device(self.handle_hal_error(error))
+                            }
+                            hal::SurfaceError::Other(message) => {
+                                log::error!("surface configuration failed: {message}");
+                                E::InvalidSurface
+                            }
+                        }
+                    }
+                }
+
+                let mut presentation = surface.presentation.lock();
+                *presentation = Some(present::Presentation {
+                    device: Arc::clone(self),
+                    config: config.clone(),
+                    acquired_texture: None,
+                });
+            }
+
+            user_callbacks.fire();
+            return None;
+        };
+
+        Some(error)
     }
 
     fn lose(&self, message: &str) {

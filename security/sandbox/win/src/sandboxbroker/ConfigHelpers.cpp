@@ -30,8 +30,12 @@ SizeTrackingConfig::SizeTrackingConfig(sandbox::TargetConfig* aConfig,
     : mConfig(aConfig) {
   MOZ_ASSERT(mConfig);
 
-  // The calculation at the start of sandbox_policy_base.cc allows for 14 pages.
-  MOZ_ASSERT(aStoragePages <= 14);
+  // The calculation uses the kPolMemPageCount constant in sandbox_policy.h.
+  // We reduce the allowable size by 2 to account for the PolicyGlobal and
+  // padding that occurs during LowLevelPolicy::Done. See bug 2009140.
+  MOZ_ASSERT(aStoragePages > 0);
+  MOZ_ASSERT(static_cast<size_t>(aStoragePages) <=
+             sandbox::kPolMemPageCount - 2);
 
   constexpr int32_t kOneMemPage = 4096;
   mRemainingSize = kOneMemPage * aStoragePages;
@@ -83,8 +87,11 @@ sandbox::ResultCode SizeTrackingConfig::AllowFileAccess(
 
 UserFontConfigHelper::UserFontConfigHelper(const wchar_t* aUserFontKeyPath,
                                            const nsString& aWinUserProfile,
-                                           const nsString& aLocalAppData)
-    : mWinUserProfile(aWinUserProfile), mLocalAppData(aLocalAppData) {
+                                           const nsString& aLocalAppData,
+                                           const nsString& aRoamingAppData)
+    : mWinUserProfile(aWinUserProfile),
+      mLocalAppData(aLocalAppData),
+      mRoamingAppData(aRoamingAppData) {
   LSTATUS lStatus =
       ::RegOpenKeyExW(HKEY_CURRENT_USER, aUserFontKeyPath, 0,
                       KEY_QUERY_VALUE | KEY_ENUMERATE_SUB_KEYS, &mUserFontKey);
@@ -212,7 +219,7 @@ static auto AddRulesForKey(HKEY aFontKey, const nsAString& aWindowsUserFontDir,
   return sandbox::SBOX_ALL_OK;
 }
 
-void UserFontConfigHelper::AddRules(SizeTrackingConfig& aConfig) const {
+bool UserFontConfigHelper::AddRules(SizeTrackingConfig& aConfig) const {
   // Always add rule to allow access to windows user specific fonts dir first.
   nsAutoString windowsUserFontDir(mLocalAppData);
   windowsUserFontDir += uR"(\Microsoft\Windows\Fonts\*)"_ns;
@@ -224,9 +231,32 @@ void UserFontConfigHelper::AddRules(SizeTrackingConfig& aConfig) const {
           windowsUserFontDir.getW());
   }
 
+  // Add two hard coded rules for Adobe Creative Cloud fonts, as it uses
+  // AddFontResource to register its fonts so they don't appear in the registry.
+  nsAutoString adobeLiveTypeFonts(mRoamingAppData);
+  adobeLiveTypeFonts += uR"(\ADOBE\CORESYNC\PLUGINS\LIVETYPE\R\*)"_ns;
+  result = aConfig.AllowFileAccess(sandbox::FileSemantics::kAllowReadonly,
+                                   adobeLiveTypeFonts.getW());
+  if (result != sandbox::SBOX_ALL_OK) {
+    NS_ERROR("Failed to add Adobe LiveType font dir policy rule.");
+    LOG_E("Failed (ResultCode %d) to add read access to: %S", result,
+          adobeLiveTypeFonts.getW());
+  }
+  nsAutoString adobeUserOwnedFonts(mRoamingAppData);
+  adobeUserOwnedFonts += uR"(\ADOBE\USER OWNED FONTS\*)"_ns;
+  result = aConfig.AllowFileAccess(sandbox::FileSemantics::kAllowReadonly,
+                                   adobeUserOwnedFonts.getW());
+  if (result != sandbox::SBOX_ALL_OK) {
+    NS_ERROR("Failed to add Adobe user owned font dir policy rule.");
+    LOG_E("Failed (ResultCode %d) to add read access to: %S", result,
+          adobeUserOwnedFonts.getW());
+  }
+
   // We failed to open the registry key, we can't do any more.
   if (!mUserFontKey) {
-    return;
+    // In the unlikely event we can't open the user font registry key we return
+    // true to apply the stronger sandbox settings.
+    return true;
   }
 
   // We don't want the wild-card for comparisons.
@@ -245,7 +275,9 @@ void UserFontConfigHelper::AddRules(SizeTrackingConfig& aConfig) const {
   if (result == sandbox::SBOX_ERROR_NO_SPACE) {
     CrashReporter::RecordAnnotationCString(
         CrashReporter::Annotation::UserFontRulesExhausted, "inside");
-    return;
+    // We've run out of room for font rules in the user's directory, so return
+    // false to fall back to weaker sandbox settings to avoid errors.
+    return false;
   }
 
   // Finally add rules for fonts outside the user's dir. These are less likely
@@ -260,10 +292,14 @@ void UserFontConfigHelper::AddRules(SizeTrackingConfig& aConfig) const {
       if (result == sandbox::SBOX_ERROR_NO_SPACE) {
         CrashReporter::RecordAnnotationCString(
             CrashReporter::Annotation::UserFontRulesExhausted, "outside");
-        return;
+        // We return true here because we don't expect font paths outside the
+        // user's directory to be blocked by the sandbox.
+        return true;
       }
     }
   }
+
+  return true;
 }
 
 }  // namespace sandboxing

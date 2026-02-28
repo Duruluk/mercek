@@ -6,6 +6,7 @@
 
 #include "nsIOService.h"
 #include "nsInputStreamPump.h"
+#include "nsIInputStreamPriority.h"
 #include "nsIStreamTransportService.h"
 #include "nsIThreadRetargetableStreamListener.h"
 #include "nsThreadUtils.h"
@@ -73,7 +74,10 @@ static nsresult CallPeekFunc(nsIInputStream* aInStream, void* aClosure,
 nsresult nsInputStreamPump::PeekStream(PeekSegmentFun callback, void* closure) {
   RecursiveMutexAutoLock lock(mMutex);
 
-  MOZ_ASSERT(mAsyncStream, "PeekStream called without stream");
+  if (!mAsyncStream) {
+    MOZ_DIAGNOSTIC_ASSERT(false, "PeekStream called without stream");
+    return NS_ERROR_NOT_AVAILABLE;
+  }
 
   nsresult rv = CreateBufferedStreamIfNeeded();
   NS_ENSURE_SUCCESS(rv, rv);
@@ -375,6 +379,13 @@ nsInputStreamPump::AsyncRead(nsIStreamListener* listener) {
     mTargetThread = mozilla::GetCurrentSerialEventTarget();
   }
   NS_ENSURE_STATE(mTargetThread);
+
+  if (mHighPriorityStream) {
+    if (nsCOMPtr<nsIInputStreamPriority> pri =
+            do_QueryInterface(mAsyncStream)) {
+      pri->SetPriority(nsIRunnablePriority::PRIORITY_MEDIUMHIGH);
+    }
+  }
 
   rv = EnsureWaiting();
   if (NS_FAILED(rv)) return rv;

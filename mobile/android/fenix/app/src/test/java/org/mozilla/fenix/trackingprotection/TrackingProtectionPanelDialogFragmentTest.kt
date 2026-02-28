@@ -12,6 +12,8 @@ import io.mockk.mockk
 import io.mockk.spyk
 import io.mockk.verify
 import junit.framework.TestCase.assertNotSame
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.test.runTest
 import mozilla.components.browser.state.action.ContentAction
 import mozilla.components.browser.state.action.TabListAction
 import mozilla.components.browser.state.action.TrackingProtectionAction.TrackerBlockedAction
@@ -20,19 +22,15 @@ import mozilla.components.browser.state.selector.findTab
 import mozilla.components.browser.state.state.TabSessionState
 import mozilla.components.browser.state.state.createTab
 import mozilla.components.browser.state.store.BrowserStore
-import mozilla.components.support.test.ext.joinBlocking
-import mozilla.components.support.test.rule.MainCoroutineRule
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import kotlin.coroutines.ContinuationInterceptor
 
 @RunWith(RobolectricTestRunner::class)
 class TrackingProtectionPanelDialogFragmentTest {
 
-    @get:Rule
-    val coroutinesTestRule = MainCoroutineRule()
     private lateinit var lifecycleOwner: MockedLifecycleOwner
     private lateinit var fragment: TrackingProtectionPanelDialogFragment
     private lateinit var store: BrowserStore
@@ -50,21 +48,25 @@ class TrackingProtectionPanelDialogFragmentTest {
     }
 
     @Test
-    fun `WHEN the url is updated THEN the url view is updated`() {
+    fun `WHEN the url is updated THEN the url view is updated`() = runTest {
         val protectionsStore: ProtectionsStore = mockk(relaxed = true)
         val tab = createTab("mozilla.org")
 
         every { fragment.protectionsStore } returns protectionsStore
         every { fragment.provideCurrentTabId() } returns tab.id
 
-        fragment.observeUrlChange(store)
+        fragment.observeUrlChange(store, coroutineContext[ContinuationInterceptor] as CoroutineDispatcher)
+        testScheduler.advanceUntilIdle()
+
         addAndSelectTab(tab)
+        testScheduler.advanceUntilIdle()
 
         verify(exactly = 1) {
             protectionsStore.dispatch(ProtectionsAction.UrlChange("mozilla.org"))
         }
 
-        store.dispatch(ContentAction.UpdateUrlAction(tab.id, "wikipedia.org")).joinBlocking()
+        store.dispatch(ContentAction.UpdateUrlAction(tab.id, "wikipedia.org"))
+        testScheduler.advanceUntilIdle()
 
         verify(exactly = 1) {
             protectionsStore.dispatch(ProtectionsAction.UrlChange("wikipedia.org"))
@@ -72,7 +74,7 @@ class TrackingProtectionPanelDialogFragmentTest {
     }
 
     @Test
-    fun `WHEN a tracker is loaded THEN trackers view is updated`() {
+    fun `WHEN a tracker is loaded THEN trackers view is updated`() = runTest {
         val protectionsStore: ProtectionsStore = mockk(relaxed = true)
         val tab = createTab("mozilla.org")
 
@@ -80,14 +82,18 @@ class TrackingProtectionPanelDialogFragmentTest {
         every { fragment.provideCurrentTabId() } returns tab.id
         every { fragment.updateTrackers(any()) } returns Unit
 
-        fragment.observeTrackersChange(store)
+        fragment.observeTrackersChange(store, coroutineContext[ContinuationInterceptor] as CoroutineDispatcher)
+        testScheduler.advanceUntilIdle()
+
         addAndSelectTab(tab)
+        testScheduler.advanceUntilIdle()
 
         verify(exactly = 1) {
             fragment.updateTrackers(tab)
         }
 
-        store.dispatch(TrackerLoadedAction(tab.id, mockk())).joinBlocking()
+        store.dispatch(TrackerLoadedAction(tab.id, mockk()))
+        testScheduler.advanceUntilIdle()
 
         val updatedTab = store.state.findTab(tab.id)!!
 
@@ -99,7 +105,7 @@ class TrackingProtectionPanelDialogFragmentTest {
     }
 
     @Test
-    fun `WHEN a tracker is blocked THEN trackers view is updated`() {
+    fun `WHEN a tracker is blocked THEN trackers view is updated`() = runTest {
         val protectionsStore: ProtectionsStore = mockk(relaxed = true)
         val tab = createTab("mozilla.org")
 
@@ -107,14 +113,18 @@ class TrackingProtectionPanelDialogFragmentTest {
         every { fragment.provideCurrentTabId() } returns tab.id
         every { fragment.updateTrackers(any()) } returns Unit
 
-        fragment.observeTrackersChange(store)
+        fragment.observeTrackersChange(store, coroutineContext[ContinuationInterceptor] as CoroutineDispatcher)
+        testScheduler.advanceUntilIdle()
+
         addAndSelectTab(tab)
+        testScheduler.advanceUntilIdle()
 
         verify(exactly = 1) {
             fragment.updateTrackers(tab)
         }
 
-        store.dispatch(TrackerBlockedAction(tab.id, mockk())).joinBlocking()
+        store.dispatch(TrackerBlockedAction(tab.id, mockk()))
+        testScheduler.advanceUntilIdle()
 
         val updatedTab = store.state.findTab(tab.id)!!
 
@@ -126,8 +136,8 @@ class TrackingProtectionPanelDialogFragmentTest {
     }
 
     private fun addAndSelectTab(tab: TabSessionState) {
-        store.dispatch(TabListAction.AddTabAction(tab)).joinBlocking()
-        store.dispatch(TabListAction.SelectTabAction(tab.id)).joinBlocking()
+        store.dispatch(TabListAction.AddTabAction(tab))
+        store.dispatch(TabListAction.SelectTabAction(tab.id))
     }
 
     internal class MockedLifecycleOwner(initialState: Lifecycle.State) : LifecycleOwner {

@@ -13,12 +13,14 @@ import android.view.ViewGroup
 import androidx.compose.ui.platform.ComposeView
 import androidx.navigation.fragment.navArgs
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
-import org.mozilla.fenix.components.lazyStore
+import mozilla.components.lib.state.helpers.StoreProvider.Companion.fragmentStore
+import org.mozilla.fenix.ext.requireComponents
 import org.mozilla.fenix.ext.settings
 import org.mozilla.fenix.settings.SupportUtils
-import org.mozilla.fenix.termsofuse.store.DefaultTermsOfUsePromptRepository
+import org.mozilla.fenix.termsofuse.experimentation.getTermsOfUsePromptContent
 import org.mozilla.fenix.termsofuse.store.TermsOfUsePromptAction
 import org.mozilla.fenix.termsofuse.store.TermsOfUsePromptPreferencesMiddleware
+import org.mozilla.fenix.termsofuse.store.TermsOfUsePromptState
 import org.mozilla.fenix.termsofuse.store.TermsOfUsePromptStore
 import org.mozilla.fenix.termsofuse.store.TermsOfUsePromptTelemetryMiddleware
 import org.mozilla.fenix.theme.FirefoxTheme
@@ -31,13 +33,14 @@ class TermsOfUseBottomSheetFragment : BottomSheetDialogFragment() {
 
     private val args by navArgs<TermsOfUseBottomSheetFragmentArgs>()
 
-    private val termsOfUsePromptStore by lazyStore {
+    private var isAlreadyShowing: Boolean = false
+
+    private val termsOfUsePromptStore by fragmentStore(TermsOfUsePromptState) {
         TermsOfUsePromptStore(
+            initialState = it,
             middleware = listOf(
                 TermsOfUsePromptPreferencesMiddleware(
-                    repository = DefaultTermsOfUsePromptRepository(
-                        settings = requireContext().settings(),
-                    ),
+                    repository = requireComponents.termsOfUsePromptRepository,
                 ),
                 TermsOfUsePromptTelemetryMiddleware(),
             ),
@@ -50,7 +53,10 @@ class TermsOfUseBottomSheetFragment : BottomSheetDialogFragment() {
                 val bottomSheet = findViewById<View?>(materialR.id.design_bottom_sheet)
                 bottomSheet?.setBackgroundResource(android.R.color.transparent)
 
-                termsOfUsePromptStore.dispatch(TermsOfUsePromptAction.OnImpression(args.surface))
+                if (!isAlreadyShowing) {
+                    termsOfUsePromptStore.dispatch(TermsOfUsePromptAction.OnImpression(args.surface))
+                    isAlreadyShowing = true
+                }
             }
         }
 
@@ -59,9 +65,31 @@ class TermsOfUseBottomSheetFragment : BottomSheetDialogFragment() {
         container: ViewGroup?,
         savedInstanceState: Bundle?,
     ): View = ComposeView(requireContext()).apply {
+        isAlreadyShowing = savedInstanceState?.getBoolean(IS_ALREADY_SHOW_KEY) ?: false
+        termsOfUsePromptStore.dispatch(TermsOfUsePromptAction.OnPromptCreated)
         setContent {
             FirefoxTheme {
+                val termsOfUsePromptContent = getTermsOfUsePromptContent(
+                    context = requireActivity().applicationContext,
+                    id = settings().termsOfUsePromptContentOptionId,
+                    onLearnMoreClicked = {
+                        termsOfUsePromptStore.dispatch(
+                            TermsOfUsePromptAction.OnLearnMoreClicked(args.surface),
+                        )
+                        SupportUtils.launchSandboxCustomTab(
+                            context,
+                            SupportUtils.getSumoURLForTopic(
+                                context,
+                                SupportUtils.SumoTopic.TERMS_OF_USE,
+                                useMobilePage = false,
+                            ),
+                        )
+                    },
+                )
+
                 TermsOfUseBottomSheet(
+                    showDragHandle = settings().shouldShowTermsOfUsePromptDragHandle,
+                    termsOfUsePromptContent = termsOfUsePromptContent,
                     onDismiss = { dismiss() },
                     onDismissRequest = {
                         termsOfUsePromptStore.dispatch(
@@ -93,20 +121,7 @@ class TermsOfUseBottomSheetFragment : BottomSheetDialogFragment() {
                         )
                         SupportUtils.launchSandboxCustomTab(
                             context,
-                            SupportUtils.getMozillaPageUrl(SupportUtils.MozillaPage.PRIVATE_NOTICE),
-                        )
-                    },
-                    onLearnMoreClicked = {
-                        termsOfUsePromptStore.dispatch(
-                            TermsOfUsePromptAction.OnLearnMoreClicked(args.surface),
-                        )
-                        SupportUtils.launchSandboxCustomTab(
-                            context,
-                            SupportUtils.getSumoURLForTopic(
-                                context,
-                                SupportUtils.SumoTopic.TERMS_OF_USE,
-                                useMobilePage = false,
-                            ),
+                            SupportUtils.getMozillaPageUrl(SupportUtils.MozillaPage.PRIVACY_NOTICE),
                         )
                     },
                 )
@@ -114,8 +129,17 @@ class TermsOfUseBottomSheetFragment : BottomSheetDialogFragment() {
         }
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean(IS_ALREADY_SHOW_KEY, isAlreadyShowing)
+    }
+
     override fun onDismiss(dialog: DialogInterface) {
         super.onDismiss(dialog)
         termsOfUsePromptStore.dispatch(TermsOfUsePromptAction.OnPromptDismissed)
+    }
+
+    companion object {
+        private const val IS_ALREADY_SHOW_KEY = "is_already_showing"
     }
 }

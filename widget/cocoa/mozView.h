@@ -42,7 +42,7 @@ class TextInputHandler;
 // Checks whether the view is first responder or not
 - (BOOL)isFirstResponder;
 
-// Call when you dispatch an event which may cause to open context menu.
+// Call when you dispatch an event which may cause opening a context menu.
 - (void)maybeInitContextMenuTracking;
 
 @end

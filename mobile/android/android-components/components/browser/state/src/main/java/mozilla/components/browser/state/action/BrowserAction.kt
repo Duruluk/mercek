@@ -19,9 +19,10 @@ import mozilla.components.browser.state.state.LoadRequestState
 import mozilla.components.browser.state.state.MediaSessionState
 import mozilla.components.browser.state.state.ReaderState
 import mozilla.components.browser.state.state.SearchState
-import mozilla.components.browser.state.state.SecurityInfoState
+import mozilla.components.browser.state.state.SecurityInfo
 import mozilla.components.browser.state.state.SessionState
 import mozilla.components.browser.state.state.TabGroup
+import mozilla.components.browser.state.state.TabPartition
 import mozilla.components.browser.state.state.TabSessionState
 import mozilla.components.browser.state.state.TrackingProtectionState
 import mozilla.components.browser.state.state.UndoHistoryState
@@ -234,11 +235,14 @@ sealed class TabListAction : BrowserAction() {
      *
      * @property tabs the [TabSessionState]s to restore.
      * @property selectedTabId the ID of the tab to select.
+     * @property restoreLocation [RestoreLocation] indicating where to restore [tabs].
+     * @property tabPartitions a mapping of IDs to the corresponding [TabPartition].
      */
     data class RestoreAction(
         val tabs: List<RecoverableTab>,
         val selectedTabId: String? = null,
         val restoreLocation: RestoreLocation,
+        val tabPartitions: Map<String, TabPartition> = emptyMap(),
     ) : TabListAction() {
 
         /**
@@ -325,7 +329,7 @@ sealed class TabGroupAction : BrowserAction() {
     data class AddTabsAction(
         val partition: String,
         val group: String,
-        val tabIds: List<String>,
+        val tabIds: Set<String>,
     ) : TabGroupAction()
 
     /**
@@ -351,7 +355,7 @@ sealed class TabGroupAction : BrowserAction() {
     data class RemoveTabsAction(
         val partition: String,
         val group: String,
-        val tabIds: List<String>,
+        val tabIds: Set<String>,
     ) : TabGroupAction()
 }
 
@@ -606,11 +610,11 @@ sealed class ContentAction : BrowserAction() {
     ) : ContentAction()
 
     /**
-     * Updates the [SecurityInfoState] of the [ContentState] with the given [sessionId].
+     * Updates the [SecurityInfo] of the [ContentState] with the given [sessionId].
      */
     data class UpdateSecurityInfoAction(
         val sessionId: String,
-        val securityInfo: SecurityInfoState,
+        val securityInfo: SecurityInfo,
     ) : ContentAction()
 
     /**

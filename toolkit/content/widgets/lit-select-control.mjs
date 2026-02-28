@@ -39,10 +39,12 @@ const NAVIGATION_DIRECTIONS = {
  * expected.
  */
 export class SelectControlBaseElement extends MozLitElement {
+  static formAssociated = true;
   #childElements;
   #value;
   #checkedIndex;
   #focusedIndex;
+  #internals;
 
   static properties = {
     type: { type: String },
@@ -61,6 +63,7 @@ export class SelectControlBaseElement extends MozLitElement {
 
   set value(newValue) {
     this.#value = newValue;
+    this.#internals.setFormValue(newValue);
     this.childElements.forEach((item, index) => {
       let isChecked = this.value === item.value;
       item.checked = isChecked;
@@ -136,11 +139,19 @@ export class SelectControlBaseElement extends MozLitElement {
     }
     return this.#childElements;
   }
+  get form() {
+    return this.#internals.form;
+  }
+
+  formResetCallback() {
+    this.value = this.getAttribute("value");
+  }
 
   constructor() {
     super();
     this.type = "radio";
     this.disabled = false;
+    this.#internals = this.attachInternals();
     this.addEventListener("blur", e => this.handleBlur(e), true);
     this.addEventListener("keydown", e => this.handleKeydown(e));
   }
@@ -185,9 +196,14 @@ export class SelectControlBaseElement extends MozLitElement {
     this.focusedIndex = undefined;
   }
 
-  // NB: We may need to revise this to avoid bugs when we add more focusable
-  // elements to select control base/items.
+  /**
+   * @param {KeyboardEvent & { target: HTMLElement }} event
+   */
   handleKeydown(event) {
+    if (event.target.parentElement != this) {
+      // Ignore events from nested controls.
+      return;
+    }
     let directions = this.getNavigationDirections();
     switch (event.key) {
       case "Down":
@@ -243,7 +259,6 @@ export class SelectControlBaseElement extends MozLitElement {
           this.value = nextItem.value;
           nextItem.click();
         }
-        nextItem.focus();
         return;
       }
     }
@@ -264,18 +279,15 @@ export class SelectControlBaseElement extends MozLitElement {
         item.role = childRole;
       });
     }
+    if (changedProperties.has("value")) {
+      this.#internals.setFormValue(this.value);
+    }
   }
 
   handleSetName() {
     this.childElements.forEach(item => {
       item.name = this.name;
     });
-  }
-
-  // Re-dispatch change event so it's re-targeted to the custom element.
-  handleChange(event) {
-    event.stopPropagation();
-    this.dispatchEvent(new Event(event.type, event));
   }
 
   handleSlotChange() {
@@ -293,7 +305,7 @@ export class SelectControlBaseElement extends MozLitElement {
         support-page=${ifDefined(this.supportPage)}
         role=${this.type == "radio" ? "radiogroup" : "listbox"}
         ?disabled=${this.disabled}
-        label=${this.label}
+        label=${ifDefined(this.label)}
         headinglevel=${this.headingLevel}
         exportparts="inputs, support-link"
         aria-orientation=${ifDefined(this.constructor.orientation)}

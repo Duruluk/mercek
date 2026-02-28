@@ -356,7 +356,7 @@ newtab-wallpaper-abstract-orange = Oranžas formas
 newtab-wallpaper-gradient-orange = Oranža un rozā krāsu pāreja
 newtab-wallpaper-abstract-blue-purple = Zilas un violetas formas
 
-## Celestial
+## Firefox
 
 newtab-wallpaper-category-title-photographs = Fotogrāfijas
 newtab-wallpaper-beach-at-sunrise = Pludmale saullēktā
@@ -410,6 +410,11 @@ newtab-weather-menu-hide-weather = Paslēpt laikapstākļus jaunā cilnē
 newtab-weather-menu-learn-more = Uzzināt vairāk
 # This message is shown if user is working offline
 newtab-weather-error-not-available = Laikapstākļu dati pašlaik nav pieejami.
+# Variables:
+#   $provider (string) - Service provider for weather data
+newtab-weather-see-forecast-description =
+    .title = Skatīt prognozi { $provider }
+    .aria-description = { $provider } ∙ sponsorēts
 
 ## Topic Labels
 

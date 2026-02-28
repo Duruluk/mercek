@@ -52,7 +52,7 @@ async function customDragAndDrop(
  * @returns {Promise<MozTabbrowserTab>}
  * @see Tabbrowser.addTab
  */
-async function addTab(url, params = {}) {
+async function addTab(url = "http://mochi.test:8888/", params = {}) {
   params.skipAnimation = true;
   const tab = BrowserTestUtils.addTab(gBrowser, url, params);
   const browser = gBrowser.getBrowserForTab(tab);
@@ -140,4 +140,38 @@ function waitForTabMove(tab) {
     1000,
     "Tab did not change position after a drop"
   );
+}
+
+/**
+ * @param {boolean} Optional
+ * Whether to apply to vertical or horizontal tabs
+ * @returns {object}
+ *   Returns properties used to emulate a drag event.
+ */
+function getDragEvent(isVertical = false) {
+  let tabContainerRect = window.windowUtils.getBoundsWithoutFlushing(
+    gBrowser.tabContainer
+  );
+  // Drag to the starting edge of the tab container
+  return {
+    clientX: isVertical
+      ? tabContainerRect.x + tabContainerRect.width / 2
+      : tabContainerRect.x + 1,
+    clientY: isVertical
+      ? tabContainerRect.y + 1
+      : tabContainerRect.y + tabContainerRect.height / 2,
+    dropEffect: "move",
+  };
+}
+
+function triggerClickOn(target, options) {
+  let promise = BrowserTestUtils.waitForEvent(target, "click");
+  if (AppConstants.platform == "macosx") {
+    options = {
+      metaKey: options.ctrlKey,
+      shiftKey: options.shiftKey,
+    };
+  }
+  EventUtils.synthesizeMouseAtCenter(target, options);
+  return promise;
 }

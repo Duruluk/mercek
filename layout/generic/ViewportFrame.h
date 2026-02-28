@@ -48,6 +48,7 @@ class ViewportFrame : public nsContainerFrame {
   void RemoveFrame(DestroyContext&, ChildListID, nsIFrame*) override;
 #endif
 
+  void Destroy(DestroyContext&) override;
   void BuildDisplayList(nsDisplayListBuilder* aBuilder,
                         const nsDisplayListSet& aLists) override;
 
@@ -95,20 +96,11 @@ class ViewportFrame : public nsContainerFrame {
 
  protected:
   ViewportFrame(ComputedStyle* aStyle, nsPresContext* aPresContext, ClassID aID)
-      : nsContainerFrame(aStyle, aPresContext, aID), mView(nullptr) {}
-
-  nsView* GetViewInternal() const override { return mView; }
-  void SetViewInternal(nsView* aView) override { mView = aView; }
+      : nsContainerFrame(aStyle, aPresContext, aID) {}
 
  private:
   nsDisplayWrapList* MaybeWrapTopLayerList(nsDisplayListBuilder*,
                                            uint16_t aIndex, nsDisplayList&);
-
-  mozilla::FrameChildListID GetAbsoluteListID() const override {
-    return FrameChildListID::Fixed;
-  }
-
-  nsView* mView;
 };
 
 }  // namespace mozilla

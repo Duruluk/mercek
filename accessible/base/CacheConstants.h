@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef _CacheConstants_h_
-#define _CacheConstants_h_
+#ifndef CacheConstants_h_
+#define CacheConstants_h_
 
 #include "nsGkAtoms.h"
 #include "mozilla/a11y/RelationType.h"
@@ -82,6 +82,10 @@ static constexpr RelationData kRelationTypeAtoms[] = {
     {nsGkAtoms::_for, nsGkAtoms::output, RelationType::CONTROLLED_BY,
      RelationType::CONTROLLER_FOR},
     {nsGkAtoms::aria_describedby, nullptr, RelationType::DESCRIBED_BY,
+     RelationType::DESCRIPTION_FOR},
+    {nsGkAtoms::commandfor, nullptr, RelationType::DESCRIBED_BY,
+     RelationType::DESCRIPTION_FOR},
+    {nsGkAtoms::popovertarget, nullptr, RelationType::DESCRIBED_BY,
      RelationType::DESCRIPTION_FOR},
     {nsGkAtoms::aria_flowto, nullptr, RelationType::FLOWS_TO,
      RelationType::FLOWS_FROM},
@@ -160,6 +164,8 @@ class CacheKey {
   // CSS position; e.g. fixed.
   static constexpr nsStaticAtom* CssPosition = nsGkAtoms::position;
   // nsString, CacheDomain::NameAndDescription
+  static constexpr nsStaticAtom* CssAltContent = nsGkAtoms::content;
+  // nsString, CacheDomain::NameAndDescription
   static constexpr nsStaticAtom* Description = nsGkAtoms::description;
   // EDescriptionValueFlag, CacheDomain::NameAndDescription
   // Returned by Accessible::Description.
@@ -207,9 +213,6 @@ class CacheKey {
   static constexpr nsStaticAtom* MinValue = nsGkAtoms::min;
   // nsString, CacheDomain::NameAndDescription
   static constexpr nsStaticAtom* Name = nsGkAtoms::name;
-  // ENameValueFlag, CacheDomain::NameAndDescription
-  // Returned by Accessible::Name.
-  static constexpr nsStaticAtom* NameValueFlag = nsGkAtoms::explicit_name;
   // double, CacheDomain::Value
   // The numeric value returned by Accessible::CurValue.
   static constexpr nsStaticAtom* NumericValue = nsGkAtoms::value;
@@ -223,6 +226,11 @@ class CacheKey {
   // nsAtom, CacheUpdateType::Initial
   // The type of a popup (used for HTML popover).
   static constexpr nsStaticAtom* PopupType = nsGkAtoms::ispopup;
+  // bool, CacheDomain::Relations
+  // Whether popovertarget/commandfor should expose a DETAILS relation (true)
+  // or DESCRIBED_BY relation (false). Only meaningful when popovertarget or
+  // commandfor is cached.
+  static constexpr nsStaticAtom* PopoverInvokerIsDetails = nsGkAtoms::details;
   // nsAtom, CacheDomain::Actions
   static constexpr nsStaticAtom* PrimaryAction = nsGkAtoms::action;
   // float, no domain
@@ -268,6 +276,8 @@ class CacheKey {
   // The textual value returned by Accessible::Value (as opposed to
   // the numeric value returned by Accessible::CurValue).
   static constexpr nsStaticAtom* TextValue = nsGkAtoms::aria_valuetext;
+  // nsString, CacheDomain::NameAndDescription
+  static constexpr nsStaticAtom* Tooltip = nsGkAtoms::tooltip;
   // gfx::Matrix4x4, CacheDomain::TransformMatrix
   static constexpr nsStaticAtom* TransformMatrix = nsGkAtoms::transform;
   // int32_t, CacheDomain::Value

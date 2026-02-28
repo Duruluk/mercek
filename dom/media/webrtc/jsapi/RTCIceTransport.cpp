@@ -23,6 +23,7 @@ NS_INTERFACE_MAP_END_INHERITING(DOMEventTargetHelper)
 
 RTCIceTransport::RTCIceTransport(nsPIDOMWindowInner* aWindow)
     : DOMEventTargetHelper(aWindow),
+      mRole(RTCIceRole::Unknown),
       mState(RTCIceTransportState::New),
       mGatheringState(RTCIceGathererState::New) {}
 
@@ -30,6 +31,8 @@ JSObject* RTCIceTransport::WrapObject(JSContext* aCx,
                                       JS::Handle<JSObject*> aGivenProto) {
   return RTCIceTransport_Binding::Wrap(aCx, this, aGivenProto);
 }
+
+void RTCIceTransport::SetRole(RTCIceRole aRole) { mRole = aRole; }
 
 void RTCIceTransport::SetState(RTCIceTransportState aState) { mState = aState; }
 

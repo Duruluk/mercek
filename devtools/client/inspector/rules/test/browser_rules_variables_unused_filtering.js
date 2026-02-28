@@ -41,6 +41,7 @@ add_task(async function testUnusedVariablesAndFiltering() {
   await checkRuleViewContent(view, [
     {
       selector: "element",
+      selectorEditable: false,
       declarations: [],
     },
     {
@@ -60,6 +61,7 @@ add_task(async function testUnusedVariablesAndFiltering() {
   await checkRuleViewContent(view, [
     {
       selector: "element",
+      selectorEditable: false,
       declarations: [],
     },
     {
@@ -68,14 +70,13 @@ add_task(async function testUnusedVariablesAndFiltering() {
         {
           name: "--my-var-1",
           value: `a`,
-          highlighted: true,
         },
         {
           name: "--my-var-2",
           value: `b`,
-          highlighted: true,
         },
       ],
+      highlighted: ["--my-var-1: a;", "--my-var-2: b;"],
     },
   ]);
 
@@ -96,6 +97,7 @@ add_task(async function testUnusedVariablesAndFiltering() {
   await checkRuleViewContent(view, [
     {
       selector: "element",
+      selectorEditable: false,
       declarations: [],
     },
     {
@@ -104,12 +106,10 @@ add_task(async function testUnusedVariablesAndFiltering() {
         {
           name: "--my-var-1",
           value: `a`,
-          highlighted: false,
         },
         {
           name: "--my-var-2",
           value: `b`,
-          highlighted: false,
         },
       ],
     },
@@ -127,6 +127,7 @@ add_task(async function testUnusedVariablesAndFiltering() {
   await checkRuleViewContent(view, [
     {
       selector: "element",
+      selectorEditable: false,
       declarations: [],
     },
     {
@@ -135,19 +136,17 @@ add_task(async function testUnusedVariablesAndFiltering() {
         {
           name: "--my-var-1",
           value: `a`,
-          highlighted: false,
         },
         {
           name: "--my-var-2",
           value: `b`,
-          highlighted: false,
         },
         {
           name: "--x",
           value: `hotpink`,
-          highlighted: true,
         },
       ],
+      highlighted: ["--x: hotpink;"],
     },
   ]);
 
@@ -170,7 +169,7 @@ add_task(async function testUnusedVariablesAndFiltering() {
   await focusEditableField(view, myVar2Prop.editor.valueSpan);
 
   info("hit tab");
-  const ruleEditor = getRuleViewRuleEditor(view, 1);
+  const ruleEditor = getRuleViewRuleEditorAt(view, 1);
   let onFocus = once(ruleEditor.element, "focus", true);
   let onRuleViewChanged = view.once("ruleview-changed");
   EventUtils.synthesizeKey("VK_TAB", {}, view.styleWindow);
@@ -214,6 +213,7 @@ add_task(async function testUnusedVariablesAndFiltering() {
   await checkRuleViewContent(view, [
     {
       selector: "element",
+      selectorEditable: false,
       declarations: [],
     },
     {
@@ -221,9 +221,8 @@ add_task(async function testUnusedVariablesAndFiltering() {
       declarations: declarations.map(({ name, value }) => ({
         name,
         value,
-        // We didn't clear the search, --x should still be highlighted
-        highlighted: name === "--x",
       })),
+      highlighted: ["--x: hotpink;"],
     },
   ]);
 });

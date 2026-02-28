@@ -91,6 +91,64 @@ var TabDestroyObserver = {
   },
 };
 
+var DOMWindowTracker = {
+  // Map<serial, {serial, address, type, test, time}>
+  liveWindows: new Map(),
+  initialWindows: new Set(),
+  currentTest: null,
+
+  init() {
+    Services.obs.addObserver(this, "debug-domwindow-created");
+    Services.obs.addObserver(this, "debug-domwindow-destroyed");
+  },
+  destroy() {
+    Services.obs.removeObserver(this, "debug-domwindow-created");
+    Services.obs.removeObserver(this, "debug-domwindow-destroyed");
+  },
+  snapshotInitialWindows() {
+    for (let key of this.liveWindows.keys()) {
+      this.initialWindows.add(key);
+    }
+  },
+  observe(subject, topic, data) {
+    let info = this._parseData(data);
+    if (topic === "debug-domwindow-created") {
+      info.test = this.currentTest;
+      info.time = Date.now();
+      this.liveWindows.set(info.serial, info);
+    } else {
+      this.liveWindows.delete(info.serial);
+    }
+  },
+  _parseData(data) {
+    let info = {};
+    for (let part of data.split(" ")) {
+      let idx = part.indexOf("=");
+      if (idx !== -1) {
+        info[part.substring(0, idx)] = part.substring(idx + 1);
+      }
+    }
+    return info;
+  },
+  getLeakedWindows() {
+    let leaked = [];
+    let innerOuterAddrs = new Set();
+    for (let [key, info] of this.liveWindows) {
+      if (!this.initialWindows.has(key) && info.test) {
+        leaked.push(info);
+        if (info.type === "inner" && info.outer) {
+          innerOuterAddrs.add(info.outer);
+        }
+      }
+    }
+    // Filter out outer windows whose inner is also leaked, to avoid
+    // reporting the same leak twice.
+    return leaked.filter(
+      info => info.type !== "outer" || !innerOuterAddrs.has(info.address)
+    );
+  },
+};
+
 function testInit() {
   gConfig = readConfig();
 
@@ -225,6 +283,10 @@ function Tester(aTests, structuredLogger, aCallback) {
   this.SimpleTest.harnessParameters = gConfig;
 
   this.MemoryStats = simpleTestScope.MemoryStats;
+  // Lazy import since we only use it if a test loaded it.
+  ChromeUtils.defineESModuleGetters(this, {
+    sinon: "resource://testing-common/Sinon.sys.mjs",
+  });
   this.ContentTask = ChromeUtils.importESModule(
     "resource://testing-common/ContentTask.sys.mjs"
   ).ContentTask;
@@ -243,7 +305,6 @@ function Tester(aTests, structuredLogger, aCallback) {
   this.PerTestCoverageUtils = ChromeUtils.importESModule(
     "resource://testing-common/PerTestCoverageUtils.sys.mjs"
   ).PerTestCoverageUtils;
-
   this.PromiseTestUtils.init();
 
   this.SimpleTestOriginal = {};
@@ -318,6 +379,7 @@ Tester.prototype = {
 
   start: function Tester_start() {
     TabDestroyObserver.init();
+    DOMWindowTracker.init();
 
     // if testOnLoad was not called, then gConfig is not defined
     if (!gConfig) {
@@ -374,6 +436,7 @@ Tester.prototype = {
 
     if (this.tests.length) {
       this.waitForWindowsReady().then(() => {
+        DOMWindowTracker.snapshotInitialWindows();
         this.nextTest();
       });
     } else {
@@ -429,7 +492,7 @@ Tester.prototype = {
     aCallback();
   },
 
-  waitForWindowsState: function Tester_waitForWindowsState(aCallback) {
+  checkWindowsState: function Tester_checkWindowsState() {
     let timedOut = this.currentTest && this.currentTest.timedOut;
     // eslint-disable-next-line no-nested-ternary
     let baseMsg = timedOut
@@ -478,19 +541,14 @@ Tester.prototype = {
         }
       }
 
-      // Replace the last tab with a fresh one
-      if (window.gBrowser) {
-        gBrowser.addTab("about:blank", {
-          skipAnimation: true,
-          triggeringPrincipal:
-            Services.scriptSecurityManager.getSystemPrincipal(),
-        });
-        gBrowser.removeTab(gBrowser.selectedTab, { skipPermitUnload: true });
-        gBrowser.stop();
-      }
-
       // Tests shouldn't leave sidebars open
-      this.structuredLogger.info("checking for open sidebars");
+      if (this.currentTest) {
+        this.currentTest.addResult(
+          new testMessage("checking for open sidebars")
+        );
+      } else {
+        this.structuredLogger.info("checking for open sidebars");
+      }
       const sidebarContainer = document.getElementById("sidebar-box");
       if (!sidebarContainer.hidden) {
         window.SidebarController.hide({ dismissPanel: true });
@@ -504,7 +562,11 @@ Tester.prototype = {
     }
 
     // Remove stale windows
-    this.structuredLogger.info("checking window state");
+    if (this.currentTest) {
+      this.currentTest.addResult(new testMessage("checking window state"));
+    } else {
+      this.structuredLogger.info("checking window state");
+    }
     for (let win of Services.wm.getEnumerator(null)) {
       let type = win.document.documentElement.getAttribute("windowtype");
       if (
@@ -545,9 +607,6 @@ Tester.prototype = {
         win.close();
       }
     }
-
-    // Make sure the window is raised before each test.
-    this.SimpleTest.waitForFocus(aCallback);
   },
 
   finish: function Tester_finish() {
@@ -559,6 +618,7 @@ Tester.prototype = {
     failCount += this.failuresFromInitialWindowState;
 
     TabDestroyObserver.destroy();
+    DOMWindowTracker.destroy();
     Services.console.unregisterListener(this);
 
     this.AccessibilityUtils.uninit();
@@ -788,16 +848,42 @@ Tester.prototype = {
     }
   },
 
-  async notifyProfilerOfTestEnd() {
-    // Note the test run time
-    let name = this.currentTest.path;
-    name = name.slice(name.lastIndexOf("/") + 1);
-    ChromeUtils.addProfilerMarker(
-      "browser-test",
-      { category: "Test", startTime: this.lastStartTimestamp },
-      name
+  /**
+   * In the event that a test module left any traces in Session Restore state,
+   * clean those up so that each test module starts execution with the same
+   * fresh Session Restore state.
+   */
+  resetSessionState() {
+    // Forget all closed windows.
+    while (window.SessionStore.getClosedWindowCount() > 0) {
+      window.SessionStore.forgetClosedWindow(0);
+    }
+
+    // Forget all closed tabs for the test window.
+    const closedTabCount =
+      window.SessionStore.getClosedTabCountForWindow(window);
+    for (let i = 0; i < closedTabCount; i++) {
+      try {
+        window.SessionStore.forgetClosedTab(window, 0);
+      } catch (err) {
+        // This will fail if there are tab groups in here
+      }
+    }
+
+    // Forget saved tab groups.
+    const savedTabGroups = window.SessionStore.getSavedTabGroups();
+    savedTabGroups.forEach(tabGroup =>
+      window.SessionStore.forgetSavedTabGroup(tabGroup.id)
     );
 
+    // Forget closed tab groups in the test window.
+    const closedTabGroups = window.SessionStore.getClosedTabGroups(window);
+    closedTabGroups.forEach(tabGroup =>
+      window.SessionStore.forgetClosedTabGroup(window, tabGroup.id)
+    );
+  },
+
+  async notifyProfilerOfTestEnd() {
     // See if we should upload a profile of a failing test.
     if (this.currentTest.failCount) {
       // If MOZ_PROFILER_SHUTDOWN is set, the profiler got started from --profiler
@@ -807,6 +893,8 @@ Tester.prototype = {
         !Services.env.exists("MOZ_PROFILER_SHUTDOWN") &&
         Services.profiler.IsActive()
       ) {
+        let name = this.currentTest.path;
+        name = name.slice(name.lastIndexOf("/") + 1);
         let filename = `profile_${name}.json`;
         let path = Services.env.get("MOZ_UPLOAD_DIR");
         let profilePath = PathUtils.join(path, filename);
@@ -836,7 +924,10 @@ Tester.prototype = {
   },
 
   async nextTest() {
-    if (this.currentTest) {
+    // On first call (no currentTest yet), check for initial window state issues
+    if (!this.currentTest) {
+      this.checkWindowsState();
+    } else {
       if (this._coverageCollector) {
         this._coverageCollector.recordTestCoverage(this.currentTest.path);
       }
@@ -864,6 +955,10 @@ Tester.prototype = {
         }
       }
 
+      // Ensure any sinon stubs and spies have been cleaned up before the next test.
+      if (Cu.isESModuleLoaded("resource://testing-common/Sinon.sys.mjs")) {
+        this.sinon.restore();
+      }
       // Spare tests cleanup work.
       // Reset gReduceMotionOverride in case the test set it.
       if (typeof gReduceMotionOverride == "boolean") {
@@ -950,6 +1045,10 @@ Tester.prototype = {
 
       window.SpecialPowers.cleanupAllClipboard();
 
+      if (AppConstants.MOZ_APP_NAME != "thunderbird") {
+        this.resetSessionState();
+      }
+
       if (gConfig.cleanupCrashes) {
         let gdir = Services.dirsvc.get("UAppData", Ci.nsIFile);
         gdir.append("Crash Reports");
@@ -974,12 +1073,17 @@ Tester.prototype = {
 
       // Notify a long running test problem if it didn't end up in a timeout.
       if (this.currentTest.unexpectedTimeouts && !this.currentTest.timedOut) {
+        let timeRan = Math.ceil((Date.now() - this.lastStartTime) / 1000);
+        let timeoutFactor = this.currentTest.scope.__maxTimeoutFactor;
+        let timeLimit = Math.round(gTimeoutSeconds * timeoutFactor);
         this.currentTest.addResult(
           new testResult({
             name:
-              "This test exceeded the timeout threshold. It should be" +
-              " rewritten or split up. If that's not possible, use" +
-              " requestLongerTimeout(N), but only as a last resort.",
+              `This test exceeded the timeout threshold. It should be ` +
+              `rewritten or split up. If that's not possible, use ` +
+              `requestLongerTimeout(N), but only as a last resort. ` +
+              `Test ran for ${timeRan}s, limit was ${timeLimit}s ` +
+              `(timeout factor ${timeoutFactor}).`,
           })
         );
       }
@@ -1048,32 +1152,19 @@ Tester.prototype = {
         }
       }
 
-      if (this.currentTest.allowFailure) {
-        if (this.currentTest.expectedAllowedFailureCount) {
-          this.currentTest.addResult(
-            new testResult({
-              name:
-                "Expected " +
-                this.currentTest.expectedAllowedFailureCount +
-                " failures in this file, got " +
-                this.currentTest.allowedFailureCount +
-                ".",
-              pass:
-                this.currentTest.expectedAllowedFailureCount ==
-                this.currentTest.allowedFailureCount,
-            })
-          );
-        } else if (this.currentTest.allowedFailureCount == 0) {
-          this.currentTest.addResult(
-            new testResult({
-              name:
-                "We expect at least one assertion to fail because this" +
-                " test file is marked as fail-if in the manifest.",
-              todo: true,
-              knownFailure: this.currentTest.allowFailure,
-            })
-          );
-        }
+      if (
+        this.currentTest.allowFailure &&
+        this.currentTest.allowedFailureCount == 0
+      ) {
+        this.currentTest.addResult(
+          new testResult({
+            name:
+              "We expect at least one assertion to fail because this" +
+              " test file is marked as fail-if in the manifest.",
+            todo: true,
+            knownFailure: this.currentTest.allowFailure,
+          })
+        );
       }
 
       // Dump memory stats for main thread.
@@ -1092,15 +1183,21 @@ Tester.prototype = {
       this.PromiseTestUtils.assertNoUncaughtRejections();
 
       await this.notifyProfilerOfTestEnd();
+
+      // Check the window state before logging testEnd so that any cleanup
+      // assertions are included in the test result, not logged after test_end.
+      this.checkWindowsState();
+
       let time = Date.now() - this.lastStartTime;
 
       this.structuredLogger.testEnd(
         this.currentTest.path,
-        "OK",
-        undefined,
+        this.currentTest.failCount > 0 ? "FAIL" : "PASS",
+        "PASS",
         "finished in " + time + "ms"
       );
       this.currentTest.setDuration(time);
+      DOMWindowTracker.currentTest = null;
 
       if (this.runUntilFailure && this.currentTest.failCount > 0) {
         this.haltTests();
@@ -1116,10 +1213,22 @@ Tester.prototype = {
       this.currentTest.scope = null;
     }
 
-    // Check the window state for the current test before moving to the next one.
-    // This also causes us to check before starting any tests, since nextTest()
-    // is invoked to start the tests.
-    this.waitForWindowsState(() => {
+    // Replace the current tab with about:blank. For the first test, this ensures
+    // we start with a clean slate. For subsequent tests, this must happen AFTER
+    // test_end is logged, otherwise the new windows created by addTab will be
+    // tracked by ShutdownLeaks as belonging to the test and cause false leak reports.
+    if (window.gBrowser) {
+      gBrowser.addTab("about:blank", {
+        skipAnimation: true,
+        triggeringPrincipal:
+          Services.scriptSecurityManager.getSystemPrincipal(),
+      });
+      gBrowser.removeTab(gBrowser.selectedTab, { skipPermitUnload: true });
+      gBrowser.stop();
+    }
+
+    // Make sure the window is raised before starting the next test.
+    this.SimpleTest.waitForFocus(() => {
       if (this.done) {
         if (this._coverageCollector) {
           this._coverageCollector.finalize();
@@ -1169,6 +1278,7 @@ Tester.prototype = {
         // JIT caches more aggressively.
 
         let shutdownCleanup = aCallback => {
+          let start = ChromeUtils.now();
           Cu.schedulePreciseShrinkingGC(() => {
             // Run the GC and CC a few times to make sure that as much
             // as possible is freed.
@@ -1177,6 +1287,10 @@ Tester.prototype = {
               Cu.forceGC();
               Cu.forceCC();
             }
+            ChromeUtils.addProfilerMarker("ShutdownLeaks:cleanup", {
+              category: "Test",
+              startTime: start,
+            });
             aCallback();
           });
         };
@@ -1211,7 +1325,28 @@ Tester.prototype = {
 
           shutdownCleanup(() => {
             setTimeout(() => {
-              shutdownCleanup(() => {
+              shutdownCleanup(async () => {
+                // C++ window destructors fire debug-domwindow-destroyed
+                // via runnables dispatched to the main thread. Let those
+                // runnables run before checking for leaks.
+                await new Promise(resolve =>
+                  Services.tm.dispatchToMainThread(resolve)
+                );
+
+                let leaked = DOMWindowTracker.getLeakedWindows();
+                if (leaked.length) {
+                  try {
+                    let { ShutdownLeakPathFinder } = ChromeUtils.importESModule(
+                      "chrome://mochikit/content/ShutdownLeakPathFinder.sys.mjs"
+                    );
+                    await new ShutdownLeakPathFinder().findAndPrintPaths(
+                      leaked,
+                      this.structuredLogger
+                    );
+                  } catch (ex) {
+                    dump("ShutdownLeakPathFinder failed: " + ex + "\n");
+                  }
+                }
                 this.finish();
               });
             }, 1000);
@@ -1242,6 +1377,8 @@ Tester.prototype = {
     let desc = isSetup ? "setup" : "test";
     currentScope.SimpleTest.info(`Entering ${desc} ${task.name}`);
     let startTimestamp = ChromeUtils.now();
+    currentScope.SimpleTest._currentTaskName = task.name;
+
     let controller = new AbortController();
     currentScope.__signal = controller.signal;
     if (isSetup) {
@@ -1270,7 +1407,7 @@ Tester.prototype = {
       }
       currentTest.addResult(
         new testResult({
-          name: `Uncaught exception in ${desc} ${task.name}`,
+          name: `Uncaught exception in ${desc}`,
           pass: currentScope.SimpleTest.isExpectingUncaughtException(),
           ex,
           stack: typeof ex == "object" && "stack" in ex ? ex.stack : null,
@@ -1286,9 +1423,10 @@ Tester.prototype = {
     ChromeUtils.addProfilerMarker(
       isSetup ? "setup-task" : "task",
       { category: "Test", startTime: startTimestamp },
-      task.name.replace(/^bound /, "") || undefined
+      task.name || undefined
     );
     currentScope.SimpleTest.info(`Leaving ${desc} ${task.name}`);
+    currentScope.SimpleTest._currentTaskName = null;
   },
 
   async _runTaskBasedTest(currentTest) {
@@ -1345,6 +1483,10 @@ Tester.prototype = {
   },
 
   execTest: function Tester_execTest() {
+    DOMWindowTracker.currentTest = this.currentTest.path.replace(
+      "chrome://mochitests/content/browser/",
+      ""
+    );
     this.structuredLogger.testStart(this.currentTest.path);
 
     this.SimpleTest.reset();
@@ -1582,6 +1724,12 @@ Tester.prototype = {
               self.nextTest();
             } else {
               await self.notifyProfilerOfTestEnd();
+              self.structuredLogger.testEnd(
+                self.currentTest.path,
+                "TIMEOUT",
+                "PASS",
+                "Test timed out"
+              );
               self.finish();
             }
           },
@@ -1662,8 +1810,23 @@ function testResult({ name, pass, todo, ex, stack, allowFailure }) {
 
   if (ex) {
     if (typeof ex == "object" && "fileName" in ex) {
-      // we have an exception - print filename and linenumber information
-      this.msg += "at " + ex.fileName + ":" + ex.lineNumber + " - ";
+      // Only add "at fileName:lineNumber" if stack doesn't start with same location
+      let stackMatchesExLocation = false;
+
+      if (stack instanceof Ci.nsIStackFrame) {
+        stackMatchesExLocation =
+          stack.filename == ex.fileName && stack.lineNumber == ex.lineNumber;
+      } else if (typeof stack === "string") {
+        // For string stacks, format is: functionName@fileName:lineNumber:columnNumber
+        // Check if first line contains fileName:lineNumber
+        let firstLine = stack.split("\n")[0];
+        let expectedLocation = ex.fileName + ":" + ex.lineNumber;
+        stackMatchesExLocation = firstLine.includes(expectedLocation);
+      }
+
+      if (!stackMatchesExLocation) {
+        this.msg += "at " + ex.fileName + ":" + ex.lineNumber + " - ";
+      }
     }
 
     if (
@@ -1680,8 +1843,8 @@ function testResult({ name, pass, todo, ex, stack, allowFailure }) {
     }
   }
 
+  // Store stack separately instead of appending to msg
   if (stack) {
-    this.msg += "\nStack trace:\n";
     let normalized;
     if (stack instanceof Ci.nsIStackFrame) {
       let frames = [];
@@ -1697,7 +1860,7 @@ function testResult({ name, pass, todo, ex, stack, allowFailure }) {
     } else {
       normalized = "" + stack;
     }
-    this.msg += normalized;
+    this.stack = normalized;
   }
 
   if (gConfig.debugOnFailure) {
@@ -1899,6 +2062,9 @@ function testScope(aTester, aTest, expected) {
 
   this.requestLongerTimeout = function test_requestLongerTimeout(aFactor) {
     self.__timeoutFactor = aFactor;
+    if (aFactor > self.__maxTimeoutFactor) {
+      self.__maxTimeoutFactor = aFactor;
+    }
   };
 
   this.expectUncaughtException = function test_expectUncaughtException(
@@ -1931,12 +2097,6 @@ function testScope(aTester, aTest, expected) {
     self.__expectedMaxAsserts = max;
   };
 
-  this.setExpectedFailuresForSelfTest =
-    function test_setExpectedFailuresForSelfTest(expectedAllowedFailureCount) {
-      aTest.allowFailure = true;
-      aTest.expectedAllowedFailureCount = expectedAllowedFailureCount;
-    };
-
   this.finish = function test_finish() {
     self.__done = true;
     if (self.__waitTimer) {
@@ -1961,7 +2121,10 @@ function testScope(aTester, aTest, expected) {
 }
 
 function decorateTaskFn(fn) {
+  let originalName = fn.name;
   fn = fn.bind(this);
+  // Restore original name to avoid "bound " prefix in task name
+  Object.defineProperty(fn, "name", { value: originalName });
   fn.skip = (val = true) => (fn.__skipMe = val);
   fn.only = () => (this.__runOnlyThisTask = fn);
   return fn;
@@ -1975,6 +2138,7 @@ testScope.prototype = {
   __waitTimer: null,
   __cleanupFunctions: [],
   __timeoutFactor: 1,
+  __maxTimeoutFactor: 1,
   __expectedMinAsserts: 0,
   __expectedMaxAsserts: 0,
   /** @type {AbortSignal} */

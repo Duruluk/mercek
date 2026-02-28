@@ -1,10 +1,11 @@
 //! Generic pass functions that both compute and render passes need.
 
-use crate::binding_model::{BindError, BindGroup, PushConstantUploadError};
-use crate::command::bind::Binder;
+use crate::binding_model::{BindError, BindGroup, ImmediateUploadError};
 use crate::command::encoder::EncodingState;
-use crate::command::memory_init::SurfacesInDiscardState;
-use crate::command::{DebugGroupError, QueryResetMap, QueryUseError};
+use crate::command::{
+    bind::Binder, memory_init::SurfacesInDiscardState, query::QueryResetMap, DebugGroupError,
+    QueryUseError,
+};
 use crate::device::{Device, DeviceError, MissingFeatures};
 use crate::pipeline::LateSizedBufferGroup;
 use crate::resource::{DestroyedResourceError, Labeled, ParentDevice, QuerySet};
@@ -19,7 +20,7 @@ use wgt::DynamicOffset;
 
 #[derive(Clone, Debug, Error)]
 #[error(
-    "Bind group index {index} is greater than the device's requested `max_bind_group` limit {max}"
+    "Bind group index {index} is greater than the device's configured `max_bind_groups` limit {max}"
 )]
 pub struct BindGroupIndexOutOfRange {
     pub index: u32,
@@ -74,13 +75,10 @@ where
         + From<DestroyedResourceError>
         + From<BindError>,
 {
-    if bind_group.is_none() {
-        api_log!("Pass::set_bind_group {index} None");
+    if let Some(ref bind_group) = bind_group {
+        api_log!("Pass::set_bind_group {index} {}", bind_group.error_ident());
     } else {
-        api_log!(
-            "Pass::set_bind_group {index} {}",
-            bind_group.as_ref().unwrap().error_ident()
-        );
+        api_log!("Pass::set_bind_group {index} None");
     }
 
     let max_bind_groups = state.base.device.limits.max_bind_groups;
@@ -99,51 +97,56 @@ where
     );
     state.dynamic_offset_count += num_dynamic_offsets;
 
-    let Some(bind_group) = bind_group else {
-        // TODO: Handle bind_group None.
-        return Ok(());
-    };
+    if let Some(bind_group) = bind_group {
+        // Add the bind group to the tracker. This is done for both compute and
+        // render passes, and is used to fail submission of the command buffer if
+        // any resource in any of the bind groups has been destroyed, whether or
+        // not the bind group is actually used by the pipeline.
+        let bind_group = state.base.tracker.bind_groups.insert_single(bind_group);
 
-    // Add the bind group to the tracker. This is done for both compute and
-    // render passes, and is used to fail submission of the command buffer if
-    // any resource in any of the bind groups has been destroyed, whether or
-    // not the bind group is actually used by the pipeline.
-    let bind_group = state.base.tracker.bind_groups.insert_single(bind_group);
+        bind_group.same_device(device)?;
 
-    bind_group.same_device(device)?;
+        bind_group.validate_dynamic_bindings(index, &state.temp_offsets)?;
 
-    bind_group.validate_dynamic_bindings(index, &state.temp_offsets)?;
-
-    if merge_bind_groups {
-        // Merge the bind group's resources into the tracker. We only do this
-        // for render passes. For compute passes it is done per dispatch in
-        // [`flush_bindings`].
-        unsafe {
-            state.scope.merge_bind_group(&bind_group.used)?;
+        if merge_bind_groups {
+            // Merge the bind group's resources into the tracker. We only do this
+            // for render passes. For compute passes it is done per dispatch in
+            // [`flush_bindings`].
+            unsafe {
+                state.scope.merge_bind_group(&bind_group.used)?;
+            }
         }
-    }
-    //Note: stateless trackers are not merged: the lifetime reference
-    // is held to the bind group itself.
+        //Note: stateless trackers are not merged: the lifetime reference
+        // is held to the bind group itself.
 
-    state
-        .binder
-        .assign_group(index as usize, bind_group, &state.temp_offsets);
+        state
+            .binder
+            .assign_group(index as usize, bind_group, &state.temp_offsets);
+    } else {
+        if !state.temp_offsets.is_empty() {
+            return Err(BindError::DynamicOffsetCountNotZero {
+                group: index,
+                actual: state.temp_offsets.len(),
+            }
+            .into());
+        }
+
+        state.binder.clear_group(index as usize);
+    };
 
     Ok(())
 }
 
-/// Helper for `flush_bindings` implementing the portions that are the same for
-/// compute and render passes.
-pub(super) fn flush_bindings_helper<F>(
-    state: &mut PassState,
-    mut f: F,
-) -> Result<(), DestroyedResourceError>
-where
-    F: FnMut(&Arc<BindGroup>),
-{
-    for bind_group in state.binder.list_active() {
-        f(bind_group);
+/// Implementation of `flush_bindings` for both compute and render passes.
+///
+/// See the compute pass version of `State::flush_bindings` for an explanation
+/// of some differences in handling the two types of passes.
+pub(super) fn flush_bindings_helper(state: &mut PassState) -> Result<(), DestroyedResourceError> {
+    let start = state.binder.take_rebind_start_index();
+    let entries = state.binder.list_valid_with_start(start);
+    let pipeline_layout = state.binder.pipeline_layout.as_ref().unwrap();
 
+    for (i, bind_group, dynamic_offsets) in entries {
         state.base.buffer_memory_init_actions.extend(
             bind_group.used_buffer_ranges.iter().filter_map(|action| {
                 action
@@ -169,27 +172,16 @@ where
             .map(|tlas| crate::ray_tracing::AsAction::UseTlas(tlas.clone()));
 
         state.base.as_actions.extend(used_resource);
-    }
 
-    let range = state.binder.take_rebind_range();
-    let entries = state.binder.entries(range);
-    match state.binder.pipeline_layout.as_ref() {
-        Some(pipeline_layout) if entries.len() != 0 => {
-            for (i, e) in entries {
-                if let Some(group) = e.group.as_ref() {
-                    let raw_bg = group.try_raw(state.base.snatch_guard)?;
-                    unsafe {
-                        state.base.raw_encoder.set_bind_group(
-                            pipeline_layout.raw(),
-                            i as u32,
-                            Some(raw_bg),
-                            &e.dynamic_offsets,
-                        );
-                    }
-                }
-            }
+        let raw_bg = bind_group.try_raw(state.base.snatch_guard)?;
+        unsafe {
+            state.base.raw_encoder.set_bind_group(
+                pipeline_layout.raw(),
+                i as u32,
+                raw_bg,
+                dynamic_offsets,
+            );
         }
-        _ => {}
     }
 
     Ok(())
@@ -204,59 +196,45 @@ pub(super) fn change_pipeline_layout<E, F: FnOnce()>(
 where
     E: From<DestroyedResourceError>,
 {
-    if state.binder.pipeline_layout.is_none()
-        || !state
-            .binder
-            .pipeline_layout
-            .as_ref()
-            .unwrap()
-            .is_equal(pipeline_layout)
+    if state
+        .binder
+        .change_pipeline_layout(pipeline_layout, late_sized_buffer_groups)
     {
-        state
-            .binder
-            .change_pipeline_layout(pipeline_layout, late_sized_buffer_groups);
-
         f();
 
-        let non_overlapping =
-            super::bind::compute_nonoverlapping_ranges(&pipeline_layout.push_constant_ranges);
-
-        // Clear push constant ranges
-        for range in non_overlapping {
-            let offset = range.range.start;
-            let size_bytes = range.range.end - offset;
-            super::push_constant_clear(offset, size_bytes, |clear_offset, clear_data| unsafe {
-                state.base.raw_encoder.set_push_constants(
+        super::immediates_clear(
+            0,
+            pipeline_layout.immediate_size,
+            |clear_offset, clear_data| unsafe {
+                state.base.raw_encoder.set_immediates(
                     pipeline_layout.raw(),
-                    range.stages,
                     clear_offset,
                     clear_data,
                 );
-            });
-        }
+            },
+        );
     }
     Ok(())
 }
 
-pub(crate) fn set_push_constant<E, F: FnOnce(&[u32])>(
+pub(crate) fn set_immediates<E, F: FnOnce(&[u32])>(
     state: &mut PassState,
-    push_constant_data: &[u32],
-    stages: wgt::ShaderStages,
+    immediates_data: &[u32],
     offset: u32,
     size_bytes: u32,
     values_offset: Option<u32>,
     f: F,
 ) -> Result<(), E>
 where
-    E: From<PushConstantUploadError> + From<InvalidValuesOffset> + From<MissingPipeline>,
+    E: From<ImmediateUploadError> + From<InvalidValuesOffset> + From<MissingPipeline>,
 {
-    api_log!("Pass::set_push_constants");
+    api_log!("Pass::set_immediates");
 
     let values_offset = values_offset.ok_or(InvalidValuesOffset)?;
 
     let end_offset_bytes = offset + size_bytes;
-    let values_end_offset = (values_offset + size_bytes / wgt::PUSH_CONSTANT_ALIGNMENT) as usize;
-    let data_slice = &push_constant_data[(values_offset as usize)..values_end_offset];
+    let values_end_offset = (values_offset + size_bytes / wgt::IMMEDIATE_DATA_ALIGNMENT) as usize;
+    let data_slice = &immediates_data[(values_offset as usize)..values_end_offset];
 
     let pipeline_layout = state
         .binder
@@ -264,7 +242,7 @@ where
         .as_ref()
         .ok_or(MissingPipeline)?;
 
-    pipeline_layout.validate_push_constant_ranges(stages, offset, end_offset_bytes)?;
+    pipeline_layout.validate_immediates_ranges(offset, end_offset_bytes)?;
 
     f(data_slice);
 
@@ -272,7 +250,7 @@ where
         state
             .base
             .raw_encoder
-            .set_push_constants(pipeline_layout.raw(), stages, offset, data_slice)
+            .set_immediates(pipeline_layout.raw(), offset, data_slice)
     }
     Ok(())
 }

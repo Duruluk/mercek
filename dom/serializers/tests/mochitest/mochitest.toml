@@ -3,10 +3,15 @@ support-files = [
   "copypaste.js",
   "copypaste_flat_tree.js",
   "copypaste_shadow_dom.js",
+  "image.png",
 ]
 
 ["test_bug116083.html"]
-skip-if = ["headless"] # fails in clipboard mode
+skip-if = [
+  "headless", # fails in clipboard mode
+]
+
+["test_bug270145.xhtml"]
 
 ["test_bug401662.html"]
 
@@ -29,8 +34,8 @@ support-files = [
   "file_xhtmlserializer_1_wrap.xhtml",
 ]
 skip-if = [
-  "http3",
   "http2",
+  "http3",
 ]
 
 ["test_bug422403-2.xhtml"]
@@ -59,8 +64,8 @@ support-files = [
   "file_htmlserializer_1_wrap.html",
 ]
 skip-if = [
-  "http3",
   "http2",
+  "http3",
 ]
 
 ["test_bug424359-2.html"]
@@ -85,18 +90,20 @@ support-files = [
 
 ["test_copyimage.html"]
 skip-if = [
-  "os == 'android'",
   "headless", # bug 904183
+  "os == 'android'",
 ]
 
 ["test_copypaste.html"]
 skip-if = [
-  "os == 'android'",
   "headless", # bug 904183
+  "os == 'android'",
 ]
 
 ["test_copypaste.xhtml"]
-skip-if = ["headless"]  #bug 904183
+skip-if = [
+  "headless", # bug 904183
+]
 
 ["test_copypaste_disabled.html"]
 support-files = [
@@ -106,14 +113,14 @@ support-files = [
 
 ["test_copypaste_flat_tree.html"]
 skip-if = [
+  "headless", # bug 904183
   "os == 'android'",
-  "headless", #bug 904183
 ]
 
 ["test_copypaste_shadow_dom.html"]
 skip-if = [
-  "os == 'android'",
   "headless", # bug 904183
+  "os == 'android'",
 ]
 
 ["test_encodeToStringWithMaxLength.html"]
@@ -123,3 +130,15 @@ skip-if = [
 ["test_htmlcopyencoder.html"]
 
 ["test_htmlcopyencoder.xhtml"]
+
+["test_htmlcopyencoder_common_ancestor.html"]
+
+["test_htmlcopyencoder_details.html"]
+
+["test_htmlcopyencoder_list.html"]
+
+["test_htmlcopyencoder_table.html"]
+
+["test_plaintext_linebreak.html"]
+
+["test_plaintext_linebreak_compress.html"]

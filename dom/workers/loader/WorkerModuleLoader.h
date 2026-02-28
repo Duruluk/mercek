@@ -79,9 +79,9 @@ class WorkerModuleLoader : public JS::loader::ModuleLoaderBase {
       JS::CompileOptions& aOptions, ModuleLoadRequest* aRequest,
       JS::MutableHandle<JSObject*> aModuleScript) override;
 
-  nsresult CompileJavaScriptModule(JSContext* aCx, JS::CompileOptions& aOptions,
-                                   ModuleLoadRequest* aRequest,
-                                   JS::MutableHandle<JSObject*> aModuleScript);
+  nsresult CompileJavaScriptOrWasmModule(
+      JSContext* aCx, JS::CompileOptions& aOptions, ModuleLoadRequest* aRequest,
+      JS::MutableHandle<JSObject*> aModuleScript);
 
   nsresult CompileJsonModule(JSContext* aCx, JS::CompileOptions& aOptions,
                              ModuleLoadRequest* aRequest,
@@ -95,9 +95,11 @@ class WorkerModuleLoader : public JS::loader::ModuleLoaderBase {
     // https://html.spec.whatwg.org/#module-type-allowed
     // If moduleType is "css" and the CSSStyleSheet interface is not exposed in
     // settings's realm, then return false.
-    return aModuleType != JS::ModuleType::Unknown &&
-           aModuleType != JS::ModuleType::CSS;
+    return aModuleType == JS::ModuleType::JavaScript ||
+           aModuleType == JS::ModuleType::JSON;
   }
+
+  virtual bool IsForServiceWorker() const override;
 };
 
 }  // namespace mozilla::dom::workerinternals::loader

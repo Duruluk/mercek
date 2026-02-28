@@ -27,7 +27,7 @@ use neqo_crypto::{
 
 use crate::{
     cid::ConnectionIdRef,
-    frame::FrameType,
+    frame::{FrameEncoder as _, FrameType},
     packet::{self},
     recovery,
     recv_stream::RxStreamOrderer,
@@ -188,6 +188,10 @@ impl Crypto {
         data: Option<&[u8]>,
     ) -> Res<&HandshakeState> {
         let input = data.map(|d| {
+            #[cfg(feature = "build-fuzzing-corpus")]
+            if space == PacketNumberSpace::Initial && matches!(self.tls, Agent::Server(_)) {
+                neqo_common::write_item_to_fuzzing_corpus("find_sni", d);
+            }
             let rec = Record {
                 ct: TLS_CT_HANDSHAKE,
                 epoch: space.into(),
@@ -400,7 +404,7 @@ impl Crypto {
     }
 
     #[must_use]
-    pub fn tls_mut(&mut self) -> &mut Agent {
+    pub const fn tls_mut(&mut self) -> &mut Agent {
         &mut self.tls
     }
 
@@ -415,7 +419,7 @@ impl Crypto {
     }
 
     #[must_use]
-    pub fn streams_mut(&mut self) -> &mut CryptoStreams {
+    pub const fn streams_mut(&mut self) -> &mut CryptoStreams {
         &mut self.streams
     }
 
@@ -425,7 +429,7 @@ impl Crypto {
     }
 
     #[must_use]
-    pub fn states_mut(&mut self) -> &mut CryptoStates {
+    pub const fn states_mut(&mut self) -> &mut CryptoStates {
         &mut self.states
     }
 }
@@ -667,12 +671,12 @@ impl CryptoDxState {
         self.used_pn.end
     }
 
-    pub fn encrypt<'a>(
+    pub fn encrypt(
         &mut self,
         pn: packet::Number,
         hdr: Range<usize>,
-        data: &'a mut [u8],
-    ) -> Res<&'a mut [u8]> {
+        data: &mut [u8],
+    ) -> Res<usize> {
         debug_assert_eq!(self.direction, CryptoDxDirection::Write);
         qtrace!(
             "[{self}] encrypt_in_place pn={pn} hdr={} body={}",
@@ -695,12 +699,12 @@ impl CryptoDxState {
         let (prev, data) = data.split_at_mut(hdr.end);
         // `prev` may have already-encrypted packets this one is being coalesced with.
         // Use only the actual current header for AAD.
-        let data = self.aead.encrypt_in_place(pn, &prev[hdr], data)?;
+        let len = self.aead.encrypt_in_place(pn, &prev[hdr], data)?;
 
-        qtrace!("[{self}] encrypt ct={}", hex(&data));
+        qtrace!("[{self}] encrypt ct={}", hex(&data[..len]));
         debug_assert_eq!(pn, self.next_pn());
         self.used(pn)?;
-        Ok(data)
+        Ok(len)
     }
 
     #[must_use]
@@ -708,12 +712,12 @@ impl CryptoDxState {
         self.aead.expansion()
     }
 
-    pub fn decrypt<'a>(
+    pub fn decrypt(
         &mut self,
         pn: packet::Number,
         hdr: Range<usize>,
-        data: &'a mut [u8],
-    ) -> Res<&'a mut [u8]> {
+        data: &mut [u8],
+    ) -> Res<usize> {
         debug_assert_eq!(self.direction, CryptoDxDirection::Read);
         qtrace!(
             "[{self}] decrypt_in_place pn={pn} hdr={} body={}",
@@ -722,9 +726,9 @@ impl CryptoDxState {
         );
         self.invoked()?;
         let (hdr, data) = data.split_at_mut(hdr.end);
-        let data = self.aead.decrypt_in_place(pn, hdr, data)?;
+        let len = self.aead.decrypt_in_place(pn, hdr, data)?;
         self.used(pn)?;
-        Ok(data)
+        Ok(len)
     }
 
     #[cfg(not(feature = "disable-encryption"))]
@@ -915,10 +919,9 @@ impl CryptoStates {
     /// This only needs to be run once, so run it when getting header protection.
     fn maybe_continue_initial_rx(&mut self, version: Version) {
         // Only do this if this version hasn't been used...
-        // This would be better with `is_none_or`, but that needs MSRV >= 1.82
-        if !self.initials[version]
+        if self.initials[version]
             .as_ref()
-            .is_some_and(|dx| dx.rx.next_pn() == 0)
+            .is_none_or(|dx| dx.rx.next_pn() != 0)
         {
             return;
         }
@@ -1534,7 +1537,7 @@ impl CryptoStreams {
     }
 
     pub fn is_empty(&mut self, space: PacketNumberSpace) -> bool {
-        self.get_mut(space).map_or(true, |cs| cs.tx.is_empty())
+        self.get_mut(space).is_none_or(|cs| cs.tx.is_empty())
     }
 
     const fn get(&self, space: PacketNumberSpace) -> Option<&CryptoStream> {
@@ -1557,7 +1560,7 @@ impl CryptoStreams {
         }
     }
 
-    fn get_mut(&mut self, space: PacketNumberSpace) -> Option<&mut CryptoStream> {
+    const fn get_mut(&mut self, space: PacketNumberSpace) -> Option<&mut CryptoStream> {
         let (initial, hs, app) = match self {
             Self::Initial {
                 initial,
@@ -1605,9 +1608,10 @@ impl CryptoStreams {
                 Encoder::varint_len(u64::try_from(length).expect("usize fits in u64")) - 1;
             let length = min(data.len(), builder.remaining() - header_len);
 
-            builder.encode_varint(FrameType::Crypto);
-            builder.encode_varint(offset);
-            builder.encode_vvec(&data[..length]);
+            builder.encode_frame(FrameType::Crypto, |b| {
+                b.encode_varint(offset);
+                b.encode_vvec(&data[..length]);
+            });
             Some((offset, length))
         }
 
@@ -1662,7 +1666,7 @@ impl CryptoStreams {
             return;
         };
         while let Some((offset, data)) = cs.tx.next_bytes() {
-            #[cfg(all(feature = "build-fuzzing-corpus", test))]
+            #[cfg(feature = "build-fuzzing-corpus")]
             if offset == 0 {
                 neqo_common::write_item_to_fuzzing_corpus("find_sni", data);
             }
@@ -1722,4 +1726,19 @@ pub struct CryptoRecoveryToken {
     space: PacketNumberSpace,
     offset: u64,
     length: usize,
+}
+
+#[cfg(all(test, not(feature = "disable-encryption")))]
+#[cfg_attr(coverage_nightly, coverage(off))]
+mod tests {
+    use test_fixture::fixture_init;
+
+    use super::CryptoDxState;
+
+    #[test]
+    fn crypto_dx_state_display() {
+        fixture_init();
+        let dx = CryptoDxState::test_default();
+        assert_eq!(dx.to_string(), "epoch 0 Write");
+    }
 }

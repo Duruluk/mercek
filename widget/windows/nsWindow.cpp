@@ -75,7 +75,6 @@
 
 #include "mozilla/ipc/MessageChannel.h"
 #include <algorithm>
-#include <limits>
 
 #include "mozilla/widget/WinEventObserver.h"
 #include "mozilla/widget/WinMessages.h"
@@ -129,7 +128,6 @@
 #include "nsXULPopupManager.h"
 #include "nsWindowsDllInterceptor.h"
 #include "nsLayoutUtils.h"
-#include "nsView.h"
 #include "nsWindowGfx.h"
 #include "gfxWindowsPlatform.h"
 #include "gfxDWriteFonts.h"
@@ -255,7 +253,7 @@ static const wchar_t kUser32LibName[] = L"user32.dll";
 
 uint32_t nsWindow::sInstanceCount = 0;
 bool nsWindow::sIsOleInitialized = false;
-MOZ_RUNINIT nsIWidget::Cursor nsWindow::sCurrentCursor = {};
+constinit nsIWidget::Cursor nsWindow::sCurrentCursor = {};
 nsWindow* nsWindow::sCurrentWindow = nullptr;
 bool nsWindow::sJustGotDeactivate = false;
 bool nsWindow::sJustGotActivate = false;
@@ -819,7 +817,6 @@ static bool IsCloaked(HWND hwnd) {
 nsWindow::nsWindow()
     : nsIWidget(BorderStyle::Default),
       mFrameState(std::in_place, this),
-      mPIPWindow(false),
       mMicaBackdrop(false),
       mLastPaintEndTime(TimeStamp::Now()),
       mCachedHitTestTime(TimeStamp::Now()),
@@ -958,8 +955,7 @@ void nsWindow::RecreateDirectManipulationIfNeeded() {
     return;
   }
 
-  if (!(StaticPrefs::apz_allow_zooming() ||
-        StaticPrefs::apz_windows_use_direct_manipulation()) ||
+  if (!StaticPrefs::apz_allow_zooming() ||
       StaticPrefs::apz_windows_force_disable_direct_manipulation()) {
     return;
   }
@@ -1031,7 +1027,6 @@ nsresult nsWindow::Create(nsIWidget* aParent, const LayoutDeviceIntRect& aRect,
       aParent ? (HWND)aParent->GetNativeData(NS_NATIVE_WINDOW) : nullptr;
 
   mIsRTL = aInitData.mRTL;
-  mPIPWindow = aInitData.mPIPWindow;
   mOpeningAnimationSuppressed = aInitData.mIsAnimationSuppressed;
   mAlwaysOnTop = aInitData.mAlwaysOnTop;
   mIsAlert = aInitData.mIsAlert;
@@ -1084,7 +1079,7 @@ nsresult nsWindow::Create(nsIWidget* aParent, const LayoutDeviceIntRect& aRect,
       mBounds = mLastPaintBounds = GetBounds();
 
       // Reset the WNDPROC for this window and its whole class, as we had
-      // to use our own WNDPROC when creating the the skeleton UI window.
+      // to use our own WNDPROC when creating the skeleton UI window.
       ::SetWindowLongPtrW(mWnd, GWLP_WNDPROC,
                           reinterpret_cast<LONG_PTR>(
                               WinUtils::NonClientDpiScalingDefWindowProcW));
@@ -1523,10 +1518,29 @@ DWORD nsWindow::WindowExStyle() {
  *
  **************************************************************/
 
+bool nsWindow::ShouldAssociateWithWinAppSDK() const {
+  // We currently don't need any SDK functionality for for PiP windows,
+  // and using the SDK on these windows causes them to go under the
+  // taskbar (bug 1995838).
+  //
+  // TODO(emilio): That might not be true anymore after bug 1993474,
+  // consider re-testing and removing that special-case.
+  return IsTopLevelWidget() && mPiPType == PiPType::NoPiP;
+}
+
 bool nsWindow::AssociateWithNativeWindow() {
   if (!mWnd || !IsWindow(mWnd)) {
     NS_ERROR("Invalid window handle");
     return false;
+  }
+
+  if (ShouldAssociateWithWinAppSDK()) {
+    // Make sure to call this here to associate our window with the
+    // Windows App SDK _before_ setting our WNDPROC, if needed.
+    // This is important because the SDKs WNDPROC might handle messages like
+    // WM_NCCALCSIZE without calling into us, and that can cause sizing issues,
+    // see bug 1993474.
+    WindowsUIUtils::AssociateWithWinAppSDK(mWnd);
   }
 
   // Connect the this pointer to the native window handle.
@@ -1555,12 +1569,7 @@ void nsWindow::DissociateFromNativeWindow() {
   DebugOnly<WNDPROC> wndProcBeforeDissociate =
       reinterpret_cast<WNDPROC>(::SetWindowLongPtrW(
           mWnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(*mPrevWndProc)));
-  // If we've used the Windows App SDK to remove the minimize/maximize/close
-  // entries from the titlebar, then the Windows App SDK sets its own WNDPROC
-  // own the window, so this assertion would fail. But we only do this if
-  // Mica is available.
-  NS_ASSERTION(WinUtils::MicaAvailable() ||
-                   wndProcBeforeDissociate == nsWindow::WindowProc,
+  NS_ASSERTION(wndProcBeforeDissociate == nsWindow::WindowProc,
                "Unstacked an unexpected native window procedure");
 
   WinUtils::SetNSWindowPtr(mWnd, nullptr);
@@ -1765,7 +1774,8 @@ void nsWindow::Show(bool aState) {
             ::ShowWindow(mWnd, SW_SHOWMINIMIZED);
             break;
           default:
-            if (CanTakeFocus() && !mAlwaysOnTop) {
+            if (CanTakeFocus() &&
+                (!mAlwaysOnTop || mPiPType == PiPType::DocumentPiP)) {
               ::ShowWindow(mWnd, SW_SHOWNORMAL);
             } else {
               ::ShowWindow(mWnd, SW_SHOWNOACTIVATE);
@@ -1798,7 +1808,7 @@ void nsWindow::Show(bool aState) {
         if (wasVisible) {
           flags |= SWP_NOZORDER;
         }
-        if (mAlwaysOnTop || mIsAlert) {
+        if ((mAlwaysOnTop && mPiPType != PiPType::DocumentPiP) || mIsAlert) {
           flags |= SWP_NOACTIVATE;
         }
 
@@ -2633,9 +2643,6 @@ void nsWindow::ResetLayout() {
   Invalidate();
 }
 
-#define DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 19
-#define DWMWA_USE_IMMERSIVE_DARK_MODE 20
-
 void nsWindow::SetColorScheme(const Maybe<ColorScheme>& aScheme) {
   BOOL dark =
       aScheme.valueOrFrom(LookAndFeel::SystemColorScheme) == ColorScheme::Dark;
@@ -2796,7 +2803,7 @@ bool nsWindow::UpdateNonClientMargins(bool aReflowWindow) {
     // frame sizes for left, right and bottom since Windows will automagically
     // position the edges "offscreen" for maximized windows.
     metrics.mOffset.top = metrics.mCaptionHeight;
-  } else if (mPIPWindow &&
+  } else if (mPiPType == PiPType::MediaPiP &&
              !StaticPrefs::widget_windows_pip_decorations_enabled()) {
     metrics.mOffset = metrics.DefaultMargins();
   } else {
@@ -2838,9 +2845,7 @@ void nsWindow::SetCustomTitlebar(bool aCustomTitlebar) {
     mCustomNonClientMetrics = {};
     ResetLayout();
   }
-  // Not needed for PiP windows, and using the Windows App SDK on
-  // these windows causes them to go under the taskbar (bug 1995838)
-  if (!mPIPWindow) {
+  if (ShouldAssociateWithWinAppSDK()) {
     WindowsUIUtils::SetIsTitlebarCollapsed(mWnd, mCustomNonClient);
   }
 }
@@ -4001,34 +4006,6 @@ WidgetEventTime nsWindow::CurrentMessageWidgetEventTime() const {
  *
  **************************************************************/
 
-// Main event dispatch. Invokes callback and ProcessEvent method on
-// Event Listener object. Part of nsIWidget.
-nsresult nsWindow::DispatchEvent(WidgetGUIEvent* event,
-                                 nsEventStatus& aStatus) {
-#ifdef WIDGET_DEBUG_OUTPUT
-  debug_DumpEvent(stdout, event->mWidget, event, "something", (int32_t)mWnd);
-#endif  // WIDGET_DEBUG_OUTPUT
-
-  aStatus = nsEventStatus_eIgnore;
-
-  // Top level windows can have a view attached which requires events be sent
-  // to the underlying base window and the view. Added when we combined the
-  // base chrome window with the main content child for nc client area (title
-  // bar) rendering.
-  if (mAttachedWidgetListener) {
-    aStatus = mAttachedWidgetListener->HandleEvent(event, mUseAttachedEvents);
-  } else if (mWidgetListener) {
-    aStatus = mWidgetListener->HandleEvent(event, mUseAttachedEvents);
-  }
-
-  // the window can be destroyed during processing of seemingly innocuous events
-  // like, say, mousedowns due to the magic of scripting. mousedowns will return
-  // nsEventStatus_eIgnore, which causes problems with the deleted window.
-  // therefore:
-  if (mOnDestroyCalled) aStatus = nsEventStatus_eConsumeNoDefault;
-  return NS_OK;
-}
-
 bool nsWindow::DispatchStandardEvent(EventMessage aMsg) {
   WidgetGUIEvent event(true, aMsg, this);
   InitEvent(event);
@@ -4043,8 +4020,7 @@ bool nsWindow::DispatchKeyboardEvent(WidgetKeyboardEvent* event) {
 }
 
 bool nsWindow::DispatchContentCommandEvent(WidgetContentCommandEvent* aEvent) {
-  nsEventStatus status;
-  DispatchEvent(aEvent, status);
+  nsEventStatus status = DispatchEvent(aEvent);
   return ConvertStatus(status);
 }
 
@@ -4286,10 +4262,10 @@ bool nsWindow::DispatchMouseEvent(EventMessage aEventMessage, WPARAM wParam,
   static BYTE sLastMouseButton = 0;
 
   bool insideMovementThreshold =
-      (DeprecatedAbs(sLastMousePoint.x - eventPoint.x.value) <
-       (short)::GetSystemMetrics(SM_CXDOUBLECLK)) &&
-      (DeprecatedAbs(sLastMousePoint.y - eventPoint.y.value) <
-       (short)::GetSystemMetrics(SM_CYDOUBLECLK));
+      (Abs(sLastMousePoint.x - eventPoint.x.value) <
+       (unsigned)::GetSystemMetrics(SM_CXDOUBLECLK)) &&
+      (Abs(sLastMousePoint.y - eventPoint.y.value) <
+       (unsigned)::GetSystemMetrics(SM_CYDOUBLECLK));
 
   BYTE eventButton;
   switch (aButton) {
@@ -4777,17 +4753,6 @@ bool nsWindow::ProcessMessageInternal(UINT msg, WPARAM& wParam, LPARAM& lParam,
     return true;
   }
 
-  // Glass hit testing w/custom transparent margins.
-  //
-  // FIXME(emilio): is this needed? We deal with titlebar buttons non-natively
-  // now.
-  LRESULT dwmHitResult;
-  if (mCustomNonClient &&
-      DwmDefWindowProc(mWnd, msg, wParam, lParam, &dwmHitResult)) {
-    *aRetValue = dwmHitResult;
-    return true;
-  }
-
   // The preference whether to use a different keyboard layout for each
   // window is cached, and updating it will not take effect until the
   // next restart. We read the preference here and not upon WM_ACTIVATE to make
@@ -4999,14 +4964,9 @@ bool nsWindow::ProcessMessageInternal(UINT msg, WPARAM& wParam, LPARAM& lParam,
         }
       }
 
-      /*
-       * If an nc client area margin has been moved, we are responsible
+      /* If an nc client area margin has been moved, we are responsible
        * for calculating where the resize margins are and returning the
-       * appropriate set of hit test constants. DwmDefWindowProc (above)
-       * will handle hit testing on it's command buttons if we are on a
-       * composited desktop.
-       */
-
+       * appropriate set of hit test constants. */
       if (!mCustomNonClient) {
         break;
       }
@@ -5572,19 +5532,21 @@ bool nsWindow::ProcessMessageInternal(UINT msg, WPARAM& wParam, LPARAM& lParam,
       result = DispatchMouseEvent(eMouseUp, 0, lParamToClient(lParam), false,
                                   MouseButton::ePrimary, MOUSE_INPUT_SOURCE());
       DispatchPendingEvents();
+      // DefWindowProc handles vertical expansion, but the Windows App SDK
+      // breaks it, see bug 1994918. So bypass the app sdk by calling into the
+      // default proc here.
+      if (!result) {
+        *aRetValue = DefWindowProcW(mWnd, msg, wParam, lParam);
+        result = true;
+      }
       break;
 
     case WM_NCLBUTTONDOWN: {
-      // TODO(rkraesig): do we really need this? It should be the same as
-      // wParam, and when it's not we probably don't want it here.
-      auto const hitTest =
-          ClientMarginHitTestPoint(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
-
       // Dispatch a custom event when this happens in the draggable region, so
       // that non-popup-based panels can react to it. This doesn't send an
       // actual mousedown event because that would break dragging or interfere
       // with other mousedown handling in the caption area.
-      if (hitTest == HTCAPTION) {
+      if (wParam == HTCAPTION) {
         DispatchCustomEvent(u"draggableregionleftmousedown"_ns);
         mDraggingWindowWithMouse = true;
       }
@@ -5742,7 +5704,8 @@ bool nsWindow::ProcessMessageInternal(UINT msg, WPARAM& wParam, LPARAM& lParam,
       WINDOWPOS* wp = (LPWINDOWPOS)lParam;
       OnWindowPosChanged(wp);
       TaskbarConcealer::OnWindowPosChanged(this);
-      result = true;
+      // We don't set result = true here so that the Windows app sdk
+      // can process this message if necessary.
     } break;
 
     case WM_INPUTLANGCHANGEREQUEST:
@@ -5865,8 +5828,7 @@ bool nsWindow::ProcessMessageInternal(UINT msg, WPARAM& wParam, LPARAM& lParam,
       WidgetGestureNotifyEvent gestureNotifyEvent(true, eGestureNotify, this);
       gestureNotifyEvent.mRefPoint =
           LayoutDeviceIntPoint::FromUnknownPoint(touchPoint);
-      nsEventStatus status;
-      DispatchEvent(&gestureNotifyEvent, status);
+      DispatchEvent(&gestureNotifyEvent);
       mDisplayPanFeedback = gestureNotifyEvent.mDisplayPanFeedback;
       if (!mTouchWindow) {
         mGesture.SetWinGestureSupport(mWnd, gestureNotifyEvent.mPanDirection);
@@ -6417,7 +6379,7 @@ void nsWindow::OnWindowPosChanged(WINDOWPOS* wp) {
   // Handle window position changes
   if (!(wp->flags & SWP_NOMOVE)) {
     mBounds.MoveTo(wp->x, wp->y);
-    NotifyWindowMoved(wp->x, wp->y);
+    NotifyWindowMoved(mBounds.TopLeft());
   }
 
   // Handle window size changes
@@ -6814,8 +6776,6 @@ bool nsWindow::OnGesture(WPARAM wParam, LPARAM lParam) {
     if (!mGesture.ProcessPanMessage(mWnd, wParam, lParam))
       return false;  // ignore
 
-    nsEventStatus status;
-
     WidgetWheelEvent wheelEvent(true, eWheel, this);
 
     ModifierKeyState modifierKeyState;
@@ -6828,16 +6788,14 @@ bool nsWindow::OnGesture(WPARAM wParam, LPARAM lParam) {
     bool endFeedback = true;
 
     if (mGesture.PanDeltaToPixelScroll(wheelEvent)) {
-      DispatchEvent(&wheelEvent, status);
+      DispatchEvent(&wheelEvent);
     }
 
     if (mDisplayPanFeedback) {
       mGesture.UpdatePanFeedbackX(
-          mWnd, DeprecatedAbs(RoundDown(wheelEvent.mOverflowDeltaX)),
-          endFeedback);
+          mWnd, RoundDown(wheelEvent.mOverflowDeltaX) != 0, endFeedback);
       mGesture.UpdatePanFeedbackY(
-          mWnd, DeprecatedAbs(RoundDown(wheelEvent.mOverflowDeltaY)),
-          endFeedback);
+          mWnd, RoundDown(wheelEvent.mOverflowDeltaY) != 0, endFeedback);
       mGesture.PanFeedbackFinalize(mWnd, endFeedback);
     }
 
@@ -6859,8 +6817,7 @@ bool nsWindow::OnGesture(WPARAM wParam, LPARAM lParam) {
   event.mTimeStamp = GetMessageTimeStamp(::GetMessageTime());
   event.mInputSource = MouseEvent_Binding::MOZ_SOURCE_TOUCH;
 
-  nsEventStatus status;
-  DispatchEvent(&event, status);
+  nsEventStatus status = DispatchEvent(&event);
   if (status == nsEventStatus_eIgnore) {
     return false;  // Ignored, fall through
   }
@@ -6950,25 +6907,21 @@ void nsWindow::OnDestroy() {
 }
 
 // Send a resize message to the listener
-bool nsWindow::OnResize(const LayoutDeviceIntSize& aSize) {
+void nsWindow::OnResize(const LayoutDeviceIntSize& aSize) {
   if (mCompositorWidgetDelegate &&
       !mCompositorWidgetDelegate->OnWindowResize(aSize)) {
-    return false;
+    return;
   }
 
-  bool result = false;
   if (mWidgetListener) {
-    result = mWidgetListener->WindowResized(this, aSize.width, aSize.height);
+    mWidgetListener->WindowResized(this, aSize);
   }
 
   // If there is an attached view, inform it as well as the normal widget
   // listener.
   if (mAttachedWidgetListener) {
-    return mAttachedWidgetListener->WindowResized(this, aSize.width,
-                                                  aSize.height);
+    mAttachedWidgetListener->WindowResized(this, aSize);
   }
-
-  return result;
 }
 
 void nsWindow::OnSizeModeChange() {
@@ -7778,7 +7731,6 @@ bool nsWindow::DealWithPopups(HWND aWnd, UINT aMessage, WPARAM aWParam,
 
   nsIRollupListener::RollupOptions rollupOptions{
       popupsToRollup,
-      nsIRollupListener::FlushViews::Yes,
       /* mPoint = */ nullptr,
       allowAnimations,
   };
@@ -8042,8 +7994,8 @@ bool nsWindow::DispatchTouchEventFromWMPointer(
                             ScreenSize(1, 1),  // pixel size radius for pen
                             0.0f,              // no radius rotation
                             aPointerInfo.mPressure);
-  touchData.mTiltX = aPointerInfo.tiltX;
-  touchData.mTiltY = aPointerInfo.tiltY;
+  touchData.mTiltX = aPointerInfo.ComputeTiltX();
+  touchData.mTiltY = aPointerInfo.ComputeTiltY();
   touchData.mTwist = aPointerInfo.twist;
 
   MultiTouchInput touchInput;
@@ -8124,7 +8076,7 @@ bool nsWindow::OnPenPointerEvents(uint32_t aPointerId, UINT aMsg,
   if (StaticPrefs::widget_windows_pen_tilt_override_enabled() ||
       StaticPrefs::widget_windows_pen_twist_override_enabled()) {
     static uint32_t sPendingToUpdate =
-        StaticPrefs::widget_widnows_pen_override_number_of_preserver_value();
+        StaticPrefs::widget_windows_pen_override_number_of_preserver_value();
     if (StaticPrefs::widget_windows_pen_tilt_override_enabled()) {
       static int32_t sOverrideTiltX = 30;
       static int32_t sOverrideTiltY = 0;
@@ -8163,7 +8115,7 @@ bool nsWindow::OnPenPointerEvents(uint32_t aPointerId, UINT aMsg,
       sPendingToUpdate--;
     } else {
       sPendingToUpdate =
-          StaticPrefs::widget_widnows_pen_override_number_of_preserver_value();
+          StaticPrefs::widget_windows_pen_override_number_of_preserver_value();
     }
   }
 
@@ -8377,7 +8329,7 @@ bool nsWindow::InitTouchInjection() {
     }
 
     if (!func(TOUCH_INJECT_MAX_POINTS, TOUCH_FEEDBACK_DEFAULT)) {
-      WinUtils::Log("InitializeTouchInjection failure. GetLastError=%d",
+      WinUtils::Log("InitializeTouchInjection failure. GetLastError=%lu",
                     GetLastError());
       return false;
     }
@@ -8434,7 +8386,7 @@ bool nsWindow::InjectTouchPoint(uint32_t aId, LayoutDeviceIntPoint& aPoint,
       ::Sleep(i);
       continue;
     }
-    WinUtils::Log("InjectTouchInput failure. GetLastError=%d", error);
+    WinUtils::Log("InjectTouchInput failure. GetLastError=%lu", error);
     return false;
   }
   return true;

@@ -10,8 +10,9 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.channels.awaitClose
@@ -179,23 +180,23 @@ fun <S : State, A : Action> Store<S, A>.flow(
 }
 
 /**
- * Launches a coroutine in a new [MainScope] and creates a [Flow] for observing [State] changes in
- * the [Store] in that scope. Invokes [block] inside that scope and passes the [Flow] to it.
+ * Launches a coroutine in a new [CoroutineScope] using the provided [dispatcher] and creates a [Flow]
+ * for observing the [Store] in that scope. Invokes [block] inside that scope and passes the [Flow] to it.
  *
  * @param owner An optional [LifecycleOwner] that will be used to determine when to pause and resume
  * the store subscription. When the [Lifecycle] is in STOPPED state then no [State] will be received.
  * Once the [Lifecycle] switches back to at least STARTED state then the latest [State] and further
  * updates will be emitted.
- * @param coroutineScope The [CoroutineScope] the flow will be collected in. Defaults to [MainScope].
+ * @param dispatcher The [CoroutineDispatcher] to be used for the [CoroutineScope] in which the flow will be collected.
  * @return The [CoroutineScope] [block] is getting executed in.
  */
 @MainThread
 fun <S : State, A : Action> Store<S, A>.flowScoped(
     owner: LifecycleOwner? = null,
-    coroutineScope: CoroutineScope = MainScope(),
+    dispatcher: CoroutineDispatcher,
     block: suspend (Flow<S>) -> Unit,
 ): CoroutineScope {
-    return coroutineScope.apply {
+    return CoroutineScope(SupervisorJob() + dispatcher).apply {
         launch {
             block(flow(owner))
         }

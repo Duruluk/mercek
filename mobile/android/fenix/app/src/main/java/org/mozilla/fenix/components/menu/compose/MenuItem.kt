@@ -4,6 +4,13 @@
 
 package org.mozilla.fenix.components.menu.compose
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -19,6 +26,7 @@ import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
@@ -39,16 +47,19 @@ import androidx.compose.ui.semantics.collectionItemInfo
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.PreviewLightDark
 import androidx.compose.ui.unit.dp
+import mozilla.components.compose.base.modifier.thenConditional
 import mozilla.components.compose.base.theme.surfaceDimVariant
 import org.mozilla.fenix.R
 import org.mozilla.fenix.components.menu.MenuDialogTestTag.WEB_EXTENSION_ITEM
 import org.mozilla.fenix.compose.list.IconListItem
 import org.mozilla.fenix.compose.list.TextListItem
 import org.mozilla.fenix.theme.FirefoxTheme
+import org.mozilla.fenix.utils.DURATION_MS_MAIN_MENU_ITEM
 import mozilla.components.ui.icons.R as iconsR
 
 private val MENU_ITEM_HEIGHT_WITHOUT_DESC = 52.dp
@@ -141,11 +152,13 @@ internal fun MenuItem(
                 color = MaterialTheme.colorScheme.surfaceDimVariant,
             ),
         labelModifier = labelModifier,
-        labelTextColor = labelTextColor,
+        colors = ListItemDefaults.colors(
+            headlineColor = labelTextColor,
+            supportingColor = descriptionTextColor,
+            ),
         maxLabelLines = 2,
         description = description,
         maxDescriptionLines = maxDescriptionLines,
-        descriptionTextColor = descriptionTextColor,
         enabled = enabled,
         minHeight = if (description != null) {
             MENU_ITEM_HEIGHT_WITH_DESC
@@ -263,17 +276,19 @@ internal fun WebExtensionMenuItem(
                     )
                 }
 
-                VerticalDivider()
+                if (onSettingsClick != null) {
+                    VerticalDivider()
 
-                IconButton(
-                    modifier = Modifier.size(24.dp),
-                    onClick = onSettingsClick ?: {},
-                ) {
-                    Icon(
-                        painter = painterResource(iconsR.drawable.mozac_ic_settings_24),
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        contentDescription = null,
-                    )
+                    IconButton(
+                        modifier = Modifier.size(24.dp),
+                        onClick = onSettingsClick,
+                    ) {
+                        Icon(
+                            painter = painterResource(iconsR.drawable.mozac_ic_settings_24),
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            contentDescription = null,
+                        )
+                    }
                 }
             }
         },
@@ -287,25 +302,27 @@ internal fun MenuBadgeItem(
     badgeText: String,
     checked: Boolean,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
-    val state: MenuItemState
-    val badgeBackgroundColor: Color
-
-    if (checked) {
-        badgeBackgroundColor = MaterialTheme.colorScheme.primaryContainer
-        state = MenuItemState.ACTIVE
+    val state: MenuItemState = if (checked) {
+        MenuItemState.ACTIVE
     } else {
-        badgeBackgroundColor = MaterialTheme.colorScheme.surfaceContainerHighest
-        state = MenuItemState.DISABLED
+        MenuItemState.DISABLED
     }
 
     Row(
         modifier = modifier
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = LocalIndication.current,
-            ) { onClick() }
+            .thenConditional(
+                Modifier.clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = LocalIndication.current,
+                ) { onClick() },
+                ) { enabled }
+            .thenConditional(
+                Modifier.semantics { disabled() },
+            ) { !enabled }
+            .semantics { disabled() }
             .clip(shape = ROUNDED_CORNER_SHAPE)
             .background(
                 color = MaterialTheme.colorScheme.surfaceDimVariant,
@@ -339,7 +356,6 @@ internal fun MenuBadgeItem(
         Badge(
             badgeText = badgeText,
             state = state,
-            badgeBackgroundColor = badgeBackgroundColor,
         )
     }
 }
@@ -348,14 +364,11 @@ internal fun MenuBadgeItem(
 internal fun Badge(
     badgeText: String,
     state: MenuItemState = MenuItemState.ENABLED,
-    badgeBackgroundColor: Color = MaterialTheme.colorScheme.surfaceContainerHighest,
 ) {
     Column(
         modifier = Modifier
             .clip(shape = RoundedCornerShape(BADGE_ROUNDED_CORNER))
-            .background(
-                color = badgeBackgroundColor,
-            )
+            .background(color = getBadgeColor(state))
             .padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -367,6 +380,44 @@ internal fun Badge(
             style = FirefoxTheme.typography.headline8,
             maxLines = 1,
         )
+    }
+}
+
+@Composable
+internal fun ExpandableMenuItemAnimation(
+    isExpanded: Boolean,
+    content: @Composable () -> Unit,
+) {
+    AnimatedVisibility(
+        visible = isExpanded,
+        enter = expandVertically(
+            expandFrom = Alignment.Top,
+            animationSpec = tween(
+                durationMillis = DURATION_MS_MAIN_MENU_ITEM,
+                easing = LinearEasing,
+            ),
+        ) + fadeIn(
+            animationSpec = tween(
+                durationMillis = DURATION_MS_MAIN_MENU_ITEM,
+                easing = LinearEasing,
+            ),
+        ),
+        exit = shrinkVertically(
+            shrinkTowards = Alignment.Top,
+            animationSpec = tween(
+                durationMillis = DURATION_MS_MAIN_MENU_ITEM,
+                easing = LinearEasing,
+            ),
+        ) + fadeOut(
+            animationSpec = tween(
+                durationMillis = DURATION_MS_MAIN_MENU_ITEM,
+                easing = LinearEasing,
+            ),
+        ),
+    ) {
+        Column {
+            content()
+        }
     }
 }
 
@@ -429,6 +480,14 @@ private fun getIconTint(state: MenuItemState): Color {
     }
 }
 
+@Composable
+private fun getBadgeColor(state: MenuItemState): Color {
+    return when (state) {
+        MenuItemState.ACTIVE -> MaterialTheme.colorScheme.primaryContainer
+        else -> MaterialTheme.colorScheme.surfaceContainerHighest
+    }
+}
+
 @PreviewLightDark
 @Composable
 private fun WebExtensionMenuItemPreview() {
@@ -439,8 +498,18 @@ private fun WebExtensionMenuItemPreview() {
         ) {
             WebExtensionMenuItem(
                 label = "label",
-                iconPainter = painterResource(iconsR.drawable.mozac_ic_web_extension_default_icon),
+                iconPainter = painterResource(iconsR.drawable.mozac_ic_extension_fill_24),
                 iconTint = MaterialTheme.colorScheme.onSurface,
+                enabled = true,
+                badgeText = "17",
+                onClick = {},
+                onSettingsClick = {},
+            )
+            // Web extensions may have multi-colored assets with no tint.
+            WebExtensionMenuItem(
+                label = "colorful icon",
+                iconPainter = painterResource(iconsR.drawable.mozac_ic_shield_slash_critical_24),
+                iconTint = Color.Unspecified,
                 enabled = true,
                 badgeText = "17",
                 onClick = {},

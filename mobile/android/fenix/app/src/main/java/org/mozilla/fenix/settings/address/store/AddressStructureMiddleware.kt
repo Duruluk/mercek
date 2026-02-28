@@ -6,12 +6,10 @@ package org.mozilla.fenix.settings.address.store
 
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers.IO
-import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import mozilla.components.concept.engine.autofill.AddressStructure
 import mozilla.components.lib.state.Middleware
-import mozilla.components.lib.state.MiddlewareContext
 import mozilla.components.lib.state.Store
 
 /**
@@ -44,23 +42,22 @@ data class UnknownLocalizationKey(
  * @param ioDispatcher the dispatcher to run background code on.
  */
 class AddressStructureMiddleware(
-    private var environment: AddressEnvironment? = null,
-    private val scope: CoroutineScope = MainScope(),
-    private val ioDispatcher: CoroutineDispatcher = IO,
+    private val environment: AddressEnvironment,
+    private val scope: CoroutineScope,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : Middleware<AddressState, AddressAction> {
     override fun invoke(
-        context: MiddlewareContext<AddressState, AddressAction>,
+        store: Store<AddressState, AddressAction>,
         next: (AddressAction) -> Unit,
         action: AddressAction,
     ) {
-        val preReductionCountry = context.state.address.country
+        val preReductionCountry = store.state.address.country
         next(action)
 
         when (action) {
-            is EnvironmentRehydrated -> environment = action.environment
-            is ViewAppeared -> loadAddressStructure(context.store, true)
-            is FormChange.Country -> if (preReductionCountry != context.store.state.address.country) {
-                loadAddressStructure(context.store, false)
+            is ViewAppeared -> loadAddressStructure(store, true)
+            is FormChange.Country -> if (preReductionCountry != store.state.address.country) {
+                loadAddressStructure(store, false)
             }
             else -> { /* noop */ }
         }
@@ -70,7 +67,7 @@ class AddressStructureMiddleware(
         store: Store<AddressState, AddressAction>,
         initialLoad: Boolean,
     ) = scope.launch(ioDispatcher) {
-        val structure = environment?.getAddressStructure(store.state.address.country) ?: return@launch
+        val structure = environment.getAddressStructure(store.state.address.country)
         structure.validate(store.state.address.country)
         store.dispatch(
             AddressStructureLoaded(
@@ -90,7 +87,7 @@ class AddressStructureMiddleware(
             }
 
             if (localizationKey is AddressStructure.Field.LocalizationKey.Unknown) {
-                environment?.submitCaughtException(
+                environment.submitCaughtException(
                     UnknownLocalizationKey(countryCode, localizationKey.value),
                 )
             }

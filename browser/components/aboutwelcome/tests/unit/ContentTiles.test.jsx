@@ -4,6 +4,7 @@ import { ContentTiles } from "content-src/components/ContentTiles";
 import { ActionChecklist } from "content-src/components/ActionChecklist";
 import { MobileDownloads } from "content-src/components/MobileDownloads";
 import { EmbeddedBackupRestore } from "content-src/components/EmbeddedBackupRestore";
+import { EmbeddedMigrationWizard } from "content-src/components/EmbeddedMigrationWizard";
 import { AboutWelcomeUtils } from "content-src/lib/aboutwelcome-utils.mjs";
 import { GlobalOverrider } from "asrouter/tests/unit/utils";
 
@@ -1063,226 +1064,156 @@ describe("ContentTiles component", () => {
     mounted.unmount();
   });
 
-  it("renders container when single tile has container.style", () => {
-    const SINGLE_TILE_WITH_STYLE = {
-      tiles: {
-        container: { style: { marginBlock: "40px" } },
-        tile_items: {
-          type: "mobile_downloads",
-          data: { email: { link_text: "Email!!" } },
-        },
+  it("passes migration_wizard_options properties to migration-wizard element", () => {
+    const MIGRATION_WIZARD_TILE = {
+      type: "migration-wizard",
+      migration_wizard_options: {
+        force_show_import_all: true,
+        option_expander_title_string: "Custom title",
+        hide_option_expander_subtitle: true,
+        hide_select_all: true,
       },
     };
 
-    const mounted = mount(
+    const content = {
+      tiles: [MIGRATION_WIZARD_TILE],
+    };
+
+    const mountedWrapper = mount(
       <ContentTiles
-        content={SINGLE_TILE_WITH_STYLE}
-        handleAction={() => {}}
+        content={content}
+        handleAction={handleAction}
         activeMultiSelect={null}
         setActiveMultiSelect={setActiveMultiSelect}
       />
     );
 
-    const container = mounted.find("#content-tiles-container");
-    assert.isTrue(container.exists(), "container should be rendered");
-
-    const el = container.getDOMNode();
-    assert.match(
-      el.style.cssText,
-      "margin-block: 40px",
-      "container style applied"
+    const embeddedMigrationWizard = mountedWrapper.find(
+      EmbeddedMigrationWizard
+    );
+    assert.ok(
+      embeddedMigrationWizard.exists(),
+      "EmbeddedMigrationWizard rendered"
     );
 
-    mounted.unmount();
+    const migrationWizardEl = mountedWrapper.find("migration-wizard");
+    assert.ok(migrationWizardEl.exists(), "migration-wizard element rendered");
+
+    assert.equal(
+      migrationWizardEl.prop("force-show-import-all"),
+      true,
+      "force-show-import-all is set"
+    );
+    assert.equal(
+      migrationWizardEl.prop("option-expander-title-string"),
+      "Custom title",
+      "option-expander-title-string is set"
+    );
+    assert.equal(
+      migrationWizardEl.prop("hide-option-expander-subtitle"),
+      true,
+      "hide-option-expander-subtitle is set"
+    );
+    assert.equal(
+      migrationWizardEl.prop("hide-select-all"),
+      true,
+      "hide-select-all is set"
+    );
+
+    mountedWrapper.unmount();
   });
 
-  it("renders container when single tile has header", () => {
-    const SINGLE_TILE_WITH_HEADER = {
-      tiles: {
-        container: {
-          header: { title: "Toggle tiles header" },
-        },
-        tile_items: {
-          type: "mobile_downloads",
-          data: { email: { link_text: "Email!!" } },
-        },
+  it("should render link tiles with external-link-icon and no aria-expanded", () => {
+    const LINK_TILE = {
+      type: "link",
+      header: {
+        title: "link title",
+      },
+      action: {
+        type: "OPEN_URL",
+        data: { url: "https://example.com" },
       },
     };
 
-    const mounted = mount(
+    const linkWrapper = mount(
       <ContentTiles
-        content={SINGLE_TILE_WITH_HEADER}
-        handleAction={() => {}}
-        activeMultiSelect={null}
+        content={{ tiles: [LINK_TILE] }}
+        handleAction={handleAction}
         setActiveMultiSelect={setActiveMultiSelect}
       />
     );
 
-    const headerBtn = mounted.find(".content-tiles-header");
-    assert.isTrue(headerBtn.exists(), "header button should render");
+    const tileButton = linkWrapper.find(".tile-header");
 
-    assert.isFalse(
-      mounted.find("#content-tiles-container").exists(),
-      "container should be hidden initially"
+    assert.strictEqual(
+      tileButton.prop("aria-expanded"),
+      undefined,
+      "Should not have aria-expanded since links don't expand content"
     );
 
-    headerBtn.simulate("click");
-    assert.isTrue(
-      mounted.find("#content-tiles-container").exists(),
-      "container should render after toggle"
+    assert.strictEqual(
+      tileButton.prop("aria-controls"),
+      undefined,
+      "Should not have aria-controls"
     );
 
-    mounted.unmount();
+    assert.ok(
+      linkWrapper.find(".external-link-icon").exists(),
+      "Should show external-link-icon"
+    );
+    assert.ok(
+      !linkWrapper.find(".arrow-icon").exists(),
+      "Should not show arrow-icon"
+    );
+
+    linkWrapper.unmount();
   });
 
-  it("supports legacy content.tiles_header as container header", () => {
-    const LEGACY_HEADER_SINGLE_TILE = {
-      tiles_header: { title: "Legacy tile header" },
-      tiles: {
-        type: "multiselect",
-        header: {
-          title: "Multiselect header",
-        },
-        data: [{ id: "option1", defaultValue: true }],
+  it("should call handleAction when link tile is clicked", () => {
+    const LINK_TILE = {
+      type: "link",
+      id: "test-link",
+      header: {
+        title: "link tile",
+      },
+      action: {
+        type: "OPEN_URL",
+        data: { url: "https://example.com" },
       },
     };
 
-    const mounted = mount(
+    let telemetrySpy = sandbox.spy(AboutWelcomeUtils, "sendActionTelemetry");
+    const linkWrapper = mount(
       <ContentTiles
-        content={LEGACY_HEADER_SINGLE_TILE}
-        handleAction={() => {}}
-        activeMultiSelect={null}
+        content={{ tiles: [LINK_TILE] }}
+        handleAction={handleAction}
         setActiveMultiSelect={setActiveMultiSelect}
       />
     );
 
-    const headerBtn = mounted.find(".content-tiles-header");
-    assert.isTrue(headerBtn.exists(), "legacy header button should render");
+    const tileButton = linkWrapper.find(".tile-header");
+    tileButton.simulate("click");
 
-    assert.isFalse(
-      mounted.find("#content-tiles-container").exists(),
-      "container hidden initially"
+    sinon.assert.calledOnce(handleAction);
+    const callArgs = handleAction.firstCall.args;
+    assert.equal(
+      callArgs[1].type,
+      "OPEN_URL",
+      "Should call handleAction with tile action"
     );
 
-    headerBtn.simulate("click");
-    assert.isTrue(
-      mounted.find("#content-tiles-container").exists(),
-      "container visible after toggle"
+    sinon.assert.calledOnce(telemetrySpy);
+    assert.equal(
+      telemetrySpy.firstCall.args[1],
+      "link_test-link_header",
+      "Telemetry should be sent for link tile click"
     );
 
-    mounted.unmount();
-  });
-
-  it("supports legacy content.contentTilesContainer.style as container style", () => {
-    const LEGACY_CONTAINER_STYLE = {
-      contentTilesContainer: { style: { marginBlock: "6px" } },
-      tiles: [
-        {
-          type: "multiselect",
-          header: {
-            title: "Multiselect Header",
-          },
-          data: [{ id: "option1", defaultValue: true }],
-        },
-      ],
-    };
-
-    const mounted = mount(
-      <ContentTiles
-        content={LEGACY_CONTAINER_STYLE}
-        handleAction={() => {}}
-        activeMultiSelect={null}
-        setActiveMultiSelect={setActiveMultiSelect}
-        setScreenMultiSelects={sandbox.stub()}
-      />
+    assert.ok(
+      !linkWrapper.find(".tile-content").exists(),
+      "Link tiles should not render tile-content"
     );
 
-    const container = mounted.find("#content-tiles-container");
-    assert.isTrue(container.exists(), "container should be rendered");
-
-    const el = container.getDOMNode();
-    assert.match(
-      el.style.cssText,
-      "margin-block: 6px",
-      "legacy container style applied"
-    );
-
-    mounted.unmount();
-  });
-
-  it("renders header toggle when only header.subtitle is provided", () => {
-    const HEADER_WITH_SUBTITLE_ONLY = {
-      tiles: {
-        container: {
-          header: { subtitle: "Only a subtitle" },
-        },
-        tile_items: [
-          {
-            type: "mobile_downloads",
-            data: { email: { link_text: "Email yourself a link" } },
-          },
-        ],
-      },
-    };
-
-    const mounted = mount(
-      <ContentTiles
-        content={HEADER_WITH_SUBTITLE_ONLY}
-        handleAction={() => {}}
-        activeMultiSelect={null}
-        setActiveMultiSelect={setActiveMultiSelect}
-      />
-    );
-
-    const headerBtn = mounted.find(".content-tiles-header");
-    assert.isTrue(
-      headerBtn.exists(),
-      "header toggle renders with subtitle only"
-    );
-
-    headerBtn.simulate("click");
-    assert.isTrue(
-      mounted.find("#content-tiles-container").exists(),
-      "container renders after toggle"
-    );
-
-    mounted.unmount();
-  });
-
-  it("multiple tiles render inside container and count matches", () => {
-    const NEW_SHAPE_MULTIPLE = {
-      tiles: {
-        tile_items: [
-          {
-            type: "mobile_downloads",
-            data: { email: { link_text: "Email" } },
-          },
-          {
-            type: "multiselect",
-            header: {
-              title: "Multiselect header",
-            },
-            data: [{ id: "option1", defaultValue: true }],
-          },
-        ],
-      },
-    };
-
-    const mounted = mount(
-      <ContentTiles
-        content={NEW_SHAPE_MULTIPLE}
-        handleAction={() => {}}
-        activeMultiSelect={null}
-        setActiveMultiSelect={setActiveMultiSelect}
-      />
-    );
-
-    assert.isTrue(
-      mounted.find("#content-tiles-container").exists(),
-      "container present"
-    );
-    assert.equal(mounted.find(".content-tile").length, 2, "renders both tiles");
-
-    mounted.unmount();
+    linkWrapper.unmount();
   });
 });

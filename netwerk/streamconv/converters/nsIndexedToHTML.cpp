@@ -23,7 +23,6 @@
 #include "nsNativeCharsetUtils.h"
 #include "nsString.h"
 #include "nsContentUtils.h"
-#include <algorithm>
 #include "nsIChannel.h"
 #include "nsIURIMutator.h"
 #include "nsITextToSubURI.h"
@@ -327,8 +326,8 @@ nsresult nsIndexedToHTML::DoOnStartRequest(nsIRequest* request,
       ".file > img {\n"
       "  margin-inline-end: 4px;\n"
       "  margin-inline-start: -20px;\n"
-      "  max-width: 16px;\n"
-      "  max-height: 16px;\n"
+      "  width: 16px;\n"
+      "  height: 16px;\n"
       "  vertical-align: middle;\n"
       "}\n"
       ".dir::before {\n"

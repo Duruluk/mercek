@@ -322,19 +322,6 @@ const POSTPROCESSORS = {
     return value;
   },
 
-  manifestVersionCheck(value, context) {
-    if (
-      value == 2 ||
-      (value == 3 &&
-        Services.prefs.getBoolPref("extensions.manifestV3.enabled", false))
-    ) {
-      return value;
-    }
-    const msg = `Unsupported manifest version: ${value}`;
-    context.logError(context.makeError(msg));
-    throw new Error(msg);
-  },
-
   webAccessibleMatching(value, context) {
     // Ensure each object has at least one of matches or extension_ids array.
     for (let obj of value) {
@@ -481,6 +468,10 @@ class Context {
 
   get ignoreUnrecognizedProperties() {
     return !!this.params.ignoreUnrecognizedProperties;
+  }
+
+  get temporarilyInstalled() {
+    return !!this.params.temporarilyInstalled;
   }
 
   get principal() {
@@ -708,7 +699,7 @@ class Context {
 
   /**
    * Executes the given callback, and returns an array of choice strings
-   * passed to {@see #error} during its execution.
+   * passed to {@link #error} during its execution.
    *
    * @param {Function} callback
    * @returns {object}
@@ -1270,11 +1261,37 @@ const FORMATS = {
     // Manifest V3 extension_pages allows WASM.  When sandbox is
     // implemented, or any other V3 or later directive, the flags
     // logic will need to be updated.
+
     let flags =
       context.manifestVersion < 3
         ? Ci.nsIAddonContentPolicy.CSP_ALLOW_ANY
         : Ci.nsIAddonContentPolicy.CSP_ALLOW_WASM;
+
     let error = lazy.contentPolicyService.validateAddonCSP(string, flags);
+
+    if (
+      error &&
+      context.manifestVersion === 3 &&
+      !lazy.contentPolicyService.validateAddonCSP(
+        string,
+        flags | Ci.nsIAddonContentPolicy.CSP_ALLOW_LOCALHOST
+      )
+    ) {
+      error =
+        `Using localhost in the Content Security Policy is invalid, ` +
+        `and is only permitted during development with temporarily ` +
+        `loaded add-ons`;
+
+      // The error occurred due to the presence of localhost CSP settings, which should be allowed
+      // when an MV3 extension is loaded as a temporary add-on for debugging purposes.
+      if (context.temporarilyInstalled) {
+        context.logWarning(
+          `Warning processing ${context.currentTarget}: ${error}`
+        );
+        return string;
+      }
+    }
+
     if (error != null) {
       // The CSP validation error is not reported as part of the "choices" error message,
       // we log the CSP validation error explicitly here to make it easier for the addon developers

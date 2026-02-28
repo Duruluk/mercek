@@ -4,13 +4,12 @@
 
 package org.mozilla.fenix.tabstray.ui.tabpage
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -24,8 +23,8 @@ import mozilla.components.browser.state.state.TabSessionState
 import mozilla.components.compose.base.annotation.FlexibleWindowPreview
 import org.mozilla.fenix.R
 import org.mozilla.fenix.pbmlock.UnlockPrivateTabsTrayScreen
-import org.mozilla.fenix.tabstray.TabsTrayState
 import org.mozilla.fenix.tabstray.TabsTrayTestTag
+import org.mozilla.fenix.tabstray.redux.state.TabsTrayState
 import org.mozilla.fenix.theme.FirefoxTheme
 import org.mozilla.fenix.theme.Theme
 import mozilla.components.ui.icons.R as iconsR
@@ -134,6 +133,8 @@ private fun EmptyPrivateTabsPage(
 @Composable
 private fun EmptyPrivateTabsPagePreview() {
     FirefoxTheme(theme = Theme.Private) {
-        EmptyPrivateTabsPage(modifier = Modifier.background(color = MaterialTheme.colorScheme.surface))
+        Surface {
+            EmptyPrivateTabsPage()
+        }
     }
 }

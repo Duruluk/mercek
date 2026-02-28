@@ -16,7 +16,6 @@ MATHML = {"MathML"}
 SVG = {"SVG"}
 BFC = {"BlockFormattingContext"}
 LINE_PARTICIPANT = {"LineParticipant"}
-MAY_HAVE_VIEW = {"MayHaveView"}
 
 BLOCK = COMMON | {"CanContainOverflowContainers"}
 
@@ -49,7 +48,6 @@ TEXT = COMMON | LINE_PARTICIPANT | {"Replaced"} | LEAF
 FRAME_CLASSES = [
     Frame("BRFrame", "Br", REPLACED | LINE_PARTICIPANT | LEAF),
     Frame("nsBCTableCellFrame", "TableCell", TABLE_CELL),
-    Frame("nsBackdropFrame", "Backdrop", COMMON | LEAF),
     Frame("nsBlockFrame", "Block", BLOCK),
     Frame("nsCanvasFrame", "Canvas", BLOCK),
     Frame("nsCheckboxRadioFrame", "CheckboxRadio", REPLACED | LEAF),
@@ -57,7 +55,7 @@ FRAME_CLASSES = [
     Frame("nsColorControlFrame", "ColorControl", REPLACED | LEAF),
     Frame("nsColumnSetFrame", "ColumnSet", COMMON),
     Frame("ColumnSetWrapperFrame", "ColumnSetWrapper", BLOCK | BFC),
-    Frame("nsComboboxControlFrame", "ComboboxControl", REPLACED | LEAF),
+    Frame("nsComboboxControlFrame", "ComboboxControl", REPLACED),
     Frame("ComboboxLabelFrame", "Block", BLOCK),
     Frame("nsContinuingTextFrame", "Text", TEXT),
     Frame("nsDateTimeControlFrame", "DateTimeControl", REPLACED),
@@ -96,7 +94,6 @@ FRAME_CLASSES = [
     Frame("nsMathMLmunderoverFrame", "None", MATHML_CONTAINER),
     Frame("nsMathMLTokenFrame", "None", MATHML_CONTAINER),
     Frame("nsMenuPopupFrame", "MenuPopup", BLOCK),
-    Frame("nsNumberControlFrame", "TextInput", REPLACED | LEAF),
     Frame("nsPageBreakFrame", "PageBreak", COMMON | LEAF),
     Frame("nsPageContentFrame", "PageContent", BLOCK),
     Frame("nsPageFrame", "Page", COMMON),
@@ -112,12 +109,11 @@ FRAME_CLASSES = [
     Frame("SimpleXULLeafFrame", "SimpleXULLeaf", COMMON | LEAF),
     Frame("nsScrollbarButtonFrame", "SimpleXULLeaf", COMMON | LEAF),
     Frame("nsScrollbarFrame", "Scrollbar", COMMON),
-    Frame("nsSearchControlFrame", "TextInput", REPLACED | LEAF),
     Frame("nsSelectsAreaFrame", "Block", BLOCK | BFC),
     Frame("nsPageSequenceFrame", "PageSequence", COMMON),
     Frame("nsSliderFrame", "Slider", COMMON),
     Frame("nsSplitterFrame", "SimpleXULLeaf", COMMON | LEAF),
-    Frame("nsSubDocumentFrame", "SubDocument", REPLACED_SIZING | LEAF | MAY_HAVE_VIEW),
+    Frame("nsSubDocumentFrame", "SubDocument", REPLACED_SIZING | LEAF),
     Frame("PrintedSheetFrame", "PrintedSheet", COMMON),
     Frame("SVGAFrame", "SVGA", SVG_CONTAINER),
     Frame("SVGClipPathFrame", "SVGClipPath", SVG_RENDERING_OBSERVER_CONTAINER),
@@ -167,12 +163,12 @@ FRAME_CLASSES = [
     Frame("nsTableWrapperFrame", "TableWrapper", BLOCK),
     Frame("nsTableRowFrame", "TableRow", TABLE_PART),
     Frame("nsTableRowGroupFrame", "TableRowGroup", TABLE_PART),
-    Frame("nsTextControlFrame", "TextInput", REPLACED | LEAF),
+    Frame("nsTextControlFrame", "TextInput", REPLACED),
     Frame("nsTextFrame", "Text", TEXT),
     Frame("nsTreeBodyFrame", "SimpleXULLeaf", COMMON | LEAF),
     Frame("nsVideoFrame", "HTMLVideo", REPLACED_SIZING),
     Frame("nsAudioFrame", "HTMLVideo", REPLACED_SIZING - {"SupportsAspectRatio"}),
-    Frame("ViewportFrame", "Viewport", COMMON | MAY_HAVE_VIEW),
+    Frame("ViewportFrame", "Viewport", COMMON),
     Frame("WBRFrame", "Wbr", COMMON | LEAF),
     # Non-concrete classes (for FrameIID use)
     AbstractFrame("ButtonControlFrame"),
@@ -192,7 +188,6 @@ FRAME_CLASSES = [
     AbstractFrame("nsIPercentBSizeObserver"),
     AbstractFrame("nsIPopupContainer"),
     AbstractFrame("nsIScrollbarMediator"),
-    AbstractFrame("nsISelectControlFrame"),
     AbstractFrame("nsIStatefulFrame"),
     AbstractFrame("ISVGDisplayableFrame"),
     AbstractFrame("ISVGSVGFrame"),

@@ -391,6 +391,7 @@ export default class LoginList extends HTMLElement {
       case "AboutLoginsFilterLogins": {
         this._filter = event.detail.toLocaleLowerCase();
         this.render();
+        this._selectFirstVisibleLogin();
         break;
       }
       case "AboutLoginsInitialLoginSelected":

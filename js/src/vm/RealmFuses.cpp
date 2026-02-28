@@ -12,6 +12,7 @@
 #include "builtin/RegExp.h"
 #include "builtin/WeakMapObject.h"
 #include "builtin/WeakSetObject.h"
+#include "debugger/DebugScript.h"
 #include "js/experimental/TypedData.h"
 #include "vm/GlobalObject.h"
 #include "vm/NativeObject.h"
@@ -113,10 +114,29 @@ bool js::OptimizeGetIteratorFuse::checkInvariant(JSContext* cx) {
 
 void js::OptimizeGetIteratorFuse::popFuse(JSContext* cx,
                                           RealmFuses& realmFuses) {
-  InvalidatingRealmFuse::popFuse(cx, realmFuses);
+  RealmFuse::popFuse(cx, realmFuses);
+  realmFuses.optimizeGetIteratorBytecodeFuse.popFuse(cx, realmFuses);
   MOZ_ASSERT(cx->global());
   cx->runtime()->setUseCounter(cx->global(),
                                JSUseCounter::OPTIMIZE_GET_ITERATOR_FUSE);
+}
+
+bool js::OptimizeGetIteratorBytecodeFuse::checkInvariant(JSContext* cx) {
+  auto& realmFuses = cx->realm()->realmFuses;
+  if (!realmFuses.optimizeGetIteratorFuse.intact()) {
+    return false;
+  }
+  // If there's a DebugScript for a script in this realm, this fuse should have
+  // been popped.
+  if (DebugScriptMap* map = cx->zone()->debugScriptMap) {
+    for (DebugScriptMap::Range r = map->all(); !r.empty(); r.popFront()) {
+      JSScript* script = r.front().key();
+      if (script->realm() == cx->realm()) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 bool js::OptimizeArrayIteratorPrototypeFuse::checkInvariant(JSContext* cx) {
@@ -548,35 +568,6 @@ bool js::OptimizeRegExpPrototypeFuse::checkInvariant(JSContext* cx) {
   if (!ObjectHasDataPropertyFunction(
           proto, PropertyKey::Symbol(cx->wellKnownSymbols().split),
           cx->names().RegExpSplit)) {
-    return false;
-  }
-
-  return true;
-}
-
-bool js::OptimizeStringPrototypeSymbolsFuse::checkInvariant(JSContext* cx) {
-  auto* stringProto =
-      cx->global()->maybeGetPrototype<NativeObject>(JSProto_String);
-  if (!stringProto) {
-    // No proto, invariant still holds.
-    return true;
-  }
-
-  // String.prototype must have Object.prototype as proto.
-  auto* objectProto = &cx->global()->getObjectPrototype().as<NativeObject>();
-  if (stringProto->staticPrototype() != objectProto) {
-    return false;
-  }
-
-  // The objects must not have a @@match, @@replace, @@search, @@split property.
-  auto hasSymbolProp = [&](JS::Symbol* symbol) {
-    PropertyKey key = PropertyKey::Symbol(symbol);
-    return stringProto->containsPure(key) || objectProto->containsPure(key);
-  };
-  if (hasSymbolProp(cx->wellKnownSymbols().match) ||
-      hasSymbolProp(cx->wellKnownSymbols().replace) ||
-      hasSymbolProp(cx->wellKnownSymbols().search) ||
-      hasSymbolProp(cx->wellKnownSymbols().split)) {
     return false;
   }
 

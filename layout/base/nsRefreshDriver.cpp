@@ -60,6 +60,7 @@
 #include "mozilla/TaskController.h"
 #include "mozilla/VsyncDispatcher.h"
 #include "mozilla/VsyncTaskManager.h"
+#include "mozilla/dom/AnimationTimelinesController.h"
 #include "mozilla/dom/BrowserChild.h"
 #include "mozilla/dom/CallbackDebuggerNotification.h"
 #include "mozilla/dom/ContentChild.h"
@@ -94,13 +95,10 @@
 #include "nsPresContext.h"
 #include "nsTextFrame.h"
 #include "nsTransitionManager.h"
-#include "nsViewManager.h"
 
 #if defined(MOZ_WIDGET_ANDROID)
 #  include "VRManagerChild.h"
 #endif  // defined(MOZ_WIDGET_ANDROID)
-
-#include <numeric>
 
 #include "nsXULPopupManager.h"
 
@@ -1256,6 +1254,7 @@ static uint32_t GetFirstFrameDelay(imgIRequest* req) {
 }
 
 static constexpr nsLiteralCString sRenderingPhaseNames[] = {
+    "Reveal"_ns,                                     // Reveal
     "Flush autofocus candidates"_ns,                 // FlushAutoFocusCandidates
     "Resize steps"_ns,                               // ResizeSteps
     "Scroll steps"_ns,                               // ScrollSteps
@@ -2042,11 +2041,7 @@ void nsRefreshDriver::UpdateRemoteFrameEffects() {
 }
 
 static void UpdateAndReduceAnimations(Document& aDocument) {
-  for (DocumentTimeline* tl :
-       ToTArray<AutoTArray<RefPtr<DocumentTimeline>, 32>>(
-           aDocument.Timelines())) {
-    tl->WillRefresh();
-  }
+  aDocument.TimelinesController().WillRefresh();
 
   if (nsPresContext* pc = aDocument.GetPresContext()) {
     if (pc->EffectCompositor()->NeedsReducing()) {
@@ -2084,8 +2079,8 @@ void nsRefreshDriver::RunVideoFrameCallbacks(
       // else window is partially torn down already
     }
 
-    AUTO_PROFILER_TRACING_MARKER_INNERWINDOWID(
-        "Paint", "requestVideoFrame callbacks", GRAPHICS, doc->InnerWindowID());
+    AUTO_PROFILER_MARKER_INNERWINDOWID("requestVideoFrame callbacks", GRAPHICS,
+                                       doc->InnerWindowID());
     for (const auto& videoElm : videoElms) {
       VideoFrameCallbackMetadata metadata;
 
@@ -2145,9 +2140,8 @@ void nsRefreshDriver::RunFrameRequestCallbacks(
       // else window is partially torn down already
     }
 
-    AUTO_PROFILER_TRACING_MARKER_INNERWINDOWID(
-        "Paint", "requestAnimationFrame callbacks", GRAPHICS,
-        doc->InnerWindowID());
+    AUTO_PROFILER_MARKER_INNERWINDOWID("requestAnimationFrame callbacks",
+                                       GRAPHICS, doc->InnerWindowID());
     for (auto& callback : callbacks.mList) {
       if (callback.mCancelled) {
         continue;
@@ -2403,6 +2397,12 @@ void nsRefreshDriver::Tick(VsyncId aId, TimeStamp aNowTime,
     return StopTimer();
   }
 
+  // Step 6, For each doc of docs, reveal doc.
+  RunRenderingPhase(RenderingPhase::Reveal,
+                    [](Document& aDoc) MOZ_CAN_RUN_SCRIPT_BOUNDARY_LAMBDA {
+                      MOZ_KnownLive(aDoc).Reveal();
+                    });
+
   // Step 7. For each doc of docs, flush autofocus candidates for doc if its
   // node navigable is a top-level traversable.
   // NOTE(emilio): Docs with autofocus candidates must be the top-level.
@@ -2631,14 +2631,15 @@ bool nsRefreshDriver::PaintIfNeeded() {
     }
     mCompositionPayloads.Clear();
   }
-  RefPtr<nsViewManager> vm = mPresContext->PresShell()->GetViewManager();
+  RefPtr<PresShell> ps = mPresContext->PresShell();
   {
     PaintTelemetry::AutoRecordPaint record;
-    vm->ProcessPendingUpdates();
+    ps->SyncWindowPropertiesIfNeeded();
     // Paint our popups.
     if (nsXULPopupManager* pm = nsXULPopupManager::GetInstance()) {
       pm->PaintPopups(this);
     }
+    ps->PaintSynchronously();
   }
   return true;
 }
@@ -2997,19 +2998,21 @@ TimeStamp nsRefreshDriver::GetIdleDeadlineHint(TimeStamp aDefault,
 /* static */
 Maybe<TimeStamp> nsRefreshDriver::GetNextTickHint() {
   MOZ_ASSERT(NS_IsMainThread());
-
+  Maybe<TimeStamp> hint;
+  auto UpdateHint = [&hint](const Maybe<TimeStamp>& aNewHint) {
+    if (!aNewHint) {
+      return;
+    }
+    if (!hint || *aNewHint < *hint) {
+      hint = aNewHint;
+    }
+  };
   if (sRegularRateTimer) {
-    return sRegularRateTimer->GetNextTickHint();
+    UpdateHint(sRegularRateTimer->GetNextTickHint());
   }
-
-  Maybe<TimeStamp> hint = Nothing();
   if (sRegularRateTimerList) {
     for (RefreshDriverTimer* timer : *sRegularRateTimerList) {
-      if (Maybe<TimeStamp> newHint = timer->GetNextTickHint()) {
-        if (!hint || newHint.value() < hint.value()) {
-          hint = newHint;
-        }
-      }
+      UpdateHint(timer->GetNextTickHint());
     }
   }
   return hint;

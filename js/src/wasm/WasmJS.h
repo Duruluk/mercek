@@ -223,6 +223,7 @@ class WasmInstanceObject : public NativeObject {
 
   wasm::Instance& instance() const;
   JSObject& exportsObj() const;
+  WasmFunctionScope* getExistingFunctionScope(uint32_t funcIndex) const;
 
   [[nodiscard]] static bool getExportedFunction(
       JSContext* cx, Handle<WasmInstanceObject*> instanceObj,
@@ -319,6 +320,7 @@ class WasmMemoryObject : public NativeObject {
   bool isHuge() const;
   bool movingGrowable() const;
   size_t boundsCheckLimit() const;
+  wasm::PageSize pageSize() const;
 
   // If isShared() is true then obtain the underlying buffer object.
   WasmSharedArrayRawBuffer* sharedArrayRawBuffer() const;
@@ -364,8 +366,8 @@ class WasmTableObject : public NativeObject {
   // Note that, after creation, a WasmTableObject's table() is not initialized
   // and must be initialized before use.
 
-  static WasmTableObject* create(JSContext* cx, wasm::Limits limits,
-                                 wasm::RefType tableType, HandleObject proto);
+  static WasmTableObject* create(JSContext* cx, const wasm::TableType& type,
+                                 HandleObject proto);
   wasm::Table& table() const;
 
   // Perform the standard `ToWebAssemblyValue` coercion on `value` and fill the

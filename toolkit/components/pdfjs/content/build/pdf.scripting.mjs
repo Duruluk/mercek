@@ -21,10 +21,9 @@
  */
 
 /**
- * pdfjsVersion = 5.4.385
- * pdfjsBuild = 7fc5706e1
+ * pdfjsVersion = 5.5.168
+ * pdfjsBuild = e5656e430
  */
-var __webpack_exports__ = {};
 
 ;// ./src/scripting_api/constants.js
 const Border = Object.freeze({
@@ -264,20 +263,20 @@ class PDFObject {
 
 
 class Color extends PDFObject {
+  transparent = ["T"];
+  black = ["G", 0];
+  white = ["G", 1];
+  red = ["RGB", 1, 0, 0];
+  green = ["RGB", 0, 1, 0];
+  blue = ["RGB", 0, 0, 1];
+  cyan = ["CMYK", 1, 0, 0, 0];
+  magenta = ["CMYK", 0, 1, 0, 0];
+  yellow = ["CMYK", 0, 0, 1, 0];
+  dkGray = ["G", 0.25];
+  gray = ["G", 0.5];
+  ltGray = ["G", 0.75];
   constructor() {
     super({});
-    this.transparent = ["T"];
-    this.black = ["G", 0];
-    this.white = ["G", 1];
-    this.red = ["RGB", 1, 0, 0];
-    this.green = ["RGB", 0, 1, 0];
-    this.blue = ["RGB", 0, 0, 1];
-    this.cyan = ["CMYK", 1, 0, 0, 0];
-    this.magenta = ["CMYK", 0, 1, 0, 0];
-    this.yellow = ["CMYK", 0, 0, 1, 0];
-    this.dkGray = ["G", 0.25];
-    this.gray = ["G", 0.5];
-    this.ltGray = ["G", 0.75];
   }
   static _isValidSpace(cColorSpace) {
     return typeof cColorSpace === "string" && (cColorSpace === "T" || cColorSpace === "G" || cColorSpace === "RGB" || cColorSpace === "CMYK");
@@ -728,10 +727,7 @@ class Field extends PDFObject {
       fillArrayWithKids(this._kidIds);
       return array;
     }
-    if (this._children === null) {
-      this._children = this._document.obj._getTerminalChildren(this._fieldPath);
-    }
-    return this._children;
+    return this._children ??= this._document.obj._getTerminalChildren(this._fieldPath);
   }
   getLock() {
     return undefined;
@@ -1693,19 +1689,16 @@ class EventDispatcher {
 
 
 class FullScreen extends PDFObject {
-  constructor(data) {
-    super(data);
-    this._backgroundColor = [];
-    this._clickAdvances = true;
-    this._cursor = Cursor.hidden;
-    this._defaultTransition = "";
-    this._escapeExits = true;
-    this._isFullScreen = true;
-    this._loop = false;
-    this._timeDelay = 3600;
-    this._usePageTiming = false;
-    this._useTimer = false;
-  }
+  _backgroundColor = [];
+  _clickAdvances = true;
+  _cursor = Cursor.hidden;
+  _defaultTransition = "";
+  _escapeExits = true;
+  _isFullScreen = true;
+  _loop = false;
+  _timeDelay = 3600;
+  _usePageTiming = false;
+  _useTimer = false;
   get backgroundColor() {
     return this._backgroundColor;
   }
@@ -1757,13 +1750,10 @@ class FullScreen extends PDFObject {
 ;// ./src/scripting_api/thermometer.js
 
 class Thermometer extends PDFObject {
-  constructor(data) {
-    super(data);
-    this._cancelled = false;
-    this._duration = 100;
-    this._text = "";
-    this._value = 0;
-  }
+  _cancelled = false;
+  _duration = 100;
+  _text = "";
+  _value = 0;
   get cancelled() {
     return this._cancelled;
   }
@@ -1817,11 +1807,7 @@ class App extends PDFObject {
     this._objects = Object.create(null);
     this._eventDispatcher = new EventDispatcher(this._document, data.calculationOrder, this._objects, data.externalCall);
     this._timeoutIds = new WeakMap();
-    if (typeof FinalizationRegistry !== "undefined") {
-      this._timeoutIdsRegistry = new FinalizationRegistry(this._cleanTimeout.bind(this));
-    } else {
-      this._timeoutIdsRegistry = null;
-    }
+    this._timeoutIdsRegistry = new FinalizationRegistry(this._cleanTimeout.bind(this));
     this._timeoutCallbackIds = new Map();
     this._timeoutCallbackId = USERACTIVATION_CALLBACKID + 1;
     this._globalEval = data.globalEval;
@@ -1865,11 +1851,11 @@ class App extends PDFObject {
       interval
     };
     this._timeoutIds.set(timeout, id);
-    this._timeoutIdsRegistry?.register(timeout, id);
+    this._timeoutIdsRegistry.register(timeout, id);
     return timeout;
   }
   _unregisterTimeout(timeout) {
-    this._timeoutIdsRegistry?.unregister(timeout);
+    this._timeoutIdsRegistry.unregister(timeout);
     const data = this._timeoutIds.get(timeout);
     if (!data) {
       return;
@@ -1900,13 +1886,10 @@ class App extends PDFObject {
     return "UNIX";
   }
   static _getLanguage(language) {
-    const [main, sub] = language.toLowerCase().split(/[-_]/);
+    const [main, sub] = language.toLowerCase().split(/[-_]/, 2);
     switch (main) {
       case "zh":
-        if (sub === "cn" || sub === "sg") {
-          return "CHS";
-        }
-        return "CHT";
+        return sub === "cn" || sub === "sg" ? "CHS" : "CHT";
       case "da":
         return "DAN";
       case "de":
@@ -1926,10 +1909,7 @@ class App extends PDFObject {
       case "no":
         return "NOR";
       case "pt":
-        if (sub === "br") {
-          return "PTB";
-        }
-        return "ENU";
+        return sub === "br" ? "PTB" : "ENU";
       case "fi":
         return "SUO";
       case "SV":
@@ -1983,12 +1963,9 @@ class App extends PDFObject {
     throw new Error("app.fromPDFConverters is read-only");
   }
   get fs() {
-    if (this._fs === null) {
-      this._fs = new Proxy(new FullScreen({
-        send: this._send
-      }), this._proxyHandler);
-    }
-    return this._fs;
+    return this._fs ??= new Proxy(new FullScreen({
+      send: this._send
+    }), this._proxyHandler);
   }
   set fs(_) {
     throw new Error("app.fs is read-only");
@@ -2062,12 +2039,9 @@ class App extends PDFObject {
     }
   }
   get thermometer() {
-    if (this._thermometer === null) {
-      this._thermometer = new Proxy(new Thermometer({
-        send: this._send
-      }), this._proxyHandler);
-    }
-    return this._thermometer;
+    return this._thermometer ??= new Proxy(new Thermometer({
+      send: this._send
+    }), this._proxyHandler);
   }
   set thermometer(_) {
     throw new Error("app.thermometer is read-only");
@@ -2276,132 +2250,132 @@ class Console extends PDFObject {
 
 ;// ./src/scripting_api/print_params.js
 class PrintParams {
+  binaryOk = true;
+  bitmapDPI = 150;
+  booklet = {
+    binding: 0,
+    duplexMode: 0,
+    subsetFrom: 0,
+    subsetTo: -1
+  };
+  colorOverride = 0;
+  colorProfile = "";
+  constants = Object.freeze({
+    bookletBindings: Object.freeze({
+      Left: 0,
+      Right: 1,
+      LeftTall: 2,
+      RightTall: 3
+    }),
+    bookletDuplexMode: Object.freeze({
+      BothSides: 0,
+      FrontSideOnly: 1,
+      BasicSideOnly: 2
+    }),
+    colorOverrides: Object.freeze({
+      auto: 0,
+      gray: 1,
+      mono: 2
+    }),
+    fontPolicies: Object.freeze({
+      everyPage: 0,
+      jobStart: 1,
+      pageRange: 2
+    }),
+    handling: Object.freeze({
+      none: 0,
+      fit: 1,
+      shrink: 2,
+      tileAll: 3,
+      tileLarge: 4,
+      nUp: 5,
+      booklet: 6
+    }),
+    interactionLevel: Object.freeze({
+      automatic: 0,
+      full: 1,
+      silent: 2
+    }),
+    nUpPageOrders: Object.freeze({
+      Horizontal: 0,
+      HorizontalReversed: 1,
+      Vertical: 2
+    }),
+    printContents: Object.freeze({
+      doc: 0,
+      docAndComments: 1,
+      formFieldsOnly: 2
+    }),
+    flagValues: Object.freeze({
+      applyOverPrint: 1,
+      applySoftProofSettings: 1 << 1,
+      applyWorkingColorSpaces: 1 << 2,
+      emitHalftones: 1 << 3,
+      emitPostScriptXObjects: 1 << 4,
+      emitFormsAsPSForms: 1 << 5,
+      maxJP2KRes: 1 << 6,
+      setPageSize: 1 << 7,
+      suppressBG: 1 << 8,
+      suppressCenter: 1 << 9,
+      suppressCJKFontSubst: 1 << 10,
+      suppressCropClip: 1 << 1,
+      suppressRotate: 1 << 12,
+      suppressTransfer: 1 << 13,
+      suppressUCR: 1 << 14,
+      useTrapAnnots: 1 << 15,
+      usePrintersMarks: 1 << 16
+    }),
+    rasterFlagValues: Object.freeze({
+      textToOutline: 1,
+      strokesToOutline: 1 << 1,
+      allowComplexClip: 1 << 2,
+      preserveOverprint: 1 << 3
+    }),
+    subsets: Object.freeze({
+      all: 0,
+      even: 1,
+      odd: 2
+    }),
+    tileMarks: Object.freeze({
+      none: 0,
+      west: 1,
+      east: 2
+    }),
+    usages: Object.freeze({
+      auto: 0,
+      use: 1,
+      noUse: 2
+    })
+  });
+  downloadFarEastFonts = false;
+  fileName = "";
+  firstPage = 0;
+  flags = 0;
+  fontPolicy = 0;
+  gradientDPI = 150;
+  interactive = 1;
+  npUpAutoRotate = false;
+  npUpNumPagesH = 2;
+  npUpNumPagesV = 2;
+  npUpPageBorder = false;
+  npUpPageOrder = 0;
+  pageHandling = 0;
+  pageSubset = 0;
+  printAsImage = false;
+  printContent = 0;
+  printerName = "";
+  psLevel = 0;
+  rasterFlags = 0;
+  reversePages = false;
+  tileLabel = false;
+  tileMark = 0;
+  tileOverlap = 0;
+  tileScale = 1.0;
+  transparencyLevel = 75;
+  usePrinterCRD = 0;
+  useT1Conversion = 0;
   constructor(data) {
-    this.binaryOk = true;
-    this.bitmapDPI = 150;
-    this.booklet = {
-      binding: 0,
-      duplexMode: 0,
-      subsetFrom: 0,
-      subsetTo: -1
-    };
-    this.colorOverride = 0;
-    this.colorProfile = "";
-    this.constants = Object.freeze({
-      bookletBindings: Object.freeze({
-        Left: 0,
-        Right: 1,
-        LeftTall: 2,
-        RightTall: 3
-      }),
-      bookletDuplexMode: Object.freeze({
-        BothSides: 0,
-        FrontSideOnly: 1,
-        BasicSideOnly: 2
-      }),
-      colorOverrides: Object.freeze({
-        auto: 0,
-        gray: 1,
-        mono: 2
-      }),
-      fontPolicies: Object.freeze({
-        everyPage: 0,
-        jobStart: 1,
-        pageRange: 2
-      }),
-      handling: Object.freeze({
-        none: 0,
-        fit: 1,
-        shrink: 2,
-        tileAll: 3,
-        tileLarge: 4,
-        nUp: 5,
-        booklet: 6
-      }),
-      interactionLevel: Object.freeze({
-        automatic: 0,
-        full: 1,
-        silent: 2
-      }),
-      nUpPageOrders: Object.freeze({
-        Horizontal: 0,
-        HorizontalReversed: 1,
-        Vertical: 2
-      }),
-      printContents: Object.freeze({
-        doc: 0,
-        docAndComments: 1,
-        formFieldsOnly: 2
-      }),
-      flagValues: Object.freeze({
-        applyOverPrint: 1,
-        applySoftProofSettings: 1 << 1,
-        applyWorkingColorSpaces: 1 << 2,
-        emitHalftones: 1 << 3,
-        emitPostScriptXObjects: 1 << 4,
-        emitFormsAsPSForms: 1 << 5,
-        maxJP2KRes: 1 << 6,
-        setPageSize: 1 << 7,
-        suppressBG: 1 << 8,
-        suppressCenter: 1 << 9,
-        suppressCJKFontSubst: 1 << 10,
-        suppressCropClip: 1 << 1,
-        suppressRotate: 1 << 12,
-        suppressTransfer: 1 << 13,
-        suppressUCR: 1 << 14,
-        useTrapAnnots: 1 << 15,
-        usePrintersMarks: 1 << 16
-      }),
-      rasterFlagValues: Object.freeze({
-        textToOutline: 1,
-        strokesToOutline: 1 << 1,
-        allowComplexClip: 1 << 2,
-        preserveOverprint: 1 << 3
-      }),
-      subsets: Object.freeze({
-        all: 0,
-        even: 1,
-        odd: 2
-      }),
-      tileMarks: Object.freeze({
-        none: 0,
-        west: 1,
-        east: 2
-      }),
-      usages: Object.freeze({
-        auto: 0,
-        use: 1,
-        noUse: 2
-      })
-    });
-    this.downloadFarEastFonts = false;
-    this.fileName = "";
-    this.firstPage = 0;
-    this.flags = 0;
-    this.fontPolicy = 0;
-    this.gradientDPI = 150;
-    this.interactive = 1;
     this.lastPage = data.lastPage;
-    this.npUpAutoRotate = false;
-    this.npUpNumPagesH = 2;
-    this.npUpNumPagesV = 2;
-    this.npUpPageBorder = false;
-    this.npUpPageOrder = 0;
-    this.pageHandling = 0;
-    this.pageSubset = 0;
-    this.printAsImage = false;
-    this.printContent = 0;
-    this.printerName = "";
-    this.psLevel = 0;
-    this.rasterFlags = 0;
-    this.reversePages = false;
-    this.tileLabel = false;
-    this.tileMark = 0;
-    this.tileOverlap = 0;
-    this.tileScale = 1.0;
-    this.transparencyLevel = 75;
-    this.usePrinterCRD = 0;
-    this.useT1Conversion = 0;
   }
 }
 
@@ -3082,7 +3056,7 @@ class Doc extends PDFObject {
       childIndex = Math.floor(parseFloat(parts[1]));
       cName = parts[0];
     }
-    for (const [name, field] of this._fields.entries()) {
+    for (const [name, field] of this._fields) {
       if (name.endsWith(cName)) {
         if (!isNaN(childIndex)) {
           const children = this._getChildren(name);
@@ -3111,7 +3085,7 @@ class Doc extends PDFObject {
     const len = fieldName.length;
     const children = [];
     const pattern = /^\.[^.]+$/;
-    for (const [name, field] of this._fields.entries()) {
+    for (const [name, field] of this._fields) {
       if (name.startsWith(fieldName)) {
         const finalPart = name.slice(len);
         if (pattern.test(finalPart)) {
@@ -3124,7 +3098,7 @@ class Doc extends PDFObject {
   _getTerminalChildren(fieldName) {
     const children = [];
     const len = fieldName.length;
-    for (const [name, field] of this._fields.entries()) {
+    for (const [name, field] of this._fields) {
       if (name.startsWith(fieldName)) {
         const finalPart = name.slice(len);
         if (field.obj._hasValue && (finalPart === "" || finalPart.startsWith("."))) {
@@ -3285,9 +3259,7 @@ class Doc extends PDFObject {
 
 ;// ./src/scripting_api/proxy.js
 class ProxyHandler {
-  constructor() {
-    this.nosend = new Set(["delay"]);
-  }
+  nosend = new Set(["delay"]);
   get(obj, prop) {
     if (prop in obj._expandos) {
       const val = obj._expandos[prop];

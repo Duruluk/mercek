@@ -92,8 +92,8 @@ void ConnectionEntry::PrintDiagnostics(nsCString& log,
   mPendingQ.PrintDiagnostics(log);
 
   for (i = 0; i < mCoalescingKeys.Length(); ++i) {
-    log.AppendPrintf("   :: Coalescing Key #%u %s\n", i,
-                     mCoalescingKeys[i].get());
+    log.AppendPrintf("   :: Coalescing Key #%u %" PRIu32 "\n", i,
+                     mCoalescingKeys[i]);
   }
 }
 

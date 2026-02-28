@@ -6,11 +6,10 @@ import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 
 export var PopupAndRedirectBlockerObserver = {
   /**
-   * This is to check if we are currently in the process of appending a
-   * notification.
-   * `NotificationBox.appendNotification()` runs asynchronously and
-   * returns a promise. While it is resolving, `NotificationBox.getNotificationWithValue()`
-   * will still return null.
+   * Check if we are currently in the process of appending a notification.
+   * We can't rely on `getNotificationWithValue()`: It returns `null`
+   * while `appendNotification()` is resolving, so we keep track of the
+   * promise instead.
    */
   mNotificationPromise: null,
 
@@ -37,6 +36,7 @@ export var PopupAndRedirectBlockerObserver = {
   /**
    * Handles a "DOMUpdateBlockedPopups" or "DOMUpdateBlockedRedirect" event
    * received from the JSWindowActorParent.
+   *
    * @param {*} aEvent
    */
   onDOMUpdateBlockedPopupsAndRedirect(aEvent) {
@@ -86,6 +86,15 @@ export var PopupAndRedirectBlockerObserver = {
   },
 
   async showBrowserMessage(aBrowser, aPopupCount, aIsRedirectBlocked) {
+    const selectedBrowser = aBrowser.selectedBrowser;
+    const popupAndRedirectBlocker = selectedBrowser.popupAndRedirectBlocker;
+
+    // Check if the notification was previously shown and then dismissed
+    // by the user.
+    if (popupAndRedirectBlocker.hasBeenDismissed()) {
+      return;
+    }
+
     const l10nId = (() => {
       if (aPopupCount >= this.maxReportedPopups) {
         return aIsRedirectBlocked
@@ -114,9 +123,13 @@ export var PopupAndRedirectBlockerObserver = {
 
     const image = "chrome://browser/skin/notification-icons/popup.svg";
     const priority = notificationBox.PRIORITY_INFO_MEDIUM;
+    const eventCallback = popupAndRedirectBlocker.eventCallback.bind(
+      popupAndRedirectBlocker
+    );
+
     this.mNotificationPromise = notificationBox.appendNotification(
       "popup-blocked",
-      { label, image, priority },
+      { label, image, priority, eventCallback },
       [
         {
           "l10n-id": "popup-warning-button",
@@ -132,6 +145,7 @@ export var PopupAndRedirectBlockerObserver = {
   /**
    * Event handler that is triggered when a user clicks on the "options"
    * button in the notification which opens a popup.
+   *
    * @param {*} aEvent
    */
   async onPopupShowing(aEvent) {
@@ -163,7 +177,7 @@ export var PopupAndRedirectBlockerObserver = {
     const blockedPopupDontShowMessage = document.getElementById(
       "blockedPopupDontShowMessage"
     );
-    blockedPopupDontShowMessage.setAttribute("checked", false);
+    blockedPopupDontShowMessage.removeAttribute("checked");
 
     gBrowser.selectedBrowser.popupAndRedirectBlocker
       .getBlockedRedirect()
@@ -263,6 +277,7 @@ export var PopupAndRedirectBlockerObserver = {
   /**
    * Event handler that is triggered when the "options" popup of the
    * notification closes.
+   *
    * @param {*} aEvent
    */
   onPopupHiding(aEvent) {
@@ -296,6 +311,7 @@ export var PopupAndRedirectBlockerObserver = {
   /**
    * Event handler that is triggered when a user clicks on one of the
    * fields in the "options" popup of the notification.
+   *
    * @param {*} aEvent
    */
   onCommand(aEvent) {

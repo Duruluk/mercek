@@ -6,8 +6,6 @@
 
 #include "GMPLoader.h"
 
-#include <stdio.h>
-
 #include "gmp-entrypoints.h"
 #include "nsExceptionHandler.h"
 #include "prenv.h"
@@ -23,8 +21,6 @@
 #  include "mozilla/SandboxInfo.h"
 #  include "mozilla/SandboxProfilerObserver.h"
 #endif
-
-#include <string>
 
 #ifdef XP_WIN
 #  include <windows.h>

@@ -5,13 +5,11 @@
 #define intl_components_NumberFormat_h_
 #include <string_view>
 #include <utility>
-#include <vector>
 
 #include "mozilla/intl/ICU4CGlue.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/PodOperations.h"
 #include "mozilla/Result.h"
-#include "mozilla/Utf8.h"
 #include "mozilla/intl/ICUError.h"
 #include "mozilla/intl/NumberPart.h"
 
@@ -361,6 +359,17 @@ class NumberFormat final {
    * solely from PluralRules.
    */
   Result<int32_t, ICUError> selectFormatted(double number, char16_t* keyword,
+                                            int32_t keywordSize,
+                                            UPluralRules* pluralRules) const;
+
+  /**
+   * Formats the decimal number and selects the keyword by using a provided
+   * UPluralRules object.
+   *
+   * https://tc39.es/ecma402/#sec-intl.pluralrules.prototype.select
+   */
+  Result<int32_t, ICUError> selectFormatted(std::string_view number,
+                                            char16_t* keyword,
                                             int32_t keywordSize,
                                             UPluralRules* pluralRules) const;
 

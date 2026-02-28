@@ -85,6 +85,7 @@ class SaveSearchEngineFragment : Fragment(R.layout.fragment_save_search_engine) 
         }
 
         val learnMoreListener: (View) -> Unit = {
+            @Suppress("DEPRECATION")
             (activity as HomeActivity).openToBrowserAndLoad(
                 searchTermOrURL = SupportUtils.getSumoURLForTopic(
                     requireContext(),

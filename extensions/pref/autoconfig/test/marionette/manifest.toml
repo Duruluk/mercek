@@ -1,3 +1,4 @@
 [DEFAULT]
+subsuite = "integration"
 
 ["test_autoconfig.py"]

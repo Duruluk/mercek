@@ -27,7 +27,7 @@ import org.mozilla.fenix.settings.SupportUtils
 import org.robolectric.RobolectricTestRunner
 
 private val PRIVACY_POLICY_URL =
-    SupportUtils.getMozillaPageUrl(SupportUtils.MozillaPage.PRIVATE_NOTICE) +
+    SupportUtils.getMozillaPageUrl(SupportUtils.MozillaPage.PRIVACY_NOTICE) +
         "?utm_medium=firefox-mobile&utm_source=modal&utm_campaign=microsurvey"
 
 @RunWith(RobolectricTestRunner::class)
@@ -67,6 +67,7 @@ class MicrosurveyMessageControllerTest {
         microsurveyMessageController.onPrivacyPolicyLinkClicked(message.id, "homepage")
 
         verify {
+            @Suppress("DEPRECATION")
             homeActivity.openToBrowserAndLoad(
                 searchTermOrURL = "$PRIVACY_POLICY_URL&utm_content=homepage",
                 newTab = true,
@@ -81,6 +82,7 @@ class MicrosurveyMessageControllerTest {
 
         verify { appStore.dispatch(OnPrivacyNoticeTapped(message.id)) }
         verify {
+            @Suppress("DEPRECATION")
             homeActivity.openToBrowserAndLoad(
                 searchTermOrURL = PRIVACY_POLICY_URL,
                 newTab = true,

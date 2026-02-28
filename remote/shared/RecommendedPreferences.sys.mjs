@@ -128,20 +128,11 @@ const COMMON_PREFERENCES = new Map([
   // Disable CFR features for automated tests.
   ["browser.newtabpage.activity-stream.asrouter.userprefs.cfr.features", false],
 
-  // Make sure newtab weather doesn't hit the network to retrieve weather data.
-  [
-    "browser.newtabpage.activity-stream.discoverystream.region-weather-config",
-    "",
-  ],
-
-  // Make sure newtab wallpapers don't hit the network to retrieve wallpaper data.
-  ["browser.newtabpage.activity-stream.newtabWallpapers.enabled", false],
+  // Do not initialize any activitystream features
+  ["browser.newtabpage.activity-stream.testing.shouldInitializeFeeds", false],
 
   // Make sure Topsites doesn't hit the network to retrieve sponsored tiles.
   ["browser.newtabpage.activity-stream.showSponsoredTopSites", false],
-
-  // Always display a blank page
-  ["browser.newtabpage.enabled", false],
 
   // Background thumbnails in particular cause grief, and disabling
   // thumbnails in general cannot hurt
@@ -210,6 +201,8 @@ const COMMON_PREFERENCES = new Map([
   // Turn off Merino suggestions in the location bar so as not to trigger
   // network connections.
   ["browser.urlbar.merino.endpointURL", ""],
+  ["browser.urlbar.merino.ohttpConfigURL", ""],
+  ["browser.urlbar.merino.ohttpRelayURL", ""],
 
   // Turn off search suggestions in the location bar so as not to trigger
   // network connections.
@@ -343,11 +336,11 @@ const COMMON_PREFERENCES = new Map([
   // Disable Firefox accounts ping
   ["identity.fxaccounts.auth.uri", "https://{server}/dummy/fxa"],
 
+  // Allow scroll amount larger than one page on a single mouse wheel event.
+  ["mousewheel.allow_scrolling_more_than_one_page", true],
+
   // Disable connectivity service pings
   ["network.connectivity-service.enabled", false],
-
-  // Do not prompt with long usernames or passwords in URLs
-  ["network.http.phishy-userpass-length", 255],
 
   // Do not prompt for temporary redirects
   ["network.http.prompt-temp-redirect", false],

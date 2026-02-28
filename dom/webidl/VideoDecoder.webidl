@@ -9,7 +9,7 @@
 
 [Exposed=(Window,DedicatedWorker), SecureContext, Func="nsRFPService::ExposeWebCodecsAPI"]
 interface VideoDecoder : EventTarget {
-  [Throws]
+  [Throws, UseCounter]
   constructor(VideoDecoderInit init);
 
   readonly attribute CodecState state;

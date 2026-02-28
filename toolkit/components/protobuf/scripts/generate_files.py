@@ -45,17 +45,7 @@ if __name__ == "__main__":
         includes=["toolkit/components/url-classifier/chromium/"],
     )
     run_protoc(
-        "cookieBanner.proto",
-        cpp_out="toolkit/components/cookiebanners/",
-        includes=["toolkit/components/cookiebanners/"],
-    )
-    run_protoc(
         "analysis.proto",
         cpp_out="toolkit/components/contentanalysis/content_analysis/sdk/",
         includes=["third_party/content_analysis_sdk/proto/content_analysis/sdk"],
-    )
-    run_protoc(
-        "fetch_msg_types.proto",
-        cpp_out="toolkit/components/viaduct/",
-        includes=["third_party/rust/viaduct/src"],
     )

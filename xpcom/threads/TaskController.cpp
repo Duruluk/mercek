@@ -89,12 +89,20 @@ struct TaskMarker : BaseMarkerType<TaskMarker> {
 
   using MS = MarkerSchema;
   static constexpr MS::PayloadField PayloadFields[] = {
-      {"name", MS::InputType::CString, "Task Name", MS::Format::String,
-       MS::PayloadFlags::Searchable},
+      {
+          "name",
+          MS::InputType::CString,
+          "Task Name",
+          MS::Format::String,
+      },
       {"priority", MS::InputType::Uint32, "Priority level",
        MS::Format::Integer},
-      {"task", MS::InputType::Uint64, "Task", MS::Format::TerminatingFlow,
-       MS::PayloadFlags::Searchable},
+      {
+          "task",
+          MS::InputType::Uint64,
+          "Task",
+          MS::Format::TerminatingFlow,
+      },
       {"priorityName", MS::InputType::CString, "Priority Name"}};
 
   static constexpr MS::Location Locations[] = {MS::Location::MarkerChart,
@@ -144,12 +152,20 @@ struct IncompleteTaskMarker : BaseMarkerType<IncompleteTaskMarker> {
 
   using MS = MarkerSchema;
   static constexpr MS::PayloadField PayloadFields[] = {
-      {"name", MS::InputType::CString, "Task Name", MS::Format::String,
-       MS::PayloadFlags::Searchable},
+      {
+          "name",
+          MS::InputType::CString,
+          "Task Name",
+          MS::Format::String,
+      },
       {"priority", MS::InputType::Uint32, "Priority level",
        MS::Format::Integer},
-      {"task", MS::InputType::Uint64, "Task", MS::Format::Flow,
-       MS::PayloadFlags::Searchable},
+      {
+          "task",
+          MS::InputType::Uint64,
+          "Task",
+          MS::Format::Flow,
+      },
       {"priorityName", MS::InputType::CString, "Priority Name"}};
 
   static constexpr MS::Location Locations[] = {MS::Location::MarkerChart,
@@ -1047,7 +1063,8 @@ struct IdlePurgeMarker : mozilla::BaseMarkerType<IdlePurgeMarker> {
   static constexpr MS::PayloadField PayloadFields[] = {
       {"num_calls", MS::InputType::Uint32, "Number of PurgeNow() calls",
        MS::Format::Integer},
-      {"next", MS::InputType::CString, "Last result", MS::Format::String}};
+      {"last_result", MS::InputType::CString, "Last result",
+       MS::Format::String}};
 
   static void StreamJSONMarkerData(
       mozilla::baseprofiler::SpliceableJSONWriter& aWriter, uint32_t aNumCalls,
@@ -1494,26 +1511,22 @@ void TaskController::ProcessUpdatedPriorityModifier(TaskManager* aManager) {
 
   int32_t modifier = aManager->mCurrentPriorityModifier;
 
-  std::vector<RefPtr<Task>> storedTasks;
-  // Find all relevant tasks.
-  for (auto iter = mMainThreadTasks.begin(); iter != mMainThreadTasks.end();) {
-    if ((*iter)->mTaskManager == aManager) {
-      storedTasks.push_back(*iter);
-      iter = mMainThreadTasks.erase(iter);
-    } else {
-      iter++;
+  // Find all relevant task nodes and move them to a temporary set with the
+  // new priority modifier.
+  PrioritySortedTasks managerTasks;
+  auto cur = mMainThreadTasks.begin();
+  while (cur != mMainThreadTasks.end()) {
+    // Keep a valid iterator before potentially extracting the current task.
+    auto next = std::next(cur);
+    if (cur->get()->mTaskManager == aManager) {
+      auto task = mMainThreadTasks.extract(cur);
+      task.value()->mPriorityModifier = modifier;
+      managerTasks.insert(std::move(task));
     }
+    cur = std::move(next);
   }
-
-  // Reinsert found tasks with their new priorities.
-  for (RefPtr<Task>& ref : storedTasks) {
-    // Kept alive at first by the vector and then by mMainThreadTasks.
-    Task* task = ref;
-    task->mPriorityModifier = modifier;
-    auto insertion = mMainThreadTasks.insert(std::move(ref));
-    MOZ_ASSERT(insertion.second);
-    task->mIterator = insertion.first;
-  }
+  // Merge the temporary set back to the main set.
+  mMainThreadTasks.merge(std::move(managerTasks));
 }
 
 }  // namespace mozilla

@@ -27,14 +27,12 @@
 #include "mozilla/EnumeratedArray.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/MemoryReporting.h"
-#include "mozilla/PodOperations.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/ScopeExit.h"
 #include "mozilla/UniquePtr.h"
 
 #include <stddef.h>
 #include <stdint.h>
-#include <string.h>
 #include <utility>
 
 #include "jstypes.h"

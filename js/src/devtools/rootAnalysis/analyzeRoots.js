@@ -131,7 +131,7 @@ function edgeCanGC(functionName, body, edge, scopeAttrs, functionBodies)
         return false;
     }
 
-    for (const { callee, attrs } of getCallees(body, edge, scopeAttrs, functionBodies)) {
+    for (const { callee, attrs } of getCallees(typeInfo, body, edge, scopeAttrs, functionBodies)) {
         if (attrs & (ATTR_GC_SUPPRESSED | ATTR_REPLACED)) {
             continue;
         }
@@ -229,13 +229,15 @@ function edgeCanGC(functionName, body, edge, scopeAttrs, functionBodies)
 //
 //  - 'gcInfo': a direct pointer to the GC call edge
 //
-function findGCBeforeValueUse(start_body, start_point, funcAttrs, variable)
+function findGCBeforeValueUse(start_body, start_point, funcAttrs, decl)
 {
     // Scan through all edges preceding an unrooted variable use, using an
     // explicit worklist, looking for a GC call and a preceding point where the
     // variable is known to be live. A worklist contains an incoming edge
     // together with a description of where it or one of its successors GC'd
     // (if any).
+
+    const variable = decl.Variable;
 
     class Path {
         get ProgressProperties() { return ["informativeUse", "anyUse", "gcInfo"]; }
@@ -367,13 +369,13 @@ function findGCBeforeValueUse(start_body, start_point, funcAttrs, variable)
 
             assert(ppoint == edge.Index[0]);
 
-            if (edgeEndsValueLiveRange(edge, variable, body)) {
+            if (edgeEndsValueLiveRange(typeInfo, edge, decl, body)) {
                 // Terminate the search through this point.
                 return null;
             }
 
-            const edge_starts = edgeStartsValueLiveRange(edge, variable);
-            const edge_uses = edgeUsesVariable(edge, variable, body);
+            const edge_starts = edgeStartsValueLiveRange(typeInfo, edge, decl);
+            const edge_uses = edgeUsesVariable(typeInfo, edge, decl, body);
 
             if (edge_starts || edge_uses) {
                 if (!body.minimumUse || ppoint < body.minimumUse)
@@ -511,7 +513,7 @@ function findGCBeforeValueUse(start_body, start_point, funcAttrs, variable)
     }
 }
 
-function variableLiveAcrossGC(funcAttrs, variable, liveToEnd=false)
+function variableLiveAcrossGC(funcAttrs, decl, liveToEnd=false)
 {
     // A variable is live across a GC if (1) it is used by an edge (as in, it
     // was at least initialized), and (2) it is used after a GC in a successor
@@ -549,12 +551,12 @@ function variableLiveAcrossGC(funcAttrs, variable, liveToEnd=false)
             //
 
             // Ignore uses that are just invalidating the previous value.
-            if (edgeEndsValueLiveRange(edge, variable, body))
+            if (edgeEndsValueLiveRange(typeInfo, edge, decl, body))
                 continue;
 
-            var usePoint = edgeUsesVariable(edge, variable, body, liveToEnd);
+            var usePoint = edgeUsesVariable(typeInfo, edge, decl, body, liveToEnd);
             if (usePoint) {
-                var call = findGCBeforeValueUse(body, usePoint, funcAttrs, variable);
+                var call = findGCBeforeValueUse(body, usePoint, funcAttrs, decl);
                 if (!call)
                     continue;
 
@@ -811,7 +813,7 @@ function processBodies(functionName, wholeBodyAttrs)
         }
 
         if (isRootedDeclType(decl)) {
-            if (!variableLiveAcrossGC(funcAttrs, decl.Variable)) {
+            if (!variableLiveAcrossGC(funcAttrs, decl)) {
                 // The earliest use of the variable should be its constructor.
                 var lineText;
                 for (var body of functionBodies) {
@@ -834,7 +836,7 @@ function processBodies(functionName, wholeBodyAttrs)
                 printRecord(record);
             }
         } else if (isUnrootedPointerDeclType(decl)) {
-            var result = variableLiveAcrossGC(funcAttrs, decl.Variable, liveToEnd);
+            var result = variableLiveAcrossGC(funcAttrs, decl, liveToEnd);
             if (result) {
                 assert(result.gcInfo);
                 const edge = result.gcInfo.edge;
@@ -925,7 +927,7 @@ function process(name, json) {
         body.attrs = [];
 
     for (var body of functionBodies) {
-        for (var [pbody, id, attrs] of allRAIIGuardedCallPoints(typeInfo, functionBodies, body, isLimitConstructor))
+        for (var [pbody, id, attrs] of allRAIIGuardedCallPoints(typeInfo, functionBodies, body))
         {
             if (attrs)
                 pbody.attrs[id] = attrs;

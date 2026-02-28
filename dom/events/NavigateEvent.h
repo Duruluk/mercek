@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef mozilla_dom_NavigateEvent_h___
-#define mozilla_dom_NavigateEvent_h___
+#ifndef mozilla_dom_NavigateEvent_h_
+#define mozilla_dom_NavigateEvent_h_
 
 #include "js/RootingAPI.h"
 #include "js/Value.h"
@@ -116,7 +116,12 @@ class NavigateEvent final : public Event {
 
   void PerformSharedChecks(ErrorResult& aRv);
 
+  Document* GetAssociatedDocument() const;
+
+  void Cancel();
+
  private:
+  MOZ_CAN_RUN_SCRIPT
   void PotentiallyResetFocus();
 
   MOZ_CAN_RUN_SCRIPT
@@ -139,7 +144,7 @@ class NavigateEvent final : public Event {
   JS::Heap<JS::Value> mInfo;
   bool mHasUAVisualTransition = false;
   RefPtr<Element> mSourceElement;
-  uint32_t mLastScrollGeneration;
+  uint32_t mLastScrollGeneration = 0;
 
   nsTArray<RefPtr<NavigationPrecommitHandler>> mNavigationPrecommitHandlerList;
 
@@ -164,4 +169,4 @@ class NavigateEvent final : public Event {
 
 }  // namespace mozilla::dom
 
-#endif  // mozilla_dom_NavigateEvent_h___
+#endif  // mozilla_dom_NavigateEvent_h_

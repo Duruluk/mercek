@@ -117,6 +117,7 @@ void TransportFeedbackAdapter::AddPacket(const RtpPacketToSend& packet_to_send,
   feedback.rtp_sequence_number = packet_to_send.SequenceNumber();
   feedback.is_retransmission =
       packet_to_send.packet_type() == RtpPacketMediaType::kRetransmission;
+  feedback.sent_with_ect1 = packet_to_send.send_as_ect1();
 
   while (!history_.empty() &&
          creation_time - history_.begin()->second.creation_time >
@@ -253,7 +254,7 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
                      << " packets because they were sent on a different route.";
   }
   return ToTransportFeedback(std::move(packet_result_vector),
-                             feedback_receive_time, /*suports_ecn=*/false);
+                             feedback_receive_time, /*supports_ecn=*/false);
 }
 
 std::optional<TransportPacketsFeedback>
@@ -284,6 +285,8 @@ TransportFeedbackAdapter::ProcessCongestionControlFeedback(
   int ignored_packets = 0;
   int failed_lookups = 0;
   bool supports_ecn = true;
+  TimeDelta rtt_sum = TimeDelta::Zero();
+  int packets_recived = 0;
   std::vector<PacketResult> packet_result_vector;
   for (const rtcp::CongestionControlFeedback::PacketInfo& packet_info :
        feedback.packets()) {
@@ -302,22 +305,39 @@ TransportFeedbackAdapter::ProcessCongestionControlFeedback(
     PacketResult result;
     result.sent_packet = packet_feedback->sent;
     if (packet_info.arrival_time_offset.IsFinite()) {
+      ++packets_recived;
       result.receive_time = current_offset_ - packet_info.arrival_time_offset;
+      rtt_sum += feedback_receive_time - result.sent_packet.send_time -
+                 packet_info.arrival_time_offset;
       supports_ecn &= packet_info.ecn != EcnMarking::kNotEct;
     }
     result.ecn = packet_info.ecn;
+    result.sent_with_ect1 = packet_feedback->sent_with_ect1;
+    result.reported_recovered_for_the_first_time =
+        packet_info.received() && packet_feedback->previously_reported_lost;
+    result.reported_lost_for_the_first_time =
+        !packet_info.received() && !packet_feedback->previously_reported_lost;
+
     result.rtp_packet_info = {
         .ssrc = packet_feedback->ssrc,
         .rtp_sequence_number = packet_feedback->rtp_sequence_number,
         .is_retransmission = packet_feedback->is_retransmission};
     packet_result_vector.push_back(result);
   }
+  if (packets_recived > 0) {
+    if (smoothed_rtt_.IsInfinite()) {
+      smoothed_rtt_ = rtt_sum / packets_recived;
+    } else {
+      smoothed_rtt_ = (smoothed_rtt_ * 7 + rtt_sum / packets_recived) /
+                      8;  // RFC 6298, alpha = 1/8
+    }
+  }
 
   if (failed_lookups > 0) {
-    RTC_LOG(LS_WARNING)
-        << "Failed to lookup send time for " << failed_lookups << " packet"
-        << (failed_lookups > 1 ? "s" : "")
-        << ". Packets reordered or send time history too small?";
+    RTC_LOG(LS_INFO) << "Failed to lookup send time for " << failed_lookups
+                     << " packet" << (failed_lookups > 1 ? "s" : "")
+                     << ". Packets reordered or send time history too "
+                        "small, or packet reported received more than once.";
   }
   if (ignored_packets > 0) {
     RTC_LOG(LS_INFO) << "Ignoring " << ignored_packets
@@ -346,6 +366,7 @@ TransportFeedbackAdapter::ToTransportFeedback(
   msg.packet_feedbacks = std::move(packet_results);
   msg.data_in_flight = in_flight_.GetOutstandingData(network_route_);
   msg.transport_supports_ecn = supports_ecn;
+  msg.smoothed_rtt = smoothed_rtt_;
 
   return msg;
 }
@@ -353,6 +374,7 @@ TransportFeedbackAdapter::ToTransportFeedback(
 void TransportFeedbackAdapter::SetNetworkRoute(
     const NetworkRoute& network_route) {
   network_route_ = network_route;
+  smoothed_rtt_ = TimeDelta::PlusInfinity();
 }
 
 DataSize TransportFeedbackAdapter::GetOutstandingData() const {
@@ -384,9 +406,10 @@ std::optional<PacketFeedback> TransportFeedbackAdapter::RetrievePacketFeedback(
 
   auto it = history_.find(transport_seq_num);
   if (it == history_.end()) {
-    RTC_LOG(LS_WARNING) << "Failed to lookup send time for packet with "
-                        << transport_seq_num
-                        << ". Send time history too small?";
+    RTC_LOG(LS_INFO) << "Failed to lookup send time for packet with "
+                     << transport_seq_num
+                     << ". Send time history too small or packet was "
+                        "reported as received twice.";
     return std::nullopt;
   }
 
@@ -406,6 +429,12 @@ std::optional<PacketFeedback> TransportFeedbackAdapter::RetrievePacketFeedback(
         {.ssrc = packet_feedback.ssrc,
          .rtp_sequence_number = packet_feedback.rtp_sequence_number});
     history_.erase(it);
+  } else {
+    // Update `previously_reported_lost` after taking copy of the
+    // `packet_feedback'. Thus the new value would be returned next time caller
+    // retrieves the feedback. This way caller can distinguish when packet was
+    // reported lost for the first time and thus account such loss only once.
+    it->second.previously_reported_lost = true;
   }
   return packet_feedback;
 }

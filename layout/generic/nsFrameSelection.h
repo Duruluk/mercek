@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef nsFrameSelection_h___
-#define nsFrameSelection_h___
+#ifndef nsFrameSelection_h_
+#define nsFrameSelection_h_
 
 #include <stdint.h>
 
@@ -431,12 +431,13 @@ class nsFrameSelection final {
    * @param aContent is the content asking
    * @param aContentOffset is the starting content boundary
    * @param aContentLength is the length of the content piece asking
-   * @param aSlowCheck will check using slow method with no shortcuts
+   * @param aIgnoreSelection is Yes, this won't return selection details about
+   * the normal selection.
    */
-  mozilla::UniquePtr<SelectionDetails> LookUpSelection(nsIContent* aContent,
-                                                       int32_t aContentOffset,
-                                                       int32_t aContentLength,
-                                                       bool aSlowCheck) const;
+  enum class IgnoreNormalSelection : bool { No, Yes };
+  mozilla::UniquePtr<SelectionDetails> LookUpSelection(
+      nsIContent* aContent, int32_t aContentOffset, int32_t aContentLength,
+      IgnoreNormalSelection aIgnoreNormalSelection) const;
 
   /**
    * Sets the drag state to aState for resons of drag state.
@@ -960,6 +961,13 @@ class nsFrameSelection final {
  private:
   ~nsFrameSelection();
 
+  /**
+   * Populates an existing highlight Selection with ranges from a Highlight.
+   * Must be called after the Selection is registered in mHighlightSelections.
+   */
+  MOZ_CAN_RUN_SCRIPT void PopulateHighlightSelection(
+      mozilla::dom::Selection& aSelection, mozilla::dom::Highlight& aHighlight);
+
   // TODO: in case an error is returned, it sometimes refers to a programming
   // error, in other cases to runtime errors. This deserves to be cleaned up.
   [[nodiscard]] MOZ_CAN_RUN_SCRIPT nsresult
@@ -1399,4 +1407,4 @@ struct LimitersAndCaretData {
 
 }  // namespace mozilla
 
-#endif /* nsFrameSelection_h___ */
+#endif /* nsFrameSelection_h_ */

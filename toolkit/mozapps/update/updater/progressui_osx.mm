@@ -5,7 +5,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #import <Cocoa/Cocoa.h>
-#include <stdio.h>
 #include <unistd.h>
 #include "mozilla/Sprintf.h"
 #include "progressui.h"
@@ -17,7 +16,7 @@
 static float sProgressVal;  // between 0 and 100
 static BOOL sQuit = NO;
 static BOOL sIndeterminate = NO;
-MOZ_RUNINIT static StringTable sLabels;
+constinit static StringTable sLabels;
 static const char* sUpdatePath;
 
 @interface UpdaterUI : NSObject {

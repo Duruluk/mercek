@@ -48,9 +48,9 @@ export class UrlbarProviderBookmarkKeywords extends UrlbarProvider {
   /**
    * Starts querying.
    *
-   * @param {object} queryContext The query context object
-   * @param {Function} addCallback Callback invoked by the provider to add a new
-   *        result.
+   * @param {UrlbarQueryContext} queryContext
+   * @param {(provider: UrlbarProvider, result: UrlbarResult) => void} addCallback
+   *   Callback invoked by the provider to add a new result.
    */
   async startQuery(queryContext, addCallback) {
     let keyword = queryContext.tokens[0]?.value;
@@ -89,14 +89,19 @@ export class UrlbarProviderBookmarkKeywords extends UrlbarProvider {
       type: UrlbarUtils.RESULT_TYPE.KEYWORD,
       source: UrlbarUtils.RESULT_SOURCE.BOOKMARKS,
       heuristic: true,
-      ...lazy.UrlbarResult.payloadAndSimpleHighlights(queryContext.tokens, {
-        title: [title, UrlbarUtils.HIGHLIGHT.TYPED],
-        url: [url, UrlbarUtils.HIGHLIGHT.TYPED],
-        keyword: [keyword, UrlbarUtils.HIGHLIGHT.TYPED],
+      payload: {
+        title,
+        url,
+        keyword,
         input: queryContext.searchString,
         postData,
         icon: UrlbarUtils.getIconForUrl(entry.url),
-      }),
+      },
+      highlights: {
+        title: UrlbarUtils.HIGHLIGHT.TYPED,
+        url: UrlbarUtils.HIGHLIGHT.TYPED,
+        keyword: UrlbarUtils.HIGHLIGHT.TYPED,
+      },
     });
     addCallback(this, result);
   }

@@ -29,17 +29,15 @@ namespace JS::loader {
 // ScriptFetchOptions
 //////////////////////////////////////////////////////////////
 
-NS_IMPL_CYCLE_COLLECTION(ScriptFetchOptions, mTriggeringPrincipal)
-
 ScriptFetchOptions::ScriptFetchOptions(
     mozilla::CORSMode aCORSMode, const nsAString& aNonce,
     mozilla::dom::RequestPriority aFetchPriority,
     const ParserMetadata aParserMetadata, nsIPrincipal* aTriggeringPrincipal)
     : mCORSMode(aCORSMode),
-      mNonce(aNonce),
       mFetchPriority(aFetchPriority),
       mParserMetadata(aParserMetadata),
-      mTriggeringPrincipal(aTriggeringPrincipal) {}
+      mTriggeringPrincipal(aTriggeringPrincipal),
+      mNonce(aNonce) {}
 
 void ScriptFetchOptions::SetTriggeringPrincipal(
     nsIPrincipal* aTriggeringPrincipal) {
@@ -93,6 +91,8 @@ ScriptLoadRequest::ScriptLoadRequest(ScriptKind aKind,
       mState(State::CheckingCache),
       mFetchSourceOnly(false),
       mHasSourceMapURL_(false),
+      mHasDirtyCache_(false),
+      mHadPostponed_(false),
       mDiskCachingPlan(CachingPlan::Uninitialized),
       mMemoryCachingPlan(CachingPlan::Uninitialized),
       mIntegrity(aIntegrity),
@@ -165,6 +165,20 @@ const ModuleLoadRequest* ScriptLoadRequest::AsModuleRequest() const {
 void ScriptLoadRequest::CacheEntryFound(LoadedScript* aLoadedScript) {
   MOZ_ASSERT(IsCheckingCache());
 
+  SetCacheEntry(aLoadedScript);
+}
+
+void ScriptLoadRequest::CacheEntryRevived(LoadedScript* aLoadedScript) {
+  MOZ_ASSERT(IsFetching());
+
+  SetCacheEntry(aLoadedScript);
+
+  // NOTE: The caller should keep using the "fetching" path, with the
+  //       cached stencil, and skip the compilation.
+  mState = State::Fetching;
+}
+
+void ScriptLoadRequest::SetCacheEntry(LoadedScript* aLoadedScript) {
   switch (mKind) {
     case ScriptKind::eClassic:
       MOZ_ASSERT(aLoadedScript->IsClassicScript());

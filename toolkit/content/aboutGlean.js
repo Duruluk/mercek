@@ -23,7 +23,7 @@ let LIMIT_OFFSET = 0;
 let LIMIT_COUNT = 200;
 let METRIC_DATA_INITIALIZED = false;
 const INVALID_VALUE_REASONS = {
-  LABELED_METRIC: 0,
+  DUAL_LABELED_METRIC: 0,
   UNKNOWN_METRIC: 1,
 };
 const SIMPLE_TYPES = {
@@ -339,6 +339,10 @@ function onLoad() {
       settingsChanged();
     });
   initMetricsSettings();
+
+  document.getElementById("export-data").addEventListener("click", () => {
+    exportData();
+  });
 }
 
 /**
@@ -794,8 +798,8 @@ function updateValueSelection(selection) {
   selection
     ?.attr("data-l10n-id", d => {
       switch (d.invalidValue) {
-        case INVALID_VALUE_REASONS.LABELED_METRIC:
-          return "about-glean-labeled-metric-warning";
+        case INVALID_VALUE_REASONS.DUAL_LABELED_METRIC:
+          return "about-glean-dual-labeled-metric-warning";
         case INVALID_VALUE_REASONS.UNKNOWN_METRIC:
           return "about-glean-unknown-metric-type-warning";
         default:
@@ -840,8 +844,8 @@ function updateDatum(datum) {
     }
     datum.loaded = true;
     datum.invalidValue = undefined;
-  } else if (datum.type.includes("Labeled")) {
-    datum.invalidValue = INVALID_VALUE_REASONS.LABELED_METRIC;
+  } else if (datum.type.includes("DualLabeled")) {
+    datum.invalidValue = INVALID_VALUE_REASONS.DUAL_LABELED_METRIC;
   } else {
     datum.invalidValue = INVALID_VALUE_REASONS.UNKNOWN_METRIC;
   }
@@ -886,6 +890,28 @@ function prettyPrint(jsonValue) {
     "  "
   );
   return pretty;
+}
+
+function getDocsURL(datum) {
+  const upperRegExp = /[A-Z]/;
+  const app = "firefox_desktop";
+  let category = datum.category;
+  let index = category.search(upperRegExp);
+  while (index != -1) {
+    category = category.replace(
+      upperRegExp,
+      "_" + category[index].toLowerCase()
+    );
+    index = category.search(upperRegExp);
+  }
+
+  let name = datum.name;
+  index = name.search(upperRegExp);
+  while (index != -1) {
+    name = name.replace(upperRegExp, "_" + name[index].toLowerCase());
+    index = name.search(upperRegExp);
+  }
+  return `https://dictionary.telemetry.mozilla.org/apps/${app}/metrics/${category}_${name}`;
 }
 
 /**
@@ -955,30 +981,8 @@ function updateTable() {
     // On click, rewrite the metric category+name to snake-case, so we can link to the Glean dictionary.
     // TODO: add canonical_name field to metrics https://bugzilla.mozilla.org/show_bug.cgi?id=1983630
     .on("click", datum => {
-      const upperRegExp = /[A-Z]/;
-      const app = "firefox_desktop";
-      let category = datum.category;
-      let index = category.search(upperRegExp);
-      while (index != -1) {
-        category = category.replace(
-          upperRegExp,
-          "_" + category[index].toLowerCase()
-        );
-        index = category.search(upperRegExp);
-      }
-
-      let name = datum.name;
-      index = name.search(upperRegExp);
-      while (index != -1) {
-        name = name.replace(upperRegExp, "_" + name[index].toLowerCase());
-        index = name.search(upperRegExp);
-      }
-      window
-        .open(
-          `https://dictionary.telemetry.mozilla.org/apps/${app}/metrics/${category}_${name}`,
-          "_blank"
-        )
-        .focus();
+      const url = getDocsURL(datum);
+      window.open(url, "_blank").focus();
     });
 
   // Since `.enter` has been called on `rows` and we've handled new data points, everything
@@ -1086,6 +1090,32 @@ function updateFilteredMetricData(searchString) {
   }
 
   updateTable();
+}
+
+function exportData() {
+  const data = MAPPED_METRIC_DATA.toSorted((a, b) =>
+    d3.ascending(a.fullName, b.fullName)
+  ).reduce(
+    (accumulator, datum) => [
+      ...accumulator,
+      {
+        name: `${datum.fullName}`,
+        docs: getDocsURL(datum),
+        value: datum.value,
+      },
+    ],
+    []
+  );
+  const href = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(data))}`;
+  const anchor = document.createElement("a");
+  anchor.setAttribute("href", href);
+  anchor.setAttribute(
+    "download",
+    `about-glean-export-${new Date().toJSON()}.json`
+  );
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
 }
 
 window.addEventListener("load", onLoad);

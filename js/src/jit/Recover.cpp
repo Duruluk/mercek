@@ -8,8 +8,7 @@
 
 #include "mozilla/Casting.h"
 
-#include "jsmath.h"
-
+#include "builtin/Math.h"
 #include "builtin/Object.h"
 #include "builtin/String.h"
 #include "jit/AtomicOperations.h"
@@ -2271,6 +2270,28 @@ bool RObjectKeys::recover(JSContext* cx, SnapshotIterator& iter) const {
   Rooted<JSObject*> obj(cx, iter.readObject());
 
   JSObject* resultKeys = ObjectKeys(cx, obj);
+  if (!resultKeys) {
+    return false;
+  }
+
+  iter.storeInstructionResult(ObjectValue(*resultKeys));
+  return true;
+}
+
+bool MObjectKeysFromIterator::writeRecoverData(
+    CompactBufferWriter& writer) const {
+  MOZ_ASSERT(canRecoverOnBailout());
+  writer.writeUnsigned(uint32_t(RInstruction::Recover_ObjectKeysFromIterator));
+  return true;
+}
+
+RObjectKeysFromIterator::RObjectKeysFromIterator(CompactBufferReader& reader) {}
+
+bool RObjectKeysFromIterator::recover(JSContext* cx,
+                                      SnapshotIterator& iter) const {
+  Rooted<JSObject*> iterObj(cx, iter.readObject());
+
+  JSObject* resultKeys = ObjectKeysFromIterator(cx, iterObj);
   if (!resultKeys) {
     return false;
   }

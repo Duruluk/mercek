@@ -39,6 +39,9 @@ kind-dependencies:
     - upload-symbols
     - upload-symbols-dummy
 
+task-defaults:
+    run-on-repo-type: [hg]
+
 only-for-build-platforms:
     - linux64-shippable/opt
     - linux64-aarch64-shippable/opt
@@ -52,8 +55,6 @@ only-for-build-platforms:
     - win32-devedition/opt
     - win64-devedition/opt
     - win64-aarch64-devedition/opt
-    - linux64-asan-reporter-shippable/opt
-    - win64-asan-reporter-shippable/opt
 
 tasks:
     beetmover-repackage:
@@ -63,5 +64,5 @@ tasks:
         attributes:
             artifact_map:
                 by-release-type:
-                    beta|release.*|esr.*: taskcluster/gecko_taskgraph/manifests/firefox_candidates.yml
+                    beta|release|esr.*: taskcluster/gecko_taskgraph/manifests/firefox_candidates.yml
                     default: taskcluster/gecko_taskgraph/manifests/firefox_nightly.yml

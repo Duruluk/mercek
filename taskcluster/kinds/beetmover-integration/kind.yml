@@ -14,6 +14,9 @@ kind-dependencies:
     # Primary dependencies
     - build
 
+task-defaults:
+    run-on-repo-type: [hg]
+
 only-for-build-platforms:
     - linux64/opt
     - macosx64/opt
@@ -29,7 +32,7 @@ tasks:
             artifact_map: taskcluster/gecko_taskgraph/manifests/firefox_integration.yml
         if-dependencies:
             - build
-        run-on-projects: [autoland]
+        run-on-projects: [autoland-only]
         treeherder:
             tier: 2
             kind: build
@@ -38,7 +41,7 @@ tasks:
         scopes:
             by-project:
                 autoland:
-                    - project:releng:beetmover:bucket:release
+                    - project:releng:beetmover:bucket:integration
                     - project:releng:beetmover:action:direct-push-to-bucket
                 default:
                     - project:releng:beetmover:bucket:dep

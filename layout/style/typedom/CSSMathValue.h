@@ -23,6 +23,9 @@ class CSSMathValue : public CSSNumericValue {
  public:
   explicit CSSMathValue(nsCOMPtr<nsISupports> aParent);
 
+  CSSMathValue(nsCOMPtr<nsISupports> aParent,
+               NumericValueType aNumericValueType);
+
   // start of CSSMathValue Web IDL declarations
 
   CSSMathOperator Operator() const;

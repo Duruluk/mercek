@@ -58,8 +58,6 @@ class ModuleLoadRequest;
 class ModuleScript;
 class ScriptLoadRequest;
 
-enum class ParserMetadata;
-
 }  // namespace loader
 }  // namespace JS
 
@@ -258,7 +256,6 @@ class ScriptLoader final : public JS::loader::ScriptLoaderInterface {
   ModuleLoader* GetModuleLoader() { return mModuleLoader; }
 
   void RegisterContentScriptModuleLoader(ModuleLoader* aLoader);
-  void RegisterShadowRealmModuleLoader(ModuleLoader* aLoader);
 
   /**
    *  Check whether to speculatively OMT parse scripts as soon as
@@ -355,8 +352,7 @@ class ScriptLoader final : public JS::loader::ScriptLoaderInterface {
    * loading the script. The streamed content is expected to be stored on the
    * aRequest argument.
    */
-  nsresult OnStreamComplete(nsIIncrementalStreamLoader* aLoader,
-                            ScriptLoadRequest* aRequest,
+  nsresult OnStreamComplete(nsIChannel* aChannel, ScriptLoadRequest* aRequest,
                             nsresult aChannelStatus, nsresult aSRIStatus,
                             SRICheckDataVerifier* aSRIDataVerifier);
 
@@ -495,12 +491,12 @@ class ScriptLoader final : public JS::loader::ScriptLoaderInterface {
   /**
    * Helper function to notify network observers for cached request.
    */
-  void EmulateNetworkEvents(ScriptLoadRequest* aRequest);
+  void EmulateNetworkEvents(ScriptLoadRequest* aRequest,
+                            const Maybe<nsAutoString>& aCharsetForPreload);
 
   void NotifyObserversForCachedScript(
-      nsIURI* aURI, nsINode* aContext, nsIPrincipal* aTriggeringPrincipal,
-      nsSecurityFlags aSecurityFlags, nsContentPolicyType aContentPolicyType,
-      SubResourceNetworkMetadataHolder* aNetworkMetadata);
+      ScriptLoadRequest* aRequest,
+      const Maybe<nsAutoString>& aCharsetForPreload);
 
   /**
    * Unblocks the creator parser of the parser-blocking scripts.
@@ -642,8 +638,8 @@ class ScriptLoader final : public JS::loader::ScriptLoaderInterface {
    */
   bool ReadyToExecuteScripts() { return mEnabled && !mBlockerCount; }
 
-  nsresult VerifySRI(ScriptLoadRequest* aRequest,
-                     nsIIncrementalStreamLoader* aLoader, nsresult aSRIStatus,
+  nsresult VerifySRI(ScriptLoadRequest* aRequest, nsIChannel* aChannel,
+                     nsresult aSRIStatus,
                      SRICheckDataVerifier* aSRIDataVerifier) const;
 
   nsresult SaveSRIHash(ScriptLoadRequest* aRequest,
@@ -681,7 +677,7 @@ class ScriptLoader final : public JS::loader::ScriptLoaderInterface {
 
   // Instantiate classic script from one of the following data:
   //   * text source
-  //   * encoded bytecode
+  //   * serialized stencil
   //   * cached stencil
   void InstantiateClassicScriptFromAny(
       JSContext* aCx, JS::CompileOptions& aCompileOptions,
@@ -691,7 +687,7 @@ class ScriptLoader final : public JS::loader::ScriptLoaderInterface {
 
   // Instantiate classic script from one of the following data:
   //   * text source
-  //   * encoded bytecode
+  //   * serialized stencil
   //
   // aStencilOut is set to the compiled stencil.
   void InstantiateClassicScriptFromMaybeEncodedSource(
@@ -709,9 +705,9 @@ class ScriptLoader final : public JS::loader::ScriptLoaderInterface {
       JS::Handle<JS::Value> aDebuggerPrivateValue,
       JS::Handle<JSScript*> aDebuggerIntroductionScript, ErrorResult& aRv);
 
-  static nsCString& BytecodeMimeTypeFor(ScriptLoadRequest* aRequest);
+  static nsCString& BytecodeMimeTypeFor(const ScriptLoadRequest* aRequest);
   static nsCString& BytecodeMimeTypeFor(
-      JS::loader::LoadedScript* aLoadedScript);
+      const JS::loader::LoadedScript* aLoadedScript);
 
   // Queue the script load request for caching if we decided to cache it, or
   // cleanup the script load request fields otherwise.
@@ -757,10 +753,21 @@ class ScriptLoader final : public JS::loader::ScriptLoaderInterface {
 
  public:
   /**
-   * Encode the stencils and save the bytecode to the necko cache.
+   * Encode the stencils and compress it.
+   * aLoadedScript is used only for logging purpose, in order to allow
+   * performing this off main thread.
    */
-  static void EncodeBytecodeAndSave(JS::FrontendContext* aFc,
-                                    JS::loader::LoadedScript* aLoadedScript);
+  static bool EncodeAndCompress(JS::FrontendContext* aFc,
+                                const JS::loader::LoadedScript* aLoadedScript,
+                                JS::Stencil* aStencil,
+                                const JS::TranscodeBuffer& aSRI,
+                                Vector<uint8_t>& aCompressed);
+
+  /**
+   * Save the serialized and maybe-compressed stencil to the necko cache.
+   */
+  static bool SaveToDiskCache(const JS::loader::LoadedScript* aLoadedScript,
+                              const Vector<uint8_t>& aCompressed);
 
  private:
   /**
@@ -786,8 +793,7 @@ class ScriptLoader final : public JS::loader::ScriptLoaderInterface {
   int32_t PhysicalSizeOfMemoryInGB();
 
   nsresult PrepareLoadedRequest(ScriptLoadRequest* aRequest,
-                                nsIIncrementalStreamLoader* aLoader,
-                                nsresult aStatus);
+                                nsIChannel* aChannel, nsresult aStatus);
 
   void AddDeferRequest(ScriptLoadRequest* aRequest);
   void AddAsyncRequest(ScriptLoadRequest* aRequest);
@@ -799,6 +805,8 @@ class ScriptLoader final : public JS::loader::ScriptLoaderInterface {
   bool ShouldCompileOffThread(ScriptLoadRequest* aRequest);
 
   void MaybeMoveToLoadedList(ScriptLoadRequest* aRequest);
+
+  bool IsBeforeFCP();
 
  public:
   struct DiskCacheStrategy {
@@ -915,6 +923,7 @@ class ScriptLoader final : public JS::loader::ScriptLoaderInterface {
   bool mLoadEventFired;
   bool mGiveUpDiskCaching;
   bool mContinueParsingDocumentAfterCurrentScript;
+  bool mHadFCPDoNotUseDirectly;
 
   TimeDuration mMainThreadParseTime;
 
@@ -925,7 +934,6 @@ class ScriptLoader final : public JS::loader::ScriptLoaderInterface {
 
   RefPtr<ModuleLoader> mModuleLoader;
   nsTArray<RefPtr<ModuleLoader>> mWebExtModuleLoaders;
-  nsTArray<RefPtr<ModuleLoader>> mShadowRealmModuleLoaders;
 
   RefPtr<SharedScriptCache> mCache;
 

@@ -42,6 +42,7 @@ import androidx.annotation.VisibleForTesting.Companion.PRIVATE
 import androidx.core.graphics.createBitmap
 import androidx.core.net.toUri
 import androidx.core.view.ViewCompat
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import mozilla.components.browser.engine.system.matcher.UrlMatcher
 import mozilla.components.browser.engine.system.permission.SystemPermissionRequest
@@ -61,7 +62,7 @@ import mozilla.components.concept.storage.PageVisit
 import mozilla.components.concept.storage.VisitType
 import mozilla.components.support.ktx.android.view.getRectWithViewLocation
 import mozilla.components.support.ktx.kotlin.tryGetHostFromUrl
-import mozilla.components.support.utils.DownloadUtils
+import mozilla.components.support.utils.DefaultDownloadFileUtils
 
 /**
  * WebView-based implementation of EngineView.
@@ -76,6 +77,9 @@ class SystemEngineView @JvmOverloads constructor(
     internal var session: SystemEngineSession? = null
 
     override var selectionActionDelegate: SelectionActionDelegate? = null
+
+    override val verticalScrollPosition = flowOf(0f)
+    override val verticalScrollDelta = flowOf(0f)
 
     /**
      * Render the content of the given session.
@@ -140,7 +144,7 @@ class SystemEngineView @JvmOverloads constructor(
         return webView
     }
 
-    @Suppress("NestedBlockDepth")
+    @Suppress("NestedBlockDepth", "CognitiveComplexMethod")
     private fun createWebViewClient() = object : WebViewClient() {
         override fun doUpdateVisitedHistory(view: WebView, url: String, isReload: Boolean) {
             // TODO private browsing not supported for SystemEngine
@@ -183,6 +187,9 @@ class SystemEngineView @JvmOverloads constructor(
                         secure = cert != null,
                         host = cert?.let { url.toUri().host },
                         issuer = cert?.issuedBy?.oName,
+                        // Bug 2000336: when the minimum API version is 29,
+                        // this can use cert?.x509Certificate.
+                        certificate = null,
                     )
                 }
             }
@@ -587,14 +594,18 @@ class SystemEngineView @JvmOverloads constructor(
 
     internal fun createDownloadListener(): DownloadListener {
         return DownloadListener { url, userAgent, contentDisposition, mimetype, contentLength ->
-            session?.internalNotifyObservers {
-                val fileName = DownloadUtils.guessFileName(
-                    contentDisposition = contentDisposition,
-                    url = url,
-                    mimeType = mimetype,
-                )
-                val cookie = CookieManager.getInstance().getCookie(url)
-                onExternalResource(url, fileName, contentLength, mimetype, cookie, userAgent)
+            session?.let { session ->
+                session.internalNotifyObservers {
+                    val fileName = DefaultDownloadFileUtils(
+                        context = context,
+                    ).guessFileName(
+                        contentDisposition = contentDisposition,
+                        url = url,
+                        mimeType = mimetype,
+                    )
+                    val cookie = CookieManager.getInstance().getCookie(url)
+                    onExternalResource(url, fileName, contentLength, mimetype, cookie, userAgent)
+                }
             }
         }
     }

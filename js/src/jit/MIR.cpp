@@ -11,13 +11,12 @@
 #include "mozilla/MathAlgorithms.h"
 #include "mozilla/Maybe.h"
 
+#include <algorithm>
 #include <array>
 #include <utility>
 
-#include "jslibmath.h"
-#include "jsmath.h"
-#include "jsnum.h"
-
+#include "builtin/Math.h"
+#include "builtin/Number.h"
 #include "builtin/RegExp.h"
 #include "jit/AtomicOperations.h"
 #include "jit/CompileInfo.h"
@@ -27,9 +26,11 @@
 #include "jit/RangeAnalysis.h"
 #include "jit/VMFunctions.h"
 #include "jit/WarpBuilderShared.h"
+#include "jit/WarpSnapshot.h"
 #include "js/Conversions.h"
 #include "js/experimental/JitInfo.h"  // JSJitInfo, JSTypedMethodJitInfo
 #include "js/ScalarType.h"            // js::Scalar::Type
+#include "util/PortableMath.h"
 #include "util/Text.h"
 #include "util/Unicode.h"
 #include "vm/BigIntType.h"
@@ -560,6 +561,22 @@ const MDefinition* MDefinition::skipObjectGuards() const {
       result = result->toGuardShape()->object();
       continue;
     }
+    if (result->isGuardShapeList()) {
+      result = result->toGuardShapeList()->object();
+      continue;
+    }
+    if (result->isGuardMultipleShapes()) {
+      result = result->toGuardMultipleShapes()->object();
+      continue;
+    }
+    if (result->isGuardShapeListToOffset()) {
+      result = result->toGuardShapeListToOffset()->object();
+      continue;
+    }
+    if (result->isGuardMultipleShapesToOffset()) {
+      result = result->toGuardMultipleShapesToOffset()->object();
+      continue;
+    }
     if (result->isGuardNullProto()) {
       result = result->toGuardNullProto()->object();
       continue;
@@ -598,6 +615,33 @@ bool MDefinition::congruentIfOperandsEqual(const MDefinition* ins) const {
     }
   }
 
+  return true;
+}
+
+bool MDefinition::dominates(const MDefinition* other) const {
+  if (block() != other->block()) {
+    return block()->dominates(other->block());
+  }
+
+  // Nothing in a block dominates a phi in that block.
+  if (other->isPhi()) {
+    return false;
+  }
+
+  // Phis dominate all instructions in the block.
+  if (isPhi()) {
+    return true;
+  }
+
+  // If both defs are instructions in the same block, check whether
+  // `this` precedes `other`.
+  MInstructionIterator opIter = block()->begin(toInstruction());
+  do {
+    ++opIter;
+    if (opIter == block()->end()) {
+      return false;
+    }
+  } while (*opIter != other);
   return true;
 }
 
@@ -1509,11 +1553,9 @@ bool MConstant::valueToBoolean(bool* res) const {
       *res = toString()->length() != 0;
       return true;
     case MIRType::Object:
-      // TODO(Warp): Lazy groups have been removed.
-      // We have to call EmulatesUndefined but that reads obj->group->clasp
-      // and so it's racy when the object has a lazy group. The main callers
-      // of this (MTest, MNot) already know how to fold the object case, so
-      // just give up.
+      // Calling EmulatesUndefined here is racy if we're compiling off-thread
+      // because it reads obj->shape->base->clasp, so just give up.
+      // Note that we could use fuses to optimize this (bug 1874905).
       return false;
     default:
       MOZ_ASSERT(IsMagicType(type()));
@@ -6892,10 +6934,6 @@ AliasSet MArrayBufferViewElements::getAliasSet() const {
   return AliasSet::Load(AliasSet::ObjectFields);
 }
 
-AliasSet MArrayBufferViewElementsWithOffset::getAliasSet() const {
-  return AliasSet::Load(AliasSet::ObjectFields);
-}
-
 AliasSet MGuardHasAttachedArrayBuffer::getAliasSet() const {
   return AliasSet::Load(AliasSet::ObjectFields | AliasSet::FixedSlot);
 }
@@ -7169,7 +7207,8 @@ MDefinition* MGuardSpecificInt32::foldsTo(TempAllocator& alloc) {
 
 MDefinition* MGuardShape::foldsTo(TempAllocator& alloc) {
   if (object()->isGuardShape() &&
-      shape() == object()->toGuardShape()->shape()) {
+      shape() == object()->toGuardShape()->shape() && dependency() &&
+      object()->dependency() == dependency()) {
     return object();
   }
   return this;
@@ -7181,6 +7220,58 @@ bool MGuardShape::congruentTo(const MDefinition* ins) const {
 }
 
 AliasSet MGuardShape::getAliasSet() const {
+  return AliasSet::Load(AliasSet::ObjectFields);
+}
+
+bool MGuardShapeList::congruentTo(const MDefinition* ins) const {
+  if (!congruentIfOperandsEqual(ins)) {
+    return false;
+  }
+
+  // Returns true iff all non-nullptr shapes in |a| are also in |b|.
+  auto hasAllShapes = [](const auto& a, const auto& b) {
+    for (Shape* shape : a) {
+      if (!shape) {
+        continue;
+      }
+      auto isSameShape = [shape](Shape* other) { return shape == other; };
+      if (!std::any_of(b.begin(), b.end(), isSameShape)) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  // Return true if all shapes in |shapesA| are also in |shapesB| and vice
+  // versa.
+  const auto& shapesA = this->shapeList()->shapes();
+  const auto& shapesB = ins->toGuardShapeList()->shapeList()->shapes();
+  return hasAllShapes(shapesA, shapesB) && hasAllShapes(shapesB, shapesA);
+}
+
+AliasSet MGuardShapeList::getAliasSet() const {
+  return AliasSet::Load(AliasSet::ObjectFields);
+}
+
+bool MGuardShapeListToOffset::congruentTo(const MDefinition* ins) const {
+  if (!congruentIfOperandsEqual(ins)) {
+    return false;
+  }
+
+  const auto& shapesA = this->shapeList()->shapes();
+  const auto& shapesB = ins->toGuardShapeListToOffset()->shapeList()->shapes();
+  if (!std::equal(shapesA.begin(), shapesA.end(), shapesB.begin(),
+                  shapesB.end()))
+    return false;
+
+  const auto& offsetsA = this->shapeList()->offsets();
+  const auto& offsetsB =
+      ins->toGuardShapeListToOffset()->shapeList()->offsets();
+  return std::equal(offsetsA.begin(), offsetsA.end(), offsetsB.begin(),
+                    offsetsB.end());
+}
+
+AliasSet MGuardShapeListToOffset::getAliasSet() const {
   return AliasSet::Load(AliasSet::ObjectFields);
 }
 
@@ -7264,6 +7355,19 @@ AliasSet MGuardMultipleShapes::getAliasSet() const {
   // store the list of shapes, but that object is internal and not exposed
   // to script, so it doesn't have to be in the alias set.
   return AliasSet::Load(AliasSet::ObjectFields);
+}
+
+AliasSet MGuardMultipleShapesToOffset::getAliasSet() const {
+  return AliasSet::Load(AliasSet::ObjectFields);
+}
+
+AliasSet MLoadFixedSlotFromOffset::getAliasSet() const {
+  return AliasSet::Load(AliasSet::FixedSlot);
+}
+
+AliasSet MLoadDynamicSlotFromOffset::getAliasSet() const {
+  MOZ_ASSERT(slots()->type() == MIRType::Slots);
+  return AliasSet::Load(AliasSet::DynamicSlot);
 }
 
 AliasSet MGuardGlobalGeneration::getAliasSet() const {
@@ -7487,6 +7591,10 @@ AliasSet MGuardNoDenseElements::getAliasSet() const {
 }
 
 AliasSet MIteratorHasIndices::getAliasSet() const {
+  return AliasSet::Load(AliasSet::ObjectFields);
+}
+
+AliasSet MIteratorsMatchAndHaveIndices::getAliasSet() const {
   return AliasSet::Load(AliasSet::ObjectFields);
 }
 
@@ -7805,6 +7913,16 @@ AliasSet MLoadSlotByIteratorIndex::getAliasSet() const {
 }
 
 AliasSet MStoreSlotByIteratorIndex::getAliasSet() const {
+  return AliasSet::Store(AliasSet::ObjectFields | AliasSet::FixedSlot |
+                         AliasSet::DynamicSlot | AliasSet::Element);
+}
+
+AliasSet MLoadSlotByIteratorIndexIndexed::getAliasSet() const {
+  return AliasSet::Load(AliasSet::ObjectFields | AliasSet::FixedSlot |
+                        AliasSet::DynamicSlot | AliasSet::Element);
+}
+
+AliasSet MStoreSlotByIteratorIndexIndexed::getAliasSet() const {
   return AliasSet::Store(AliasSet::ObjectFields | AliasSet::FixedSlot |
                          AliasSet::DynamicSlot | AliasSet::Element);
 }

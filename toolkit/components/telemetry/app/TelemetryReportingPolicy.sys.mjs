@@ -94,7 +94,7 @@ export var Policy = {
  * If for whatever reason the callee could not display a notice,
  * it should call `onUserNotifyFailed`.
  *
- * @param {Object} aLog The log object used to log the error in case of failures.
+ * @param {object} aLog The log object used to log the error in case of failures.
  * @param {function} aResolve Promise-like callback function, invoked with
  *                            `true` (complete) or `false` (error).
  */
@@ -143,6 +143,9 @@ export var TelemetryReportingPolicy = {
   TELEMETRY_TOU_ACCEPTED_OR_INELIGIBLE: "telemetry-tou-accepted-or-ineligible",
   // Make this value accessible on TelemetryReportingPolicy
   OLDEST_ALLOWED_TOU_ACCEPTANCE_YEAR,
+
+  TOU_ACCEPTED_DATE_PREF,
+
   /**
    * Setup the policy.
    */
@@ -163,7 +166,7 @@ export var TelemetryReportingPolicy = {
    * - The data submission preference should be true.
    * - The datachoices infobar should have been displayed.
    *
-   * @return {Boolean} True if we are allowed to upload data, false otherwise.
+   * @return {boolean} True if we are allowed to upload data, false otherwise.
    */
   canUpload() {
     return TelemetryReportingPolicyImpl.canUpload();
@@ -228,11 +231,19 @@ export var TelemetryReportingPolicy = {
     TelemetryReportingPolicyImpl._notificationInProgress = inProgress;
   },
 
+  get termsOfUseAcceptedDate() {
+    return TelemetryReportingPolicyImpl.termsOfUseAcceptedDate;
+  },
+
   /**
    * Test only method, used to get TOS on-train release dates by channel.
    */
   get fullOnTrainReleaseDates() {
     return TelemetryReportingPolicyImpl.fullOnTrainReleaseDates;
+  },
+
+  get minimumPolicyVersion() {
+    return TelemetryReportingPolicyImpl.minimumPolicyVersion;
   },
 
   async ensureUserIsNotified() {
@@ -273,7 +284,8 @@ var TelemetryReportingPolicyImpl = {
 
   /**
    * Get the date the policy was notified.
-   * @return {Object} A date object or null on errors.
+   *
+   * @return {object} A date object or null on errors.
    */
   get dataSubmissionPolicyNotifiedDate() {
     let prefString = Services.prefs.getStringPref(
@@ -312,7 +324,8 @@ var TelemetryReportingPolicyImpl = {
 
   /**
    * Set the date the policy was notified.
-   * @param {Object} aDate A valid date object.
+   *
+   * @param {object} aDate A valid date object.
    */
   set dataSubmissionPolicyNotifiedDate(aDate) {
     this._log.trace("set dataSubmissionPolicyNotifiedDate - aDate: " + aDate);
@@ -335,7 +348,8 @@ var TelemetryReportingPolicyImpl = {
 
   /**
    * Get the date the terms of use were accepted.
-   * @return {Object} A date object or null on errors.
+   *
+   * @return {object} A date object or null on errors.
    */
   get termsOfUseAcceptedDate() {
     // For consistency, we use the same method of parsing a stringified
@@ -369,7 +383,8 @@ var TelemetryReportingPolicyImpl = {
 
   /**
    * Set the date the policy was notified.
-   * @param {Object} aDate A valid date object.
+   *
+   * @param {object} aDate A valid date object.
    */
   set termsOfUseAcceptedDate(aDate) {
     this._log.trace("set termsOfUseAcceptedDate - aDate: " + aDate);
@@ -490,6 +505,7 @@ var TelemetryReportingPolicyImpl = {
 
   /**
    * Checks to see if the user has been notified about data submission
+   *
    * @return {Bool} True if user has been notified and the notification is still valid,
    *         false otherwise.
    */
@@ -513,6 +529,7 @@ var TelemetryReportingPolicyImpl = {
 
   /**
    * Checks to see if the user has accepted the current terms of use
+   *
    * @return {Bool} True if user has accepted and the acceptance is still valid,
    *         false otherwise.
    */
@@ -774,7 +791,8 @@ var TelemetryReportingPolicyImpl = {
    * Otherwise, for upload to be allowed from a data reporting standpoint, the
    * user should not qualify to see the legacy policy notification flow and also
    * not qualify to see the Terms of Use acceptance flow.
-   * @return {Boolean} True if we are allowed to upload data, false otherwise.
+   *
+   * @return {boolean} True if we are allowed to upload data, false otherwise.
    */
   canUpload() {
     // If data submission is disabled, there's no point in showing the infobar. Just

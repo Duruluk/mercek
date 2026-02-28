@@ -5,7 +5,7 @@
 :root {
   --addon-icon-size: 32px;
   --main-margin-start: 28px;
-  --sidebar-width: var(--in-content-sidebar-width);
+  --sidebar-width: var(--size-sidebar);
   --z-index-sticky-container: 5;
   --z-index-popup: 10;
 }
@@ -14,7 +14,7 @@
   :root {
     --main-margin-start: 16px;
     /* Maintain a main margin so card shadows don't overlap the sidebar. */
-    --sidebar-width: calc(var(--in-content-sidebar-width) - var(--main-margin-start));
+    --sidebar-width: calc(var(--size-sidebar-narrow) - var(--main-margin-start));
   }
 }
 
@@ -25,7 +25,7 @@
 body {
   cursor: default;
   /* The page starts to look really bad lower than this. */
-  min-width: 500px;
+  min-width: var(--size-layout-xlarge);
 }
 
 h1 {
@@ -57,7 +57,7 @@ h2 {
     content: "";
     width: 1px;
     height: 100%;
-    background-color: var(--in-content-border-color);
+    background-color: var(--border-color);
     top: 0;
     inset-inline-end: 0;
     position: absolute;
@@ -83,7 +83,7 @@ h2 {
   min-width: 20px;
   background-color: var(--color-accent-primary);
   color: var(--button-text-color-primary);
-  font-weight: bold;
+  font-weight: var(--font-weight-bold);
   /* Use a large border-radius to get semi-circles on the sides. */
   border-radius: var(--border-radius-circle);
   padding: 2px 6px;
@@ -211,7 +211,7 @@ message-bar-stack > * {
 
 .list-section-subheading {
   font-size: 0.9em;
-  font-weight: 400;
+  font-weight: normal;
   margin-block-start: 0.5em;
 }
 
@@ -399,7 +399,7 @@ addon-card[expanded] .update-postponed-bar,
   font-size: 14px;
   line-height: 20px;
   color: var(--text-color-deemphasized);
-  font-weight: 400;
+  font-weight: normal;
 }
 
 /* Prevent the content from wrapping unless expanded. */
@@ -535,7 +535,7 @@ button.addon-detail-description-toggle {
 .addon-detail-contribute {
   display: flex;
   padding: var(--card-padding);
-  border: 1px solid var(--in-content-box-border-color);
+  border: 1px solid var(--border-color);
   border-radius: var(--border-radius-small);
   margin-bottom: var(--card-padding);
   flex-direction: column;
@@ -566,7 +566,7 @@ button.addon-detail-description-toggle {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-top: 1px solid var(--in-content-border-color);
+  border-top: 1px solid var(--border-color);
   margin: 0 calc(var(--card-padding) * -1);
   padding: var(--card-padding);
   color: var(--text-color);
@@ -750,8 +750,8 @@ addon-permissions-list .addon-permissions-list-wrapper:not(:first-child) {
   margin-top: 8px;
   /* Pull the buttons flush with the side of the card */
   margin-inline: calc(var(--card-padding) * -1);
-  border-bottom: 1px solid var(--in-content-border-color);
-  border-top: 1px solid var(--in-content-border-color);
+  border-bottom: 1px solid var(--border-color);
+  border-top: 1px solid var(--border-color);
   font-size: 0;
   line-height: 0;
 }
@@ -769,7 +769,7 @@ button.tab-button {
 }
 
 button.tab-button:hover {
-  border-top-color: var(--in-content-box-border-color);
+  border-top-color: var(--border-color);
 }
 
 button.tab-button[selected],
@@ -814,5 +814,5 @@ section:not(:empty) ~ #empty-addons-message {
 }
 
 .permission-header > .addon-sitepermissions-host {
-  font-weight: bolder;
+  font-weight: var(--font-weight-bold);
 }

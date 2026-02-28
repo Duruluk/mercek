@@ -31,10 +31,6 @@ notes = "This is the upstream code plus the ARM intrinsics workaround from qcms,
 audit-as-crates-io = true
 notes = "This is the upstream code plus a few local fixes, see bug 1685697."
 
-[policy.bhttp]
-audit-as-crates-io = true
-notes = "This is upstream code in between released versions."
-
 [policy."bindgen:0.72.0@git:9366e0af8da529c958b4cd4fcbe492d951c86f5c"]
 audit-as-crates-io = true
 notes = "This is the upstream code not yet released"
@@ -50,14 +46,6 @@ notes = "This is a crate Henri wrote which is also published. We should probably
 [policy.cose]
 audit-as-crates-io = true
 notes = "This is upstream plus a warning fix from bug 1823866."
-
-[policy.cssparser]
-audit-as-crates-io = true
-notes = "This is a pinned version of the upstream code. This can be removed when new version gets published."
-
-[policy.cssparser-macros]
-audit-as-crates-io = true
-notes = "This is a pinned version of the upstream code. This can be removed when new version gets published."
 
 [policy.firefox-on-glean]
 audit-as-crates-io = false
@@ -80,15 +68,23 @@ notes = "The dependencies on tokio-reactor and tokio-threadpools are just a hack
 criteria = "safe-to-run"
 notes = "Used for fuzzing."
 
-[policy.hashlink]
-audit-as-crates-io = true
-notes = "Only a single change on top of 0.10.0 to allow `hashbrown` 0.16 as a dependency."
-
 [policy.http3server]
 criteria = "safe-to-run"
 notes = "Used for testing."
 
 [policy.icu_capi]
+audit-as-crates-io = true
+notes = "Patched version of upstream"
+
+[policy.icu_collections]
+audit-as-crates-io = true
+notes = "Patched version of upstream"
+
+[policy.icu_normalizer]
+audit-as-crates-io = true
+notes = "Patched version of upstream"
+
+[policy.icu_normalizer_data]
 audit-as-crates-io = true
 notes = "Patched version of upstream"
 
@@ -115,6 +111,9 @@ notes = "This was originally servo code which Bobby Holley put on crates.io some
 [policy.marionette]
 audit-as-crates-io = false
 notes = "This is a first-party crate which is also published to crates.io. We certify audits for this crate as part of the documented release process, but that step happens after the version bump lands on central so we don't enforce it here."
+
+[policy.memtest]
+audit-as-crates-io = true
 
 [policy.midir]
 audit-as-crates-io = true
@@ -202,10 +201,6 @@ notes = "This is a pinned version of the upstream code, pending update of the cr
 audit-as-crates-io = true
 notes = "This is the upstream code plus a backported fix."
 
-[policy.ohttp]
-audit-as-crates-io = true
-notes = "This is upstream code in between released versions."
-
 [policy.osclientcerts]
 audit-as-crates-io = false
 notes = "This is a first-party crate that happens to have been pushed to crates.io a very long time ago but was yanked."
@@ -236,9 +231,17 @@ notes = "This is a first-party crate which is also published to crates.io, but w
 audit-as-crates-io = true
 notes = "This is a first-party crate which is also published to crates.io, but we should publish audits for it for the benefit of the ecosystem."
 
+[policy.spirv]
+audit-as-crates-io = true
+notes = "Contains only upstream mainline history pending release."
+
 [policy.storage]
 audit-as-crates-io = false
 notes = "This is a first-party crate which is entirely unrelated to the crates.io package of the same name."
+
+[policy.swgl]
+audit-as-crates-io = false
+notes = "This is an in-tree first-party crate that is published to crates.io by others."
 
 [policy.tabs]
 audit-as-crates-io = false
@@ -257,6 +260,12 @@ audit-as-crates-io = true
 notes = "This is a first-party crate which is also published to crates.io"
 
 [policy.unicode-bidi]
+audit-as-crates-io = true
+
+[policy.utf16_iter]
+audit-as-crates-io = true
+
+[policy.utf8_iter]
 audit-as-crates-io = true
 
 [policy.viaduct]
@@ -302,6 +311,10 @@ notes = "Upstream project which we pin."
 [policy.windows]
 audit-as-crates-io = true
 notes = "Local override of the crates.io crate that uses a non-vendored local copy of the downloaded crate"
+
+[policy.wr_glyph_rasterizer]
+audit-as-crates-io = false
+notes = "This is an in-tree first-party crate that is published to crates.io by others."
 
 [policy.wr_malloc_size_of]
 audit-as-crates-io = false
@@ -491,14 +504,6 @@ criteria = "safe-to-deploy"
 
 [[exemptions.goblin]]
 version = "0.1.3"
-criteria = "safe-to-deploy"
-
-[[exemptions.gpu-alloc]]
-version = "0.5.3"
-criteria = "safe-to-deploy"
-
-[[exemptions.gpu-alloc-types]]
-version = "0.2.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.gpu-descriptor]]

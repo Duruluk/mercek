@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef mozilla_dom_NumericInputTypes_h__
-#define mozilla_dom_NumericInputTypes_h__
+#ifndef mozilla_dom_NumericInputTypes_h_
+#define mozilla_dom_NumericInputTypes_h_
 
 #include "mozilla/dom/InputType.h"
 
@@ -22,8 +22,8 @@ class NumericInputTypeBase : public InputType {
   nsresult GetRangeOverflowMessage(nsAString& aMessage) override;
   nsresult GetRangeUnderflowMessage(nsAString& aMessage) override;
 
-  StringToNumberResult ConvertStringToNumber(
-      const nsAString& aValue) const override;
+  StringToNumberResult ConvertStringToNumber(const nsAString& aValue,
+                                             Localized) const override;
   bool ConvertNumberToString(Decimal, Localized, nsAString&) const override;
 
  protected:
@@ -44,7 +44,8 @@ class NumberInputType final : public NumericInputTypeBase {
   nsresult GetValueMissingMessage(nsAString& aMessage) override;
   nsresult GetBadInputMessage(nsAString& aMessage) override;
 
-  StringToNumberResult ConvertStringToNumber(const nsAString&) const override;
+  StringToNumberResult ConvertStringToNumber(const nsAString&,
+                                             Localized) const override;
   bool ConvertNumberToString(Decimal, Localized, nsAString&) const override;
 
  protected:
@@ -71,4 +72,4 @@ class RangeInputType : public NumericInputTypeBase {
 
 }  // namespace mozilla::dom
 
-#endif /* mozilla_dom_NumericInputTypes_h__ */
+#endif /* mozilla_dom_NumericInputTypes_h_ */

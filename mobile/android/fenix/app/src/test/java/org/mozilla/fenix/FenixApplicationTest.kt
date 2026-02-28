@@ -13,6 +13,7 @@ import io.mockk.just
 import io.mockk.mockk
 import io.mockk.spyk
 import io.mockk.verify
+import kotlinx.coroutines.runBlocking
 import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.concept.engine.Engine.HttpsOnlyMode
 import mozilla.components.concept.engine.webextension.DisabledFlags
@@ -21,8 +22,8 @@ import mozilla.components.concept.engine.webextension.WebExtension
 import mozilla.components.feature.addons.migration.DefaultSupportedAddonsChecker
 import mozilla.components.support.test.robolectric.testContext
 import mozilla.components.support.utils.BrowsersCache
+import mozilla.components.support.utils.ext.packageManagerWrapper
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -34,7 +35,9 @@ import org.mozilla.fenix.GleanMetrics.Addons
 import org.mozilla.fenix.GleanMetrics.Metrics
 import org.mozilla.fenix.GleanMetrics.Preferences
 import org.mozilla.fenix.GleanMetrics.SearchDefaultEngine
+import org.mozilla.fenix.GleanMetrics.TabStrip
 import org.mozilla.fenix.GleanMetrics.TopSites
+import org.mozilla.fenix.components.fake.FakeMetricController
 import org.mozilla.fenix.components.metrics.MozillaProductDetector
 import org.mozilla.fenix.components.toolbar.ToolbarPosition
 import org.mozilla.fenix.distributions.DefaultDistributionBrowserStoreProvider
@@ -43,6 +46,7 @@ import org.mozilla.fenix.distributions.DistributionProviderChecker
 import org.mozilla.fenix.distributions.DistributionSettings
 import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.helpers.FenixGleanTestRule
+import org.mozilla.fenix.settings.ShortcutType
 import org.mozilla.fenix.settings.doh.DohSettingsProvider
 import org.mozilla.fenix.settings.doh.ProtectionLevel
 import org.mozilla.fenix.utils.Settings
@@ -61,16 +65,13 @@ class FenixApplicationTest {
     private lateinit var browserStore: BrowserStore
 
     private val testDistributionProviderChecker = object : DistributionProviderChecker {
-        override fun queryProvider(): String? = null
-    }
-
-    private val testLegacyDistributionProviderChecker = object : DistributionProviderChecker {
-        override fun queryProvider(): String? = null
+        override suspend fun queryProvider(): String? = null
     }
 
     private val testDistributionSettings = object : DistributionSettings {
         override fun getDistributionId(): String = ""
         override fun saveDistributionId(id: String) = Unit
+        override fun setMarketingTelemetryPreferences() = Unit
     }
 
     @Before
@@ -81,12 +82,13 @@ class FenixApplicationTest {
         browserStore = BrowserStore()
 
         every { testContext.components.core } returns mockk(relaxed = true)
+        every { testContext.components.nimbus } returns mockk(relaxed = true)
         every { testContext.components.distributionIdManager } returns DistributionIdManager(
-            context = testContext,
+            packageManager = testContext.packageManagerWrapper,
             browserStoreProvider = DefaultDistributionBrowserStoreProvider(browserStore),
             distributionProviderChecker = testDistributionProviderChecker,
-            legacyDistributionProviderChecker = testLegacyDistributionProviderChecker,
             distributionSettings = testDistributionSettings,
+            metricController = FakeMetricController(),
         )
     }
 
@@ -120,7 +122,7 @@ class FenixApplicationTest {
 
     @Test
     @Config(sdk = [Build.VERSION_CODES.O])
-    fun `WHEN setStartupMetrics is called THEN sets some base metrics`() {
+    fun `WHEN setStartupMetrics is called THEN sets some base metrics`() = runBlocking {
         val expectedAppName = "org.mozilla.fenix"
         val expectedAppInstallSource = "org.mozilla.install.source"
         val settings = spyk(Settings(testContext))
@@ -140,6 +142,7 @@ class FenixApplicationTest {
         every { settings.adjustNetwork } returns "network"
         // Testing [settings.migrateSearchWidgetInstalledPrefIfNeeded]
         settings.preferences.edit().putInt("pref_key_search_widget_installed", 5).apply()
+        settings.preferences.edit().putString("pref_key_current_wallpaper", "default").apply()
         every { settings.openTabsCount } returns 1
         every { settings.topSitesSize } returns 2
         every { settings.installedAddonsCount } returns 3
@@ -150,6 +153,9 @@ class FenixApplicationTest {
         every { settings.mobileBookmarksSize } returns 5
         every { settings.toolbarPosition } returns ToolbarPosition.BOTTOM
         every { settings.shouldUseExpandedToolbar } returns true
+        every { settings.shouldShowToolbarCustomization } returns true
+        every { settings.toolbarSimpleShortcut } returns ShortcutType.SHARE.value
+        every { settings.toolbarExpandedShortcut } returns ShortcutType.HOMEPAGE.value
         every { settings.getTabViewPingString() } returns "test"
         every { settings.getTabTimeoutPingString() } returns "test"
         every { settings.shouldShowSearchSuggestions } returns true
@@ -186,6 +192,7 @@ class FenixApplicationTest {
         every { dohSettingsProvider.getSelectedProtectionLevel() } returns ProtectionLevel.Max
         every { settings.getHttpsOnlyMode() } returns HttpsOnlyMode.ENABLED_PRIVATE_ONLY
         every { settings.shouldEnableGlobalPrivacyControl } returns true
+        every { settings.isTabStripEnabled } returns true
 
         assertTrue(settings.contileContextId.isNotEmpty())
         assertNotNull(TopSites.contextId.testGetValue())
@@ -233,6 +240,8 @@ class FenixApplicationTest {
         assertEquals(emptyList<String>(), Preferences.syncItems.testGetValue())
         assertEquals("fixed_top", Preferences.toolbarPositionSetting.testGetValue())
         assertEquals("expanded", Preferences.toolbarModeSetting.testGetValue())
+        assertEquals(ShortcutType.SHARE.value, Preferences.toolbarSimpleShortcut.testGetValue())
+        assertEquals(ShortcutType.HOMEPAGE.value, Preferences.toolbarExpandedShortcut.testGetValue())
         assertEquals("standard", Preferences.enhancedTrackingProtection.testGetValue())
         assertEquals(listOf("switch", "touch exploration"), Preferences.accessibilityServices.testGetValue())
         assertEquals(true, Preferences.inactiveTabsEnabled.testGetValue())
@@ -244,6 +253,7 @@ class FenixApplicationTest {
         assertEquals("Max", Preferences.dohProtectionLevel.testGetValue())
         assertEquals("ENABLED_PRIVATE_ONLY", Preferences.httpsOnlyMode.testGetValue())
         assertEquals(true, Preferences.globalPrivacyControlEnabled.testGetValue())
+        assertEquals(true, TabStrip.enabled.testGetValue())
 
         val contextId = TopSites.contextId.testGetValue()!!.toString()
 
@@ -269,42 +279,44 @@ class FenixApplicationTest {
 
     @Test
     @Config(sdk = [28])
-    fun `GIVEN the current etp mode is custom WHEN tracking the etp metric THEN track also the cookies option on SDK 28`() {
-        val settings: Settings = mockk(relaxed = true) {
-            every { shouldUseTrackingProtection } returns true
-            every { useCustomTrackingProtection } returns true
-            every { blockCookiesSelectionInCustomTrackingProtection } returns "Test"
+    fun `GIVEN the current etp mode is custom WHEN tracking the etp metric THEN track also the cookies option on SDK 28`() =
+        runBlocking {
+            val settings: Settings = mockk(relaxed = true) {
+                every { shouldUseTrackingProtection } returns true
+                every { useCustomTrackingProtection } returns true
+                every { blockCookiesSelectionInCustomTrackingProtection } returns "Test"
+            }
+
+            application.setStartupMetrics(
+                browserStore = browserStore,
+                settings = settings,
+                browsersCache = browsersCache,
+                mozillaProductDetector = mozillaProductDetector,
+            )
+
+            assertEquals("Test", Preferences.etpCustomCookiesSelection.testGetValue())
         }
-
-        application.setStartupMetrics(
-            browserStore = browserStore,
-            settings = settings,
-            browsersCache = browsersCache,
-            mozillaProductDetector = mozillaProductDetector,
-        )
-
-        assertEquals("Test", Preferences.etpCustomCookiesSelection.testGetValue())
-    }
 
     @Test
-    fun `GIVEN the current etp mode is custom WHEN tracking the etp metric THEN track also the cookies option`() {
-        val settings: Settings = mockk(relaxed = true) {
-            every { shouldUseTrackingProtection } returns true
-            every { useCustomTrackingProtection } returns true
-            every { blockCookiesSelectionInCustomTrackingProtection } returns "Test"
+    fun `GIVEN the current etp mode is custom WHEN tracking the etp metric THEN track also the cookies option`() =
+        runBlocking {
+            val settings: Settings = mockk(relaxed = true) {
+                every { shouldUseTrackingProtection } returns true
+                every { useCustomTrackingProtection } returns true
+                every { blockCookiesSelectionInCustomTrackingProtection } returns "Test"
+            }
+
+            val packageManager: PackageManager = testContext.packageManager
+            shadowOf(packageManager)
+                .setInstallSourceInfo(testContext.packageName, "initiating.package", "installing.package")
+
+            application.setStartupMetrics(
+                browserStore = browserStore,
+                settings = settings,
+                browsersCache = browsersCache,
+                mozillaProductDetector = mozillaProductDetector,
+            )
+
+            assertEquals("Test", Preferences.etpCustomCookiesSelection.testGetValue())
         }
-
-        val packageManager: PackageManager = testContext.packageManager
-        shadowOf(packageManager)
-            .setInstallSourceInfo(testContext.packageName, "initiating.package", "installing.package")
-
-        application.setStartupMetrics(
-            browserStore = browserStore,
-            settings = settings,
-            browsersCache = browsersCache,
-            mozillaProductDetector = mozillaProductDetector,
-        )
-
-        assertEquals("Test", Preferences.etpCustomCookiesSelection.testGetValue())
-    }
 }

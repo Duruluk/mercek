@@ -25,7 +25,6 @@ import android.content.pm.PackageManager
 import android.content.pm.PackageManager.PERMISSION_GRANTED
 import android.hardware.camera2.CameraManager
 import android.net.Uri
-import android.os.Build
 import android.os.Build.VERSION.SDK_INT
 import android.os.Build.VERSION_CODES
 import android.os.Process
@@ -47,7 +46,7 @@ import mozilla.components.support.base.log.Log
 import mozilla.components.support.base.log.logger.Logger
 import mozilla.components.support.ktx.R
 import mozilla.components.support.ktx.android.content.res.resolveAttribute
-import mozilla.components.support.utils.ext.getPackageInfoCompat
+import mozilla.components.support.utils.ext.packageManagerCompatHelper
 import java.io.File
 
 /**
@@ -55,7 +54,7 @@ import java.io.File
  * attribute. E.g. "2.0". Returns an empty string if versionName is null.
  */
 val Context.appVersionName: String
-    get() = packageManager.getPackageInfoCompat(packageName, 0).versionName ?: ""
+    get() = packageManagerCompatHelper.getPackageInfoCompat(packageName, 0).versionName ?: ""
 
 /**
  * Returns the name (label) of the application or the package name as a fallback.
@@ -164,6 +163,19 @@ fun Context.shareLocalPdf(
 ): Boolean = shareMedia(filePath.toUri(), contentType, subject, message)
 
 /**
+ * Shares a file using a content URI via [ACTION_SEND] intent.
+ *
+ * @param contentUri URI of the file to share.
+ * @param contentType Content type (MIME type) to indicate the media type of the resource.
+ *
+ * @return true if the share intent was successfully started, false otherwise.
+ */
+fun Context.shareFile(
+    contentUri: Uri,
+    contentType: String?,
+): Boolean = shareMedia(contentUri = contentUri, contentType = contentType)
+
+/**
  * Shares content via [ACTION_SEND] intent.
  *
  * @param contentUri URI of the file to share.
@@ -191,7 +203,7 @@ internal fun Context.shareMedia(
         if (message != null) {
             putExtra(EXTRA_TEXT, message)
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        if (SDK_INT >= VERSION_CODES.Q) {
             // Android Q allows us to show a thumbnail preview of the file to be shared.
             clipData = ClipData.newRawUri(contentUri.toString(), contentUri)
         }
@@ -373,7 +385,9 @@ inline fun Context.runOnlyInMainProcess(block: () -> Unit) {
  * Returns the color int corresponding to the attribute.
  */
 @ColorInt
-fun Context.getColorFromAttr(@AttrRes attr: Int) =
+fun Context.getColorFromAttr(
+    @AttrRes attr: Int,
+) =
     ContextCompat.getColor(this, theme.resolveAttribute(attr))
 
 /**
@@ -393,7 +407,10 @@ fun Context.getStatusBarColor() =
  * @param resId ID of the drawable to load.
  * @param tint Tint color int to apply to the drawable.
  */
-fun Context.getDrawableWithTint(@DrawableRes resId: Int, @ColorInt tint: Int) =
+fun Context.getDrawableWithTint(
+    @DrawableRes resId: Int,
+    @ColorInt tint: Int,
+) =
     AppCompatResources.getDrawable(this, resId)?.apply {
         mutate()
         setTint(tint)

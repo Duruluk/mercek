@@ -58,9 +58,9 @@ class AudioListener final : public nsWrapperCache {
   JSObject* WrapObject(JSContext* aCx,
                        JS::Handle<JSObject*> aGivenProto) override;
 
-  void SetPosition(double aX, double aY, double aZ);
-  void SetOrientation(double aX, double aY, double aZ, double aXUp, double aYUp,
-                      double aZUp);
+  void SetPosition(float aX, float aY, float aZ);
+  void SetOrientation(float aX, float aY, float aZ, float aXUp, float aYUp,
+                      float aZUp);
 
   AudioListenerEngine* Engine() { return mEngine.get(); }
 

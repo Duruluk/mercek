@@ -27,13 +27,13 @@ add_task(async function () {
   await setSearchFilter(view, SEARCH);
 
   info("Start entering a new property in the rule");
-  const ruleEditor = getRuleViewRuleEditor(view, 1);
+  const ruleEditor = getRuleViewRuleEditorAt(view, 1);
   const rule = ruleEditor.rule;
   const prop = getTextProperty(view, 1, { width: "100%" });
   let editor = await focusNewRuleViewProperty(ruleEditor);
 
   info("Check that the correct rules are visible");
-  is(view.element.children.length, 2, "Should have 2 rules.");
+  assertDisplayedRulesCount(view, 2);
   is(rule.selectorText, "#testid", "Second rule is #testid.");
   ok(
     prop.editor.container.classList.contains("ruleview-highlight"),

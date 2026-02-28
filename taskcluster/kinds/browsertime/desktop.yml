@@ -457,12 +457,7 @@ browsertime-benchmark:
         by-app:
             firefox:
                 by-subtest:
-                    # Bug 1971608
-                    # For now, keep js3 on tier 3 to minimize potential alerts
-                    # due to now running on autoland.
-                    # Bump to tier 1 or 2 once more development has been done on
-                    # js3.
-                    jetstream3: 3
+                    jetstream3: 2
                     default:
                         by-test-platform:
                             linux.*clang-trunk.*: 2
@@ -503,12 +498,6 @@ browsertime-benchmark:
                             macosx1500.*shippable.*: [trunk]
                             .*nightlyasrelease.*: [autoland, mozilla-central]
                             default: []
-                    custom-car:
-                        by-test-platform:
-                            # NOTE: this includes windows -hw-ref machines
-                            linux.*shippable.*: [mozilla-central]
-                            windows.*shippable.*: [mozilla-central]
-                            default: []
                     safari-tp:
                         by-test-platform:
                             macosx1400.*: [mozilla-central]
@@ -529,11 +518,6 @@ browsertime-benchmark:
                         by-test-platform:
                             .*64.*shippable.*/.*: [trunk]
                             .*nightlyasrelease.*: [autoland]
-                            default: []
-                    custom-car:
-                        by-test-platform:
-                            linux.*shippable.*: [mozilla-central]
-                            windows.*-64.*shippable.*: [mozilla-central]
                             default: []
                     default: []
             default:
@@ -1065,7 +1049,7 @@ browsertime-webcodecs:
         run-visual-metrics: false
         subtests:
             by-test-platform:
-                # Since x264 isn't built into Ubuntu 18.04 by defualt, we skip it.
+                # Since x264 isn't built into Ubuntu 18.04 by default, we skip it.
                 linux.*.*:
                     - ve-av1-rt
                     - ve-av1-q
@@ -1264,13 +1248,17 @@ browsertime-trr-performance:
         apps: [firefox]
         run-visual-metrics: false
         subtests:
-            - trr-cloudf
+            - dns-multi
+            - dns-native
+            - dns-usatdy
             - trr-cira
+            - trr-cloudf
             - trr-comcas
+            - trr-multi
             - trr-next
-            - trr-native
-            - trr-w-clou
+            - trr-usatdy
             - trr-w-cira
+            - trr-w-clou
             - trr-w-comc
             - trr-w-next
 

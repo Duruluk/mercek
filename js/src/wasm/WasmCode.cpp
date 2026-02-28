@@ -25,8 +25,7 @@
 
 #include <algorithm>
 
-#include "jsnum.h"
-
+#include "builtin/Number.h"
 #include "jit/Disassemble.h"
 #include "jit/ExecutableAllocator.h"
 #include "jit/FlushICache.h"  // for FlushExecutionContextForAllThreads
@@ -472,7 +471,7 @@ bool Code::createManyLazyEntryStubs(const WriteGuard& guard,
   CodeSource codeSource(masm, nullptr, nullptr);
   stubCodeBlock->segment = CodeSegment::allocate(
       codeSource, &guard->lazyStubSegments,
-      /* allowLastDitchGC = */ true, &codeStart, &allocationLength);
+      /* allowLastDitchGC = */ false, &codeStart, &allocationLength);
   if (!stubCodeBlock->segment) {
     return false;
   }
@@ -482,6 +481,16 @@ bool Code::createManyLazyEntryStubs(const WriteGuard& guard,
   stubCodeBlock->codeRanges = std::move(codeRanges);
 
   *stubBlockIndex = guard->blocks.length();
+
+  if (!guard->lazyExports.reserve(guard->lazyExports.length() +
+                                  funcExportIndices.length()) ||
+      !addCodeBlock(guard, std::move(stubCodeBlock), nullptr)) {
+    return false;
+  }
+
+  // Everything after this point must be guaranteed to succeed. A failure after
+  // this point can leave things in an inconsistent state, and be observed if we
+  // retry to create a lazy stub.
 
   uint32_t codeRangeIndex = 0;
   for (uint32_t funcExportIndex : funcExportIndices) {
@@ -511,17 +520,17 @@ bool Code::createManyLazyEntryStubs(const WriteGuard& guard,
       MOZ_ASSERT(oldKind == CodeBlockKind::SharedStubs ||
                  oldKind == CodeBlockKind::BaselineTier);
       guard->lazyExports[exportIndex] = std::move(lazyExport);
-    } else if (!guard->lazyExports.insert(
-                   guard->lazyExports.begin() + exportIndex,
-                   std::move(lazyExport))) {
-      return false;
+    } else {
+      // We reserved memory earlier, this should not fail.
+      MOZ_RELEASE_ASSERT(guard->lazyExports.insert(
+          guard->lazyExports.begin() + exportIndex, std::move(lazyExport)));
     }
   }
 
-  stubCodeBlock->sendToProfiler(*codeMeta_, *codeTailMeta_, codeMetaForAsmJS_,
-                                FuncIonPerfSpewerSpan(),
-                                FuncBaselinePerfSpewerSpan());
-  return addCodeBlock(guard, std::move(stubCodeBlock), nullptr);
+  guard->blocks[*stubBlockIndex]->sendToProfiler(
+      *codeMeta_, *codeTailMeta_, codeMetaForAsmJS_, FuncIonPerfSpewerSpan(),
+      FuncBaselinePerfSpewerSpan());
+  return true;
 }
 
 bool Code::createOneLazyEntryStub(const WriteGuard& guard,
@@ -581,13 +590,33 @@ bool Code::getOrCreateInterpEntry(uint32_t funcIndex,
 
   MOZ_ASSERT(!codeMetaForAsmJS_, "only wasm can lazily export functions");
 
-  auto guard = data_.writeLock();
-  *interpEntry = lookupLazyInterpEntry(guard, funcIndex);
-  if (*interpEntry) {
+  auto tryGetOrCreate = [&]() -> bool {
+    auto guard = data_.writeLock();
+    *interpEntry = lookupLazyInterpEntry(guard, funcIndex);
+    if (*interpEntry) {
+      return true;
+    }
+
+    return createOneLazyEntryStub(guard, funcExportIndex, codeBlock,
+                                  interpEntry);
+  };
+
+  // Try to get or create the interpreter entry.
+  if (tryGetOrCreate()) {
     return true;
   }
 
-  return createOneLazyEntryStub(guard, funcExportIndex, codeBlock, interpEntry);
+  // The allocation failed. Release the lock and try a last-ditch GC before
+  // retrying, to avoid a mutex ordering violation between WasmCodeProtected
+  // and GlobalHelperThreadState.
+  if (!OnLargeAllocationFailure) {
+    return false;
+  }
+  OnLargeAllocationFailure();
+
+  // Try again. We need to redo the lookup too in the case that someone is
+  // racing with us.
+  return tryGetOrCreate();
 }
 
 bool Code::createTier2LazyEntryStubs(const WriteGuard& guard,
@@ -787,10 +816,28 @@ bool Code::addCodeBlock(const WriteGuard& guard, UniqueCodeBlock block,
 
   CodeBlock* blockPtr = block.get();
   size_t codeBlockIndex = guard->blocks.length();
-  return guard->blocks.append(std::move(block)) &&
-         guard->blocksLinkData.append(std::move(maybeLinkData)) &&
-         blockMap_.insert(blockPtr) &&
-         blockPtr->initialize(*this, codeBlockIndex);
+
+  if (!guard->blocks.reserve(guard->blocks.length() + 1) ||
+      !guard->blocksLinkData.reserve(guard->blocksLinkData.length() + 1)) {
+    return false;
+  }
+
+  // If anything fails here, be careful to reset our state back so that we are
+  // not in an inconsistent state.
+  if (!blockPtr->initialize(*this, codeBlockIndex)) {
+    return false;
+  }
+
+  if (!blockMap_.insert(blockPtr)) {
+    // We don't need to deinitialize the blockPtr, because that will be
+    // automatically handled by its destructor.
+    return false;
+  }
+
+  guard->blocks.infallibleAppend(std::move(block));
+  guard->blocksLinkData.infallibleAppend(std::move(maybeLinkData));
+
+  return true;
 }
 
 SharedCodeSegment Code::createFuncCodeSegmentFromPool(
@@ -798,28 +845,41 @@ SharedCodeSegment Code::createFuncCodeSegmentFromPool(
     uint8_t** codeStartOut, uint32_t* codeLengthOut) const {
   uint32_t codeLength = masm.bytesNeeded();
 
-  // Allocate the code segment
-  uint8_t* codeStart;
-  uint32_t allocationLength;
-  SharedCodeSegment segment;
-  {
+  auto tryAllocate = [&]() -> SharedCodeSegment {
     auto guard = data_.writeLock();
+
+    uint8_t* codeStart;
+    uint32_t allocationLength;
     CodeSource codeSource(masm, &linkData, this);
-    segment =
-        CodeSegment::allocate(codeSource, &guard->lazyFuncSegments,
-                              allowLastDitchGC, &codeStart, &allocationLength);
-    if (!segment) {
+    SharedCodeSegment result = CodeSegment::allocate(
+        codeSource, &guard->lazyFuncSegments,
+        /* allowLastDitchGC = */ false, &codeStart, &allocationLength);
+
+    if (!result) {
       return nullptr;
     }
 
-    // This function is always used with tier-2
+    *codeStartOut = codeStart;
+    *codeLengthOut = codeLength;
     guard->tier2Stats.codeBytesMapped += allocationLength;
     guard->tier2Stats.codeBytesUsed += codeLength;
+    return result;
+  };
+
+  // Try to allocate the code segment.
+  if (SharedCodeSegment segment = tryAllocate()) {
+    return segment;
   }
 
-  *codeStartOut = codeStart;
-  *codeLengthOut = codeLength;
-  return segment;
+  // The allocation failed. Release the lock and try a last-ditch GC before
+  // retrying, to avoid a mutex ordering violation between WasmCodeProtected
+  // and GlobalHelperThreadState.
+  if (!allowLastDitchGC || !OnLargeAllocationFailure) {
+    return nullptr;
+  }
+
+  OnLargeAllocationFailure();
+  return tryAllocate();
 }
 
 const LazyFuncExport* Code::lookupLazyFuncExport(const WriteGuard& guard,
@@ -1506,7 +1566,7 @@ void Code::disassemble(JSContext* cx, Tier tier, int kindSelection,
 // Return a map with names and associated statistics
 MetadataAnalysisHashMap Code::metadataAnalysis(JSContext* cx) const {
   MetadataAnalysisHashMap hashmap;
-  if (!hashmap.reserve(14)) {
+  if (!hashmap.reserve(16)) {
     return hashmap;
   }
 
@@ -1561,6 +1621,16 @@ MetadataAnalysisHashMap Code::metadataAnalysis(JSContext* cx) const {
         "funcExports size",
         codeBlock.funcExports.sizeOfExcludingThis(mallocSizeOf));
   }
+
+  size_t codeBytesUsedInTier1 = 0;
+  size_t codeBytesUsedInTier2 = 0;
+  {
+    auto guard = data_.readLock();
+    codeBytesUsedInTier1 = guard->tier1Stats.codeBytesUsed;
+    codeBytesUsedInTier2 = guard->tier2Stats.codeBytesUsed;
+  }
+  hashmap.putNewInfallible("tier1 code bytes used", codeBytesUsedInTier1);
+  hashmap.putNewInfallible("tier2 code bytes used", codeBytesUsedInTier2);
 
   return hashmap;
 }

@@ -17,29 +17,27 @@ import org.mozilla.fenix.GleanMetrics.StartOnHome
 import org.mozilla.fenix.NavGraphDirections
 import org.mozilla.fenix.R
 import org.mozilla.fenix.browser.browsingmode.BrowsingMode
-import org.mozilla.fenix.browser.browsingmode.BrowsingModeManager
+import org.mozilla.fenix.components.AppStore
+import org.mozilla.fenix.components.appstate.AppAction
 import org.mozilla.fenix.components.toolbar.FenixTabCounterMenu
 import org.mozilla.fenix.ext.nav
-import org.mozilla.fenix.tabstray.Page
-import org.mozilla.fenix.utils.Settings
+import org.mozilla.fenix.tabstray.redux.state.Page
 
 /**
  * Helper class for building the [FenixTabCounterMenu].
  *
+ * @param appStore [AppStore] used for querying and updating application state.
  * @param context An Android [Context].
- * @param browsingModeManager [BrowsingModeManager] used for fetching the current browsing mode.
  * @param navController [NavController] used for navigation.
  * @param tabCounter The [TabCounterView] that will be setup with event handlers.
  * @param showLongPressMenu Whether a popup menu should be shown when long pressing on this or not.
- * @param settings [Settings] object used to determine whether the tab enhancements are enabled.
  */
 class TabCounterView(
+    private val appStore: AppStore,
     private val context: Context,
-    private val browsingModeManager: BrowsingModeManager,
     private val navController: NavController,
     private val tabCounter: TabCounterView,
     private val showLongPressMenu: Boolean,
-    settings: Settings,
 ) {
 
     init {
@@ -47,28 +45,15 @@ class TabCounterView(
 
         tabCounter.setOnClickListener {
             StartOnHome.openTabsTray.record(NoExtras())
-
-            if (settings.tabManagerEnhancementsEnabled) {
-                navController.nav(
-                    navController.currentDestination?.id,
-                    NavGraphDirections.actionGlobalTabManagementFragment(
-                        page = when (browsingModeManager.mode) {
-                            BrowsingMode.Normal -> Page.NormalTabs
-                            BrowsingMode.Private -> Page.PrivateTabs
-                        },
-                    ),
-                )
-            } else {
-                navController.nav(
-                    navController.currentDestination?.id,
-                    NavGraphDirections.actionGlobalTabsTrayFragment(
-                        page = when (browsingModeManager.mode) {
-                            BrowsingMode.Normal -> Page.NormalTabs
-                            BrowsingMode.Private -> Page.PrivateTabs
-                        },
-                    ),
-                )
-            }
+             navController.nav(
+                navController.currentDestination?.id,
+                NavGraphDirections.actionGlobalTabManagementFragment(
+                    page = when (appStore.state.mode) {
+                        BrowsingMode.Normal -> Page.NormalTabs
+                        BrowsingMode.Private -> Page.PrivateTabs
+                    },
+                ),
+            )
         }
     }
 
@@ -79,7 +64,7 @@ class TabCounterView(
      * browsing mode.
      */
     fun update(browserState: BrowserState) {
-        val isPrivate = browsingModeManager.mode.isPrivate
+        val isPrivate = appStore.state.mode.isPrivate
         val tabCount = if (isPrivate) {
             browserState.privateTabs.size
         } else {
@@ -96,7 +81,7 @@ class TabCounterView(
      */
     internal fun onItemTapped(item: TabCounterMenu.Item) {
         if (item is TabCounterMenu.Item.NewTab) {
-            browsingModeManager.mode = BrowsingMode.Normal
+            appStore.dispatch(AppAction.BrowsingModeManagerModeChanged(mode = BrowsingMode.Normal))
             val directions =
                 NavGraphDirections.actionGlobalSearchDialog(
                     sessionId = null,
@@ -106,7 +91,7 @@ class TabCounterView(
                 directions,
             )
         } else if (item is TabCounterMenu.Item.NewPrivateTab) {
-            browsingModeManager.mode = BrowsingMode.Private
+            appStore.dispatch(AppAction.BrowsingModeManagerModeChanged(mode = BrowsingMode.Private))
             val directions =
                 NavGraphDirections.actionGlobalSearchDialog(
                     sessionId = null,
@@ -123,7 +108,7 @@ class TabCounterView(
             val tabCounterMenu = FenixTabCounterMenu(
                 context = context,
                 onItemTapped = ::onItemTapped,
-                iconColor = if (browsingModeManager.mode == BrowsingMode.Private) {
+                iconColor = if (appStore.state.mode == BrowsingMode.Private) {
                     ContextCompat.getColor(context, R.color.fx_mobile_private_icon_color_primary)
                 } else {
                     null
@@ -131,7 +116,7 @@ class TabCounterView(
             )
 
             tabCounterMenu.updateMenu(
-                showOnly = when (browsingModeManager.mode) {
+                showOnly = when (appStore.state.mode) {
                     BrowsingMode.Normal -> BrowsingMode.Private
                     BrowsingMode.Private -> BrowsingMode.Normal
                 },

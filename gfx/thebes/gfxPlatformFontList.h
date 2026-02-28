@@ -198,6 +198,10 @@ class gfxPlatformFontList : public gfxFontInfoLoader {
       return mFontNameList.ConstIter();
     }
 
+    const nsTArray<eFontPrefLang>& CJKPrefLangs() const {
+      return mCJKPrefLangs;
+    }
+
    private:
     static constexpr char kNamePrefix[] = "font.name.";
     static constexpr char kNameListPrefix[] = "font.name-list.";
@@ -206,6 +210,7 @@ class gfxPlatformFontList : public gfxFontInfoLoader {
 
     HashMap mFontName;
     HashMap mFontNameList;
+    nsTArray<eFontPrefLang> mCJKPrefLangs;
     bool mEmojiHasUserValue = false;
   };
 
@@ -247,6 +252,18 @@ class gfxPlatformFontList : public gfxFontInfoLoader {
   }
 
   FontVisibility GetFontVisibility(nsCString& aFont, bool& aFound);
+
+  // Given a test string and ordered font list, determine which fonts would
+  // render each character (CSS font-fallback simulation). Returns fonts used
+  // in order of first use.
+  // Assumes x_western langGroup and normal emoji variant.
+  // aMaxVisibility filters fonts: only fonts with visibility <= aMaxVisibility
+  // are considered. Default is User which includes Base, LangPack, and User.
+  void ListFontsUsedForString(
+      const nsAString& aText, const nsTArray<nsCString>& aFontList,
+      nsTArray<nsCString>& aFontsUsed,
+      FontVisibility aMaxVisibility = FontVisibility::User);
+
   bool GetMissingFonts(nsTArray<nsCString>& aMissingFonts);
   void GetMissingFonts(nsCString& aMissingFonts);
 
@@ -1063,7 +1080,6 @@ class gfxPlatformFontList : public gfxFontInfoLoader {
 
   nsLanguageAtomService* mLangService = nullptr;
 
-  nsTArray<uint32_t> mCJKPrefLangs MOZ_GUARDED_BY(mLock);
   nsTArray<mozilla::StyleGenericFontFamily> mDefaultGenericsLangGroup
       MOZ_GUARDED_BY(mLock);
 

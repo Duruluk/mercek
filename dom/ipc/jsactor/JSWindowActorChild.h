@@ -64,9 +64,8 @@ class JSWindowActorChild final : public JSActor {
   Nullable<WindowProxyHolder> GetContentWindow(ErrorResult& aRv);
 
  protected:
-  void SendRawMessage(const JSActorMessageMeta& aMeta,
-                      UniquePtr<ipc::StructuredCloneData> aData,
-                      UniquePtr<ipc::StructuredCloneData> aStack,
+  void SendRawMessage(const JSActorMessageMeta& aMeta, JSIPCValue&& aData,
+                      ipc::StructuredCloneData* aStack,
                       ErrorResult& aRv) override;
 
  private:

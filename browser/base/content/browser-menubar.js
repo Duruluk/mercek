@@ -12,6 +12,7 @@ document.addEventListener(
       switch (event.target.id) {
         // == edit-menu ==
         case "menu_preferences":
+        case "menu_settings":
           openPreferences(undefined);
           break;
 
@@ -181,6 +182,8 @@ document.addEventListener(
           if (!event.target.parentNode._placesView) {
             new HistoryMenu(event);
           }
+
+          AIWindow.appMenu(event, window);
           break;
         case "historyUndoPopup":
           document

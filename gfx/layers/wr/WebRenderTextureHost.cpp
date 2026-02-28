@@ -123,15 +123,7 @@ void WebRenderTextureHost::NotifyNotUsed() {
     wr::RenderThread::Get()->NotifyNotUsed(GetExternalImageKey());
   }
 #endif
-  if (mWrappedTextureHost->AsRemoteTextureHostWrapper() ||
-      mWrappedTextureHost->AsTextureHostWrapperD3D11()) {
-    mWrappedTextureHost->NotifyNotUsed();
-  }
-#ifdef XP_WIN
-  if (auto* host = AsDXGIYCbCrTextureHostD3D11()) {
-    host->NotifyNotUsed();
-  }
-#endif
+  mWrappedTextureHost->NotifyNotUsed();
   TextureHost::NotifyNotUsed();
 }
 
@@ -166,17 +158,6 @@ gfx::SurfaceFormat WebRenderTextureHost::GetReadFormat() const {
   return mWrappedTextureHost->GetReadFormat();
 }
 
-int32_t WebRenderTextureHost::GetRGBStride() {
-  gfx::SurfaceFormat format = GetFormat();
-  if (GetFormat() == gfx::SurfaceFormat::YUV420) {
-    // XXX this stride is used until yuv image rendering by webrender is used.
-    // Software converted RGB buffers strides are aliened to 16
-    return gfx::GetAlignedStride<16>(
-        GetSize().width, BytesPerPixel(gfx::SurfaceFormat::B8G8R8A8));
-  }
-  return ImageDataSerializer::ComputeRGBStride(format, GetSize().width);
-}
-
 bool WebRenderTextureHost::NeedsDeferredDeletion() const {
   return mWrappedTextureHost->NeedsDeferredDeletion();
 }
@@ -208,16 +189,8 @@ bool WebRenderTextureHost::SupportsExternalCompositing(
   return mWrappedTextureHost->SupportsExternalCompositing(aBackend);
 }
 
-void WebRenderTextureHost::SetAcquireFence(UniqueFileHandle&& aFenceFd) {
-  mWrappedTextureHost->SetAcquireFence(std::move(aFenceFd));
-}
-
-void WebRenderTextureHost::SetReleaseFence(UniqueFileHandle&& aFenceFd) {
-  mWrappedTextureHost->SetReleaseFence(std::move(aFenceFd));
-}
-
-UniqueFileHandle WebRenderTextureHost::GetAndResetReleaseFence() {
-  return mWrappedTextureHost->GetAndResetReleaseFence();
+void WebRenderTextureHost::SetReadFence(Fence* aReadFence) {
+  return mWrappedTextureHost->SetReadFence(aReadFence);
 }
 
 AndroidHardwareBuffer* WebRenderTextureHost::GetAndroidHardwareBuffer() const {

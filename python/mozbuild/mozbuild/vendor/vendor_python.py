@@ -44,6 +44,9 @@ EXCLUDED_PACKAGES = {
     # but later versions use a dependency with Rust components, which we thus can't vendor.
     # For now we apply the minimal patch to jsonschema to make it work again.
     "jsonschema",
+    # filelock is temporarily excluded from the mach site to avoid conflicts with other sites
+    # that require a newer version via PyPI. It is instead loaded directly via the mach.filelock wrapper.
+    "filelock",
 }
 
 
@@ -146,23 +149,21 @@ class VendorPython(MozbuildObject):
         with TemporaryDirectory() as tmp:
             # use requirements.txt to download archived source distributions of all
             # packages
-            subprocess.check_call(
-                [
-                    sys.executable,
-                    "-m",
-                    "pip",
-                    "download",
-                    "-r",
-                    str(requirements_path),
-                    "--no-deps",
-                    "--dest",
-                    tmp,
-                    "--abi",
-                    "none",
-                    "--platform",
-                    "any",
-                ]
-            )
+            subprocess.check_call([
+                sys.executable,
+                "-m",
+                "pip",
+                "download",
+                "-r",
+                str(requirements_path),
+                "--no-deps",
+                "--dest",
+                tmp,
+                "--abi",
+                "none",
+                "--platform",
+                "any",
+            ])
             _purge_vendor_dir(vendor_dir)
             self._extract(tmp, vendor_dir, keep_extra_files)
 

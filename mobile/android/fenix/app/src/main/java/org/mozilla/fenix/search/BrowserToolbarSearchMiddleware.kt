@@ -4,16 +4,15 @@
 
 package org.mozilla.fenix.search
 
+import android.content.Context
 import android.content.Intent
 import android.content.res.Resources
 import android.speech.RecognizerIntent
 import androidx.annotation.VisibleForTesting
 import androidx.core.graphics.drawable.toDrawable
-import androidx.lifecycle.Lifecycle.State.RESUMED
-import androidx.lifecycle.lifecycleScope
-import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.NavController
 import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -44,6 +43,7 @@ import mozilla.components.compose.browser.toolbar.store.BrowserToolbarAction
 import mozilla.components.compose.browser.toolbar.store.BrowserToolbarAction.CommitUrl
 import mozilla.components.compose.browser.toolbar.store.BrowserToolbarAction.EnterEditMode
 import mozilla.components.compose.browser.toolbar.store.BrowserToolbarAction.ExitEditMode
+import mozilla.components.compose.browser.toolbar.store.BrowserToolbarAction.Init
 import mozilla.components.compose.browser.toolbar.store.BrowserToolbarInteraction.BrowserToolbarEvent
 import mozilla.components.compose.browser.toolbar.store.BrowserToolbarInteraction.BrowserToolbarMenu
 import mozilla.components.compose.browser.toolbar.store.BrowserToolbarMenuItem
@@ -51,14 +51,11 @@ import mozilla.components.compose.browser.toolbar.store.BrowserToolbarMenuItem.B
 import mozilla.components.compose.browser.toolbar.store.BrowserToolbarMenuItem.BrowserToolbarMenuDivider
 import mozilla.components.compose.browser.toolbar.store.BrowserToolbarState
 import mozilla.components.compose.browser.toolbar.store.BrowserToolbarStore
-import mozilla.components.compose.browser.toolbar.store.EnvironmentCleared
-import mozilla.components.compose.browser.toolbar.store.EnvironmentRehydrated
 import mozilla.components.compose.browser.toolbar.ui.BrowserToolbarQuery
 import mozilla.components.concept.engine.EngineSession
 import mozilla.components.concept.toolbar.AutocompleteProvider
 import mozilla.components.concept.toolbar.AutocompleteResult
 import mozilla.components.lib.state.Middleware
-import mozilla.components.lib.state.MiddlewareContext
 import mozilla.components.lib.state.State
 import mozilla.components.lib.state.Store
 import mozilla.components.lib.state.ext.flow
@@ -70,7 +67,6 @@ import org.mozilla.fenix.GleanMetrics.Toolbar
 import org.mozilla.fenix.NavGraphDirections
 import org.mozilla.fenix.R
 import org.mozilla.fenix.browser.BrowserFragmentDirections
-import org.mozilla.fenix.browser.browsingmode.BrowsingMode.Private
 import org.mozilla.fenix.components.AppStore
 import org.mozilla.fenix.components.Components
 import org.mozilla.fenix.components.appstate.AppAction
@@ -84,7 +80,6 @@ import org.mozilla.fenix.components.metrics.MetricsUtils
 import org.mozilla.fenix.components.search.BOOKMARKS_SEARCH_ENGINE_ID
 import org.mozilla.fenix.components.search.HISTORY_SEARCH_ENGINE_ID
 import org.mozilla.fenix.components.search.TABS_SEARCH_ENGINE_ID
-import org.mozilla.fenix.components.toolbar.BrowserToolbarEnvironment
 import org.mozilla.fenix.ext.toolbarHintRes
 import org.mozilla.fenix.search.EditPageEndActionsInteractions.ClearSearchClicked
 import org.mozilla.fenix.search.EditPageEndActionsInteractions.QrScannerClicked
@@ -138,21 +133,26 @@ internal sealed class EditPageEndActionsInteractions : BrowserToolbarEvent {
  * [BrowserToolbarStore] middleware handling the configuration of the composable toolbar
  * while in edit mode.
  *
+ * @param uiContext [Context] used for various system interactions.
  * @param appStore [AppStore] used for querying and updating application state.
  * @param browserStore [BrowserStore] used for querying and updating browser state.
  * @param components [Components] for accessing other functionalities of the application.
+ * @param navController [NavController] to use for navigating to other in-app destinations.
  * @param settings [Settings] for accessing application settings.
+ * @param scope [CoroutineScope] used for running long running operations in background.
  * @param autocompleteDispatcher [CoroutineContext] used for querying autocomplete suggestions.
  */
+@Suppress("LongParameterList")
 class BrowserToolbarSearchMiddleware(
+    private val uiContext: Context,
     private val appStore: AppStore,
     private val browserStore: BrowserStore,
     private val components: Components,
+    private val navController: NavController,
     private val settings: Settings,
+    private val scope: CoroutineScope,
     private val autocompleteDispatcher: CoroutineContext = defaultAutocompleteDispatcher,
 ) : Middleware<BrowserToolbarState, BrowserToolbarAction> {
-    @VisibleForTesting
-    internal var environment: BrowserToolbarEnvironment? = null
     private var syncCurrentSearchEngineJob: Job? = null
     private var syncAvailableSearchEnginesJob: Job? = null
     private var observeQRScannerInputJob: Job? = null
@@ -161,7 +161,7 @@ class BrowserToolbarSearchMiddleware(
 
     @Suppress("CyclomaticComplexMethod", "LongMethod")
     override fun invoke(
-        context: MiddlewareContext<BrowserToolbarState, BrowserToolbarAction>,
+        store: Store<BrowserToolbarState, BrowserToolbarAction>,
         next: (BrowserToolbarAction) -> Unit,
         action: BrowserToolbarAction,
     ) {
@@ -170,27 +170,21 @@ class BrowserToolbarSearchMiddleware(
         }
 
         when (action) {
-            is EnvironmentRehydrated -> {
-                environment = action.environment as? BrowserToolbarEnvironment
-
-                if (context.state.isEditMode()) {
-                    syncCurrentSearchEngine(context)
+            is Init -> {
+                if (store.state.isEditMode()) {
+                    syncCurrentSearchEngine(store)
                 }
-            }
-
-            is EnvironmentCleared -> {
-                environment = null
             }
 
             is EnterEditMode -> {
                 refreshConfigurationAfterSearchEngineChange(
-                    context = context,
-                    searchEngine = reconcileSelectedEngine(),
+                    store = store,
+                    searchEngine = this.reconcileSelectedEngine(),
                 )
-                observeVoiceInputResults(context)
-                syncCurrentSearchEngine(context)
-                syncAvailableEngines(context)
-                updateSearchEndPageActions(context)
+                observeVoiceInputResults(store)
+                syncCurrentSearchEngine(store)
+                syncAvailableEngines(store)
+                updateSearchEndPageActions(store)
             }
 
             is ExitEditMode -> {
@@ -214,10 +208,10 @@ class BrowserToolbarSearchMiddleware(
             }
 
             is SearchSettingsItemClicked -> {
-                context.dispatch(SearchQueryUpdated(BrowserToolbarQuery("")))
+                store.dispatch(SearchQueryUpdated(BrowserToolbarQuery("")))
                 appStore.dispatch(SearchEnded)
                 browserStore.dispatch(EngagementFinished(abandoned = true))
-                environment?.navController?.navigate(
+                navController.navigate(
                     BrowserFragmentDirections.actionGlobalSearchEngineFragment(),
                 )
             }
@@ -225,8 +219,8 @@ class BrowserToolbarSearchMiddleware(
             is SearchSelectorItemClicked -> {
                 appStore.dispatch(SearchEngineSelected(action.searchEngine, true))
                 appStore.dispatch(SearchStarted())
-                refreshConfigurationAfterSearchEngineChange(context, action.searchEngine)
-                updateSearchEndPageActions(context) // to update the visibility of the qr scanner button
+                refreshConfigurationAfterSearchEngineChange(store, action.searchEngine)
+                updateSearchEndPageActions(store) // to update the visibility of the qr scanner button
             }
 
             is CommitUrl -> {
@@ -234,8 +228,6 @@ class BrowserToolbarSearchMiddleware(
                 if (reconcileSelectedEngine()?.type == SearchEngine.Type.APPLICATION) {
                     return
                 }
-
-                val navController = environment?.navController ?: return
 
                 when (action.text) {
                     "about:crashes" -> {
@@ -276,19 +268,19 @@ class BrowserToolbarSearchMiddleware(
                 Toolbar.buttonTapped.record(
                     Toolbar.ButtonTappedExtra(source = SOURCE_ADDRESS_BAR, item = ACTION_CLEAR_CLICKED),
                 )
-                context.dispatch(SearchQueryUpdated(BrowserToolbarQuery("")))
+                store.dispatch(SearchQueryUpdated(BrowserToolbarQuery("")))
             }
 
             is SearchQueryUpdated -> {
-                updateAutocompletions(context, action.query)
-                updateSearchEndPageActions(context)
+                updateAutocompletions(store, action.query)
+                updateSearchEndPageActions(store)
             }
 
             is QrScannerClicked -> {
                 Toolbar.buttonTapped.record(
                     Toolbar.ButtonTappedExtra(source = SOURCE_ADDRESS_BAR, item = ACTION_QR_CLICKED),
                 )
-                observeQrScannerInput(context)
+                observeQrScannerInput(store)
                 appStore.dispatch(QrScannerRequested)
             }
 
@@ -322,7 +314,7 @@ class BrowserToolbarSearchMiddleware(
             searchTermOrURL = text,
             newTab = newTab,
             forceSearch = !isDefaultEngine,
-            private = environment?.browsingModeManager?.mode == Private,
+            private = appStore.state.mode.isPrivate,
             searchEngine = searchEngine,
         )
 
@@ -346,37 +338,37 @@ class BrowserToolbarSearchMiddleware(
     }
 
     private fun refreshConfigurationAfterSearchEngineChange(
-        context: MiddlewareContext<BrowserToolbarState, BrowserToolbarAction>,
+        store: Store<BrowserToolbarState, BrowserToolbarAction>,
         searchEngine: SearchEngine?,
     ) {
-        updateSearchSelectorMenu(context, searchEngine, browserStore.state.search.searchEngineShortcuts)
-        updateAutocompletions(context, context.state.editState.query)
-        updateToolbarHint(context, searchEngine)
+        updateSearchSelectorMenu(store, searchEngine, browserStore.state.search.searchEngineShortcuts)
+        updateAutocompletions(store, store.state.editState.query)
+        updateToolbarHint(store, searchEngine)
     }
 
     private fun updateToolbarHint(
-        context: MiddlewareContext<BrowserToolbarState, BrowserToolbarAction>,
+        store: Store<BrowserToolbarState, BrowserToolbarAction>,
         engine: SearchEngine?,
     ) {
         val defaultEngine = browserStore.state.search.selectedOrDefaultSearchEngine
         val hintRes = engine.toolbarHintRes(defaultEngine)
-        context.dispatch(HintUpdated(hintRes))
+        store.dispatch(HintUpdated(hintRes))
     }
 
     /**
      * Synchronously update the toolbar with a new search selector.
      */
     private fun updateSearchSelectorMenu(
-        context: MiddlewareContext<BrowserToolbarState, BrowserToolbarAction>,
+        store: Store<BrowserToolbarState, BrowserToolbarAction>,
         selectedSearchEngine: SearchEngine?,
         searchEngineShortcuts: List<SearchEngine>,
     ) {
-        val environment = environment ?: return
-
         val searchSelector = buildSearchSelector(
-            selectedSearchEngine, searchEngineShortcuts, environment.context.resources,
+            selectedSearchEngine,
+            searchEngineShortcuts,
+            uiContext.resources,
         )
-        context.dispatch(
+        store.dispatch(
             SearchActionsStartUpdated(
                 when (searchSelector == null) {
                     true -> emptyList()
@@ -416,7 +408,7 @@ class BrowserToolbarSearchMiddleware(
     }
 
     private fun updateAutocompletions(
-        context: MiddlewareContext<BrowserToolbarState, BrowserToolbarAction>,
+        store: Store<BrowserToolbarState, BrowserToolbarAction>,
         query: BrowserToolbarQuery,
     ) {
         updateAutocompleteJob?.cancelChildren()
@@ -426,13 +418,13 @@ class BrowserToolbarSearchMiddleware(
         val isBackspacing = query.previous?.startsWith(query.current) == true &&
                 query.previous?.length == query.current.length + 1
         if (shouldCheckForSuggestions && !isBackspacing) {
-            updateAutocompleteJob = environment?.fragment?.viewLifecycleOwner?.lifecycleScope?.launch {
-                context.dispatch(
+            updateAutocompleteJob = scope.launch {
+                store.dispatch(
                     BrowserEditToolbarAction.AutocompleteSuggestionUpdated(
                         withContext(autocompleteDispatcher) {
                             fetchAutocomplete(
                                 buildAutocompleteProvidersList(reconcileSelectedEngine()),
-                                context.state.editState.query.current,
+                                store.state.editState.query.current,
                             )?.also {
                                 components.core.engine.speculativeConnect(it.url)
                             }
@@ -441,7 +433,7 @@ class BrowserToolbarSearchMiddleware(
                 )
             }
         } else {
-            context.dispatch(BrowserEditToolbarAction.AutocompleteSuggestionUpdated(null))
+            store.dispatch(BrowserEditToolbarAction.AutocompleteSuggestionUpdated(null))
         }
     }
 
@@ -455,25 +447,25 @@ class BrowserToolbarSearchMiddleware(
         return autocompleteProviders.firstNotNullOfOrNull { it.getAutocompleteSuggestion(input) }
     }
 
-    private fun syncCurrentSearchEngine(context: MiddlewareContext<BrowserToolbarState, BrowserToolbarAction>) {
+    private fun syncCurrentSearchEngine(store: Store<BrowserToolbarState, BrowserToolbarAction>) {
         syncCurrentSearchEngineJob?.cancel()
         syncCurrentSearchEngineJob = appStore.observeWhileActive {
             distinctUntilChangedBy { it.searchState.selectedSearchEngine?.searchEngine }
                 .collect {
                     it.searchState.selectedSearchEngine?.let {
-                        refreshConfigurationAfterSearchEngineChange(context, it.searchEngine)
+                        refreshConfigurationAfterSearchEngineChange(store, it.searchEngine)
                     }
                 }
         }
     }
 
-    private fun syncAvailableEngines(context: MiddlewareContext<BrowserToolbarState, BrowserToolbarAction>) {
+    private fun syncAvailableEngines(store: Store<BrowserToolbarState, BrowserToolbarAction>) {
         syncAvailableSearchEnginesJob?.cancel()
         syncAvailableSearchEnginesJob = browserStore.observeWhileActive {
             distinctUntilChangedBy { it.search.searchEngineShortcuts }
                 .collect {
                     refreshConfigurationAfterSearchEngineChange(
-                        context = context,
+                        store = store,
                         searchEngine = reconcileSelectedEngine(),
                     )
                 }
@@ -485,12 +477,12 @@ class BrowserToolbarSearchMiddleware(
             ?: browserStore.state.search.selectedOrDefaultSearchEngine
 
     private fun updateSearchEndPageActions(
-        context: MiddlewareContext<BrowserToolbarState, BrowserToolbarAction>,
+        store: Store<BrowserToolbarState, BrowserToolbarAction>,
         selectedSearchEngine: SearchEngine? = reconcileSelectedEngine(),
-    ) = context.dispatch(
+    ) = store.dispatch(
         SearchActionsEndUpdated(
             buildSearchEndPageActions(
-                context.state.editState.query.current,
+                store.state.editState.query.current,
                 selectedSearchEngine,
             ),
         ),
@@ -533,7 +525,7 @@ class BrowserToolbarSearchMiddleware(
         }
     }
 
-    private fun observeQrScannerInput(context: MiddlewareContext<BrowserToolbarState, BrowserToolbarAction>) {
+    private fun observeQrScannerInput(store: Store<BrowserToolbarState, BrowserToolbarAction>) {
         observeQRScannerInputJob = null
         observeQRScannerInputJob = appStore.observeWhileActive {
             distinctUntilChangedBy { it.qrScannerState.lastScanData }
@@ -542,7 +534,7 @@ class BrowserToolbarSearchMiddleware(
                         observeQRScannerInputJob?.cancel()
 
                         appStore.dispatch(AppAction.QrScannerAction.QrScannerInputConsumed)
-                        context.dispatch(
+                        store.dispatch(
                             SearchQueryUpdated(
                                 BrowserToolbarQuery(it.qrScannerState.lastScanData),
                             ),
@@ -551,16 +543,16 @@ class BrowserToolbarSearchMiddleware(
                             searchTermOrURL = it.qrScannerState.lastScanData,
                             newTab = appStore.state.searchState.sourceTabId == null,
                             flags = EngineSession.LoadUrlFlags.external(),
-                            private = environment?.browsingModeManager?.mode == Private,
+                            private = appStore.state.mode.isPrivate,
                         )
-                        environment?.navController?.navigate(R.id.action_global_browser)
+                        navController.navigate(R.id.action_global_browser)
                     }
                 }
         }
     }
 
     private fun observeVoiceInputResults(
-        context: MiddlewareContext<BrowserToolbarState, BrowserToolbarAction>,
+        store: Store<BrowserToolbarState, BrowserToolbarAction>,
     ) {
         observeVoiceInputJob?.cancel()
         observeVoiceInputJob = appStore.observeWhileActive {
@@ -568,12 +560,13 @@ class BrowserToolbarSearchMiddleware(
                 .distinctUntilChanged()
                 .collect { voiceInputResult ->
                     if (!voiceInputResult.isNullOrEmpty()) {
-                        context.dispatch(
+                        store.dispatch(
                             SearchQueryUpdated(
                                 query = BrowserToolbarQuery(voiceInputResult),
                                 isQueryPrefilled = true,
                             ),
                         )
+                        store.dispatch(CommitUrl(voiceInputResult))
                         appStore.dispatch(VoiceInputRequestCleared)
                     }
                 }
@@ -581,20 +574,13 @@ class BrowserToolbarSearchMiddleware(
     }
 
     @VisibleForTesting
-    internal fun isSpeechRecognitionAvailable() = environment?.context?.let {
+    internal fun isSpeechRecognitionAvailable() =
         Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-            .resolveActivity(it.packageManager) != null
-    } ?: false
+            .resolveActivity(uiContext.packageManager) != null
 
     private inline fun <S : State, A : MVIAction> Store<S, A>.observeWhileActive(
         crossinline observe: suspend (Flow<S>.() -> Unit),
-    ): Job? = environment?.fragment?.viewLifecycleOwner?.run {
-        lifecycleScope.launch {
-            repeatOnLifecycle(RESUMED) {
-                flow().observe()
-            }
-        }
-    }
+    ): Job = scope.launch { flow().observe() }
 
     /**
      * Static functionalities of the [BrowserToolbarSearchMiddleware].

@@ -57,6 +57,9 @@ fx-view-discoverability-secondary-button-label = Dismiss
 sidebar-button-callout-title = Show tab titles in the sidebar
 sidebar-button-callout-subtitle = Use the sidebar button to expand the sidebar, so you can see tab titles.
 sidebar-button-callout-vertical-tabs = To show your tabs, select the sidebar button in the toolbar.
+sidebar-deprecation-callout-title = Updated sidebar coming soon
+sidebar-deprecation-callout-subtitle = We’re phasing out the sidebar version you’re currently using. Try the updated sidebar. It’s faster and you get access to more tools.
+sidebar-deprecation-cta-button = Try it now
 
 ## Sidebar Vertical Tabs Strings
 
@@ -125,6 +128,16 @@ sidebar-genai-survey-satisfaction-question = How satisfied are you with having a
 sidebar-genai-survey-productive-question =
     To what extent do you agree or disagree with this statement:<br/>
     “The AI chatbot in the sidebar helps me be more productive”?
+
+# Split View Onboarding Strings
+
+splitview-onboarding-callout-title-1 = Split view: a better way to multitask
+splitview-onboarding-callout-subtitle-1 = Right click this tab and choose “Add Split View” to see two tabs at once.
+splitview-onboarding-callout-cta-1 = Try it now
+
+splitview-onboarding-callout-title-2 = See two tabs at once with split view
+splitview-onboarding-callout-subtitle-2 = No extra windows. No tab flipping. Right-click this tab and choose “Add Split View.”
+splitview-onboarding-callout-cta-2 = Try split view
 
 # Unified Search Button callout strings
 

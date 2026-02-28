@@ -30,7 +30,7 @@ class CrashReporterHost {
   typedef CrashReporter::AnnotationTable AnnotationTable;
 
  public:
-  CrashReporterHost(GeckoProcessType aProcessType, base::ProcessId aPid,
+  CrashReporterHost(GeckoProcessType aProcessType, GeckoChildID aChildID,
                     const CrashReporter::CrashReporterInitArgs& aInitArgs);
   ~CrashReporterHost();
 
@@ -122,7 +122,7 @@ class CrashReporterHost {
 
  private:
   GeckoProcessType mProcessType;
-  base::ProcessId mPid;
+  GeckoChildID mChildID;
   CrashReporter::ThreadId mThreadId;
   time_t mStartTime;
   AnnotationTable mExtraAnnotations;

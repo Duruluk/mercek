@@ -6,6 +6,7 @@
 
 #include "DisplayListClipState.h"
 
+#include "DisplayItemClipChain.h"
 #include "nsDisplayList.h"
 
 namespace mozilla {
@@ -33,8 +34,11 @@ static void ApplyClip(nsDisplayListBuilder* aBuilder,
                       const ActiveScrolledRoot* aASR,
                       DisplayItemClipChain& aClipChainOnStack) {
   aClipChainOnStack.mASR = aASR;
-  if (aClipToModify && aClipToModify->mASR == aASR) {
+  if (aClipToModify && aClipToModify->mASR == aASR &&
+      !aClipChainOnStack.IsDisplayportClip()) {
     // Intersect with aClipToModify and replace the clip chain item.
+    // Do not apply this optimization to displayport clips, because it would
+    // break our ability to skip them in MaybeRemoveDisplayportClip().
     aClipChainOnStack.mClip.IntersectWith(aClipToModify->mClip);
     aClipChainOnStack.mParent = aClipToModify->mParent;
     aClipToModify = &aClipChainOnStack;
@@ -76,6 +80,17 @@ void DisplayListClipState::ClipContainingBlockDescendants(
   InvalidateCurrentCombinedClipChain(asr);
 }
 
+void DisplayListClipState::ClipToDisplayPort(
+    nsDisplayListBuilder* aBuilder, const nsRect& aRect,
+    DisplayItemClipChain& aClipChainOnStack) {
+  aClipChainOnStack.mClip.SetTo(aRect);
+  aClipChainOnStack.mKind = DisplayItemClipChain::ClipKind::Displayport;
+  const ActiveScrolledRoot* asr = aBuilder->CurrentActiveScrolledRoot();
+  ApplyClip(aBuilder, mClipChainContainingBlockDescendants, asr,
+            aClipChainOnStack);
+  InvalidateCurrentCombinedClipChain(asr);
+}
+
 void DisplayListClipState::ClipContentDescendants(
     nsDisplayListBuilder* aBuilder, const nsRect& aRect,
     const nsRectCornerRadii* aRadii, DisplayItemClipChain& aClipChainOnStack) {
@@ -106,7 +121,6 @@ void DisplayListClipState::ClipContentDescendants(
 
 void DisplayListClipState::InvalidateCurrentCombinedClipChain(
     const ActiveScrolledRoot* aInvalidateUpTo) {
-  mClippedToDisplayPort = false;
   mCurrentCombinedClipChainIsValid = false;
   while (mCurrentCombinedClipChain &&
          ActiveScrolledRoot::IsAncestor(aInvalidateUpTo,

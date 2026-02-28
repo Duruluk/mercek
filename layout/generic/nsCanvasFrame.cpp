@@ -111,9 +111,13 @@ void nsCanvasFrame::Destroy(DestroyContext& aContext) {
 
 void nsCanvasFrame::SetInitialChildList(ChildListID aListID,
                                         nsFrameList&& aChildList) {
+  // In printing, canvas frame's continuations may have multiple children in the
+  // principal child list when nsCSSFrameConstructor::ReplicateFixedFrames
+  // creates placeholders for fixed-pos elements.
   NS_ASSERTION(aListID != FrameChildListID::Principal || aChildList.IsEmpty() ||
-                   aChildList.OnlyChild(),
-               "Primary child list can have at most one frame in it");
+                   aChildList.OnlyChild() || GetPrevInFlow(),
+               "Principal child list of first-in-flow canvas frame can have at "
+               "most one frame in it!");
   nsContainerFrame::SetInitialChildList(aListID, std::move(aChildList));
 }
 
@@ -347,9 +351,11 @@ void nsCanvasFrame::BuildDisplayList(nsDisplayListBuilder* aBuilder,
         }
       }
       if (bgItem) {
+        const ActiveScrolledRoot* scrollTargetASR =
+            asr ? asr->GetNearestScrollASR() : nullptr;
         thisItemList.AppendToTop(
             nsDisplayFixedPosition::CreateForFixedBackground(
-                aBuilder, this, nullptr, bgItem, i, asr));
+                aBuilder, this, nullptr, bgItem, i, scrollTargetASR));
       }
 
     } else {
@@ -385,6 +391,10 @@ void nsCanvasFrame::BuildDisplayList(nsDisplayListBuilder* aBuilder,
   for (nsIFrame* kid : PrincipalChildList()) {
     // Put our child into its own pseudo-stack.
     BuildDisplayListForChild(aBuilder, kid, aLists);
+  }
+
+  if (GetPrevInFlow()) {
+    DisplayPushedAbsoluteFrames(aBuilder, aLists);
   }
 
   if (!canvasBg.mCSSSpecified && backgroundColorItem &&

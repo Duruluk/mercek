@@ -207,8 +207,6 @@ export class ImportantDatesSuggestions extends SuggestProvider {
     } else {
       descriptionL10n = {
         ...this.#formatDateCountdown(eventDateOrRange, payload.name),
-        cacheable: true,
-        excludeArgsFromCacheKey: true,
       };
     }
 
@@ -217,7 +215,6 @@ export class ImportantDatesSuggestions extends SuggestProvider {
       type: lazy.UrlbarUtils.RESULT_TYPE.SEARCH,
       source: lazy.UrlbarUtils.RESULT_SOURCE.SEARCH,
       isBestMatch: true,
-      hideRowLabel: true,
       richSuggestionIconSize: 24,
       payload: {
         title: dateString,
@@ -232,11 +229,8 @@ export class ImportantDatesSuggestions extends SuggestProvider {
         isManageable: true,
         isBlockable: true,
       },
-      payloadHighlights: {
-        title: [
-          // Make whole title bold.
-          [0, dateString.length],
-        ],
+      highlights: {
+        title: lazy.UrlbarUtils.HIGHLIGHT.ALL,
       },
     });
   }

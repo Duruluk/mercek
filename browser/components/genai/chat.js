@@ -296,6 +296,12 @@ function handleChange({ target }) {
         });
       } else {
         Services.prefs.setStringPref("browser.ml.chat.provider", value);
+        // Reset Permissions UI by changing provider
+        topChromeWindow.dispatchEvent(
+          new CustomEvent("sidebarbrowserchanged", {
+            bubble: true,
+          })
+        );
       }
       break;
   }
@@ -505,6 +511,19 @@ function showOnboarding(length) {
               link.setAttribute("value", name);
             }
             document.l10n.setAttributes(links, config.linksId);
+
+            const handleLink = ev => {
+              const { href } = ev.target;
+              if (href) {
+                ev.preventDefault();
+                openLink(href);
+              }
+            };
+
+            if (!links._listenerAdded) {
+              links?.addEventListener("click", handleLink);
+              links._listenerAdded = true;
+            }
           }
 
           break;
@@ -588,3 +607,7 @@ window.onNewPrompt = async function (opt = {}) {
     clearWarningMessage();
   }
 };
+
+window.addEventListener("SidebarFocused", () =>
+  document.querySelector("#browser-container browser").focus()
+);

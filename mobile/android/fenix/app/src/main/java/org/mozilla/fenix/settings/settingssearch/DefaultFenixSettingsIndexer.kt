@@ -4,36 +4,42 @@
 
 package org.mozilla.fenix.settings.settingssearch
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.res.Resources
 import android.content.res.XmlResourceParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import mozilla.components.support.base.log.logger.Logger
+import org.mozilla.fenix.R
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Indexes Settings preferences for the Settings Search screen.
  *
  * All the preference files that are parsed and indexed are listed in the companion object.
  */
-class DefaultFenixSettingsIndexer(private val context: Context) : SettingsIndexer {
-    private val settings: MutableList<SettingsSearchItem> = mutableListOf()
-    private val breadcrumbs: MutableList<String> = mutableListOf()
+class DefaultFenixSettingsIndexer(
+    private val context: Context,
+    private val preferenceFileInformationList: List<PreferenceFileInformation> = defaultPreferenceFileInformationList,
+) : SettingsIndexer {
+    private val settings = AtomicReference<List<SettingsSearchItem>>(emptyList())
 
     /**
      * Index all settings.
      */
-    override fun indexAllSettings() {
-        settings.clear()
+    override suspend fun indexAllSettings() = withContext(Dispatchers.IO) {
+        val newSettings = mutableListOf<SettingsSearchItem>()
 
         for (preferenceFileInformation in preferenceFileInformationList) {
-            breadcrumbs.clear()
             val settingFileParser = getXmlParserForFile(preferenceFileInformation.xmlResourceId)
-            breadcrumbs.add(context.getString(preferenceFileInformation.topBreadcrumbResourceId))
             if (settingFileParser != null) {
-                parseXmlFile(settingFileParser, preferenceFileInformation)
+                parseXmlFile(settingFileParser, preferenceFileInformation, newSettings)
             }
         }
+
+        settings.set(newSettings)
     }
 
     /**
@@ -48,10 +54,11 @@ class DefaultFenixSettingsIndexer(private val context: Context) : SettingsIndexe
         val trimmedQuery = query.trim()
 
         return withContext(Dispatchers.Default) {
-            settings.distinctBy { it.preferenceKey }.filter { item ->
-                item.title.contains(trimmedQuery, ignoreCase = true) ||
-                        item.summary.contains(trimmedQuery, ignoreCase = true)
-            }
+            settings.get()
+                .filter { item ->
+                    item.title.contains(trimmedQuery, ignoreCase = true)
+                }
+            .distinctBy { it.preferenceKey }
         }
     }
 
@@ -60,17 +67,18 @@ class DefaultFenixSettingsIndexer(private val context: Context) : SettingsIndexe
             if (xmlResourceId == 0) return null
             return context.resources.getXml(xmlResourceId)
         } catch (e: Resources.NotFoundException) {
-            println("Error: failed to find resource $xmlResourceId. ${e.message}")
+            logger.error("Failed to find XML resource $xmlResourceId", e)
         } catch (e: IOException) {
-            println("Error: I/O exception while parsing ${e.message}")
+            logger.error("I/O exception while parsing XML resource $xmlResourceId", e)
         }
         return null
     }
 
-    @Suppress("NestedBlockDepth")
+    @Suppress("NestedBlockDepth", "CognitiveComplexMethod")
     private fun parseXmlFile(
         parser: XmlResourceParser,
         preferenceFileInformation: PreferenceFileInformation,
+        settingsList: MutableList<SettingsSearchItem>,
     ) {
         try {
             var eventType = parser.next()
@@ -82,7 +90,6 @@ class DefaultFenixSettingsIndexer(private val context: Context) : SettingsIndexe
                     XmlResourceParser.START_TAG -> {
                         when (parser.name) {
                             PREFERENCE_CATEGORY_TAG -> {
-                                addCategoryToBreadcrumbs(parser)
                                 categoryItem = createCategoryItem(
                                     parser,
                                     preferenceFileInformation,
@@ -93,7 +100,7 @@ class DefaultFenixSettingsIndexer(private val context: Context) : SettingsIndexe
                             DEFAULT_BROWSER_PREFERENCE_TAG,
                             PREFERENCE_TAG,
                             SWITCH_PREFERENCE_TAG,
-                            TEXT_PERCENTAGE_SEEK_BAR_PREFERENCE_TAG,
+                            SWITCH_PREFERENCE_PLAIN_TAG,
                             TOGGLE_RADIO_BUTTON_PREFERENCE_TAG,
                                 -> {
                                 val item = createSettingsSearchItemFromAttributes(
@@ -101,16 +108,27 @@ class DefaultFenixSettingsIndexer(private val context: Context) : SettingsIndexe
                                     preferenceFileInformation = preferenceFileInformation,
                                 )
                                     if (item != null) {
-                                        settings.add(item)
+                                        settingsList.add(item)
                                     }
                             }
                             RADIO_BUTTON_PREFERENCE_TAG,
-                            SWITCH_PREFERENCE_PLAIN_TAG,
                                 -> {
+                                // Special handling for categories that contain only radio buttons:
+                                // In this case, we want the category itself to be searchable,
+                                // but use the first radio button's key for navigation. This allows
+                                // users to search for the category (e.g., "Theme") and be taken
+                                // to the correct preferences screen where they can select from the
+                                // radio button options.
+                                //
+                                // Subsequent radio buttons in the same category are handled as
+                                // regular preferences in the else branch below.
                                 if (categoryItem != null && !categoryItemAdded) {
                                     categoryItemAdded = true
                                     val preferenceKey = getPreferenceKeyForRadioButtonPref(parser)
-                                    settings.add(categoryItem.copy(preferenceKey = preferenceKey ?: ""))
+                                    if (preferenceKey != null) {
+                                        settingsList.add(categoryItem.copy(preferenceKey = preferenceKey))
+                                    }
+                                    // Clear categoryItem to prevent reusing it for subsequent radio buttons
                                     categoryItem = null
                                 } else {
                                     val item = createSettingsSearchItemFromAttributes(
@@ -118,7 +136,7 @@ class DefaultFenixSettingsIndexer(private val context: Context) : SettingsIndexe
                                         preferenceFileInformation,
                                     )
                                     if (item != null) {
-                                        settings.add(item)
+                                        settingsList.add(item)
                                     }
                                 }
                             }
@@ -129,9 +147,6 @@ class DefaultFenixSettingsIndexer(private val context: Context) : SettingsIndexe
                             PREFERENCE_CATEGORY_TAG -> {
                                 categoryItem = null
                                 categoryItemAdded = false
-                                if (breadcrumbs.isNotEmpty()) {
-                                    breadcrumbs.removeLastOrNull()
-                                }
                             }
                         }
                     }
@@ -139,27 +154,9 @@ class DefaultFenixSettingsIndexer(private val context: Context) : SettingsIndexe
                 eventType = parser.next()
             }
         } catch (e: IOException) {
-            println("Error: I/O exception while parsing ${e.message}")
+            logger.error("I/O exception while parsing XML file", e)
         } finally {
             parser.close()
-        }
-    }
-
-    private fun addCategoryToBreadcrumbs(
-        parser: XmlResourceParser,
-    ) {
-        for (i in 0 until parser.attributeCount) {
-            val attributeName = parser.getAttributeName(i)
-            val attributeValue = parser.getAttributeValue(i)
-
-            when (attributeName) {
-                TITLE_ATTRIBUTE_NAME -> {
-                    val categoryName = getStringResource(attributeValue.substring(1))
-                    if (categoryName.isNotBlank()) {
-                        breadcrumbs.add(categoryName)
-                    }
-                }
-            }
         }
     }
 
@@ -200,13 +197,15 @@ class DefaultFenixSettingsIndexer(private val context: Context) : SettingsIndexe
             }
         }
 
+        val categoryHeader = context.getString(preferenceFileInformation.categoryHeaderResourceId)
+
         if (key == null || title == null) return null
 
         return SettingsSearchItem(
             preferenceKey = key,
             title = title,
             summary = summary,
-            breadcrumbs = breadcrumbs.toList(),
+            categoryHeader = categoryHeader,
             preferenceFileInformation = preferenceFileInformation,
         )
     }
@@ -244,11 +243,13 @@ class DefaultFenixSettingsIndexer(private val context: Context) : SettingsIndexe
             }
         }
 
+        val categoryHeader = context.getString(preferenceFileInformation.categoryHeaderResourceId)
+
         return SettingsSearchItem(
             preferenceKey = key ?: "",
             title = title ?: "",
             summary = summary,
-            breadcrumbs = breadcrumbs.toList(),
+            categoryHeader = categoryHeader,
             preferenceFileInformation = preferenceFileInformation,
         )
     }
@@ -277,22 +278,35 @@ class DefaultFenixSettingsIndexer(private val context: Context) : SettingsIndexe
      *
      * @param resourceName The name of the resource.
      */
+    @SuppressLint("DiscouragedApi")
     private fun getStringResource(resourceName: String): String {
         return try {
             val resourceId = context.resources.getIdentifier(
-                resourceName, "string", context.packageName,
+                resourceName,
+                "string",
+                context.packageName,
             )
-            if (resourceId != 0) {
-                context.getString(resourceId)
+            if (resourceId == 0) {
+                logger.warn("Could not resolve string resource: $resourceName")
+                return resourceName
+            }
+
+            if (stringsWithRequiredFormatting.contains(resourceId)) {
+                val appName = context.getString(R.string.app_name)
+                context.getString(resourceId, appName)
             } else {
-                ""
+                context.getString(resourceId)
             }
         } catch (e: Resources.NotFoundException) {
-            ""
+            logger.warn("String resource not found: $resourceName", e)
+            resourceName
         }
     }
 
     companion object {
+        private const val TAG = "SettingsIndexer"
+        private val logger = Logger(TAG)
+
         // Attribute names
         private const val PREFERENCE_CATEGORY_TAG = "androidx.preference.PreferenceCategory"
         private const val CHECKBOX_PREFERENCE_TAG = "androidx.preference.CheckBoxPreference"
@@ -302,8 +316,6 @@ class DefaultFenixSettingsIndexer(private val context: Context) : SettingsIndexe
         private const val CUSTOM_CBH_SWITCH_PREFERENCE_TAG =
             "org.mozilla.fenix.settings.cookiebannerhandling.CustomCBHSwitchPreference"
         private const val DEFAULT_BROWSER_PREFERENCE_TAG = "org.mozilla.fenix.settings.DefaultBrowserPreference"
-        private const val TEXT_PERCENTAGE_SEEK_BAR_PREFERENCE_TAG =
-            "org.mozilla.fenix.settings.TextPercentageSeekBarPreference"
         private const val RADIO_BUTTON_PREFERENCE_TAG = "org.mozilla.fenix.settings.RadioButtonPreference"
         private const val TOGGLE_RADIO_BUTTON_PREFERENCE_TAG = "org.mozilla.fenix.settings.ToggleRadioButtonPreference"
         private const val KEY_ATTRIBUTE_NAME = "key"
@@ -316,7 +328,7 @@ class DefaultFenixSettingsIndexer(private val context: Context) : SettingsIndexe
          * All the preference xml files to load with information for the indexer.
          * In a [List] of [PreferenceFileInformation]s.
          */
-        val preferenceFileInformationList = listOf(
+        val defaultPreferenceFileInformationList = listOf(
             PreferenceFileInformation.GeneralPreferences,
             PreferenceFileInformation.AccessibilityPreferences,
             PreferenceFileInformation.AutofillPreferences,
@@ -327,9 +339,21 @@ class DefaultFenixSettingsIndexer(private val context: Context) : SettingsIndexe
             PreferenceFileInformation.OpenLinksInAppsPreferences,
             PreferenceFileInformation.PrivateBrowsingPreferences,
             PreferenceFileInformation.SearchSettingsPreferences,
+            PreferenceFileInformation.SiteSettingsPreferences,
             PreferenceFileInformation.TabsPreferences,
             PreferenceFileInformation.TrackingProtectionPreferences,
             PreferenceFileInformation.SaveLoginsPreferences,
+        )
+
+        /**
+         * List of strings that require format args.
+         *
+         * All of them require the app name.
+         */
+        val stringsWithRequiredFormatting = listOf(
+            R.string.preferences_downloads_settings_clean_up_files_title,
+            R.string.preferences_show_nonsponsored_suggestions,
+            R.string.preferences_about,
         )
     }
 }

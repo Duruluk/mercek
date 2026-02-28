@@ -13,6 +13,7 @@
 #include "js/Class.h"
 #include "js/ColumnNumber.h"  // JS::LimitedColumnNumberOneOrigin
 #include "js/GCAPI.h"
+#include "js/GCVector.h"
 #include "js/HeapAPI.h"
 #include "js/Object.h"           // JS::GetClass
 #include "js/shadow/Function.h"  // JS::shadow::Function
@@ -79,13 +80,11 @@ extern JS_PUBLIC_API JSObject* JS_NewDeadWrapper(
     JSContext* cx, JSObject* origObject = nullptr);
 
 /*
- * Used by the cycle collector to trace through a shape or object group and
- * all cycle-participating data it reaches, using bounded stack space.
+ * Used by the cycle collector to trace through a shape and all
+ * cycle-participating data it reaches, using bounded stack space.
  */
 extern JS_PUBLIC_API void JS_TraceShapeCycleCollectorChildren(
     JS::CallbackTracer* trc, JS::GCCellPtr shape);
-extern JS_PUBLIC_API void JS_TraceObjectGroupCycleCollectorChildren(
-    JS::CallbackTracer* trc, JS::GCCellPtr group);
 
 extern JS_PUBLIC_API JSPrincipals* JS_GetScriptPrincipals(JSScript* script);
 
@@ -212,14 +211,6 @@ extern JS_PUBLIC_API JSObject* GetJobsInInternalJobQueue(JSContext* cx);
 #endif
 
 /**
- * Enqueue |job| on the internal job queue.
- *
- * This is useful in tests for creating situations where a call occurs with no
- * other JavaScript on the stack.
- */
-extern JS_PUBLIC_API bool EnqueueJob(JSContext* cx, JS::HandleObject job);
-
-/**
  * Instruct the runtime to stop draining the internal job queue.
  *
  * Useful if the embedding is in the process of quitting in reaction to a
@@ -341,6 +332,10 @@ JS_PUBLIC_API bool ShouldIgnorePropertyDefinition(JSContext* cx, JSProtoKey key,
 
 JS_PUBLIC_API bool IsFunctionObject(JSObject* obj);
 
+// If |obj| is a ModuleObject or ModuleEnvironmentObject, return the
+// module's filename. Otherwise return nullptr.
+JS_PUBLIC_API const char* MaybeGetModuleFilename(JSObject* obj);
+
 JS_PUBLIC_API bool UninlinedIsCrossCompartmentWrapper(const JSObject* obj);
 
 // CrossCompartmentWrappers are shared by all realms within the compartment, so
@@ -428,6 +423,18 @@ JS_PUBLIC_API bool GetPropertyKeys(JSContext* cx, JS::HandleObject obj,
 
 JS_PUBLIC_API bool AppendUnique(JSContext* cx, JS::MutableHandleIdVector base,
                                 JS::HandleIdVector others);
+
+/**
+ * Direct embedder access for retrieving a copy of all entries in a Set or Map
+ * object.
+ */
+JS_PUBLIC_API bool GetSetObjectKeys(
+    JSContext* cx, JS::HandleObject obj,
+    JS::MutableHandle<JS::GCVector<JS::Value>> keys);
+
+JS_PUBLIC_API bool GetMapObjectKeysAndValuesInterleaved(
+    JSContext* cx, JS::HandleObject obj,
+    JS::MutableHandle<JS::GCVector<JS::Value>> entries);
 
 /**
  * Determine whether the given string is an array index in the sense of

@@ -17,15 +17,17 @@ ChromeUtils.defineESModuleGetters(this, {
   HttpServer: "resource://testing-common/httpd.sys.mjs",
   PlacesTestUtils: "resource://testing-common/PlacesTestUtils.sys.mjs",
   PlacesUtils: "resource://gre/modules/PlacesUtils.sys.mjs",
+  SearchService: "moz-src:///toolkit/components/search/SearchService.sys.mjs",
   SearchTestUtils: "resource://testing-common/SearchTestUtils.sys.mjs",
   TestUtils: "resource://testing-common/TestUtils.sys.mjs",
   UrlbarController:
     "moz-src:///browser/components/urlbar/UrlbarController.sys.mjs",
-  UrlbarInput: "moz-src:///browser/components/urlbar/UrlbarInput.sys.mjs",
   UrlbarPrefs: "moz-src:///browser/components/urlbar/UrlbarPrefs.sys.mjs",
   UrlbarProviderOpenTabs:
     "moz-src:///browser/components/urlbar/UrlbarProviderOpenTabs.sys.mjs",
-  UrlbarProvidersManager:
+  UrlbarProviderSearchSuggestions:
+    "moz-src:///browser/components/urlbar/UrlbarProviderSearchSuggestions.sys.mjs",
+  ProvidersManager:
     "moz-src:///browser/components/urlbar/UrlbarProvidersManager.sys.mjs",
   UrlbarResult: "moz-src:///browser/components/urlbar/UrlbarResult.sys.mjs",
   UrlbarTokenizer:
@@ -129,12 +131,14 @@ function createContext(searchString = "foo", properties = {}) {
         allowAutofill: UrlbarPrefs.get("autoFill"),
         isPrivate: true,
         maxResults: UrlbarPrefs.get("maxRichResults"),
+        sapName: "urlbar",
         searchString,
       },
       properties
     )
   );
-  UrlbarTokenizer.tokenize(context);
+  let tokens = UrlbarTokenizer.tokenize(context);
+  context.tokens = tokens;
   return context;
 }
 
@@ -198,10 +202,9 @@ function registerBasicTestProvider(results = [], onCancel, type, name) {
     type,
     name,
   });
-  UrlbarProvidersManager.registerProvider(provider);
-  registerCleanupFunction(() =>
-    UrlbarProvidersManager.unregisterProvider(provider)
-  );
+  let providersManager = ProvidersManager.getInstanceForSap("urlbar");
+  providersManager.registerProvider(provider);
+  registerCleanupFunction(() => providersManager.unregisterProvider(provider));
   return provider;
 }
 
@@ -224,7 +227,7 @@ function makeTestServer(port = -1) {
  *   Options for the check.
  * @param {string} [options.name]
  *   The name of the engine to install.
- * @returns {nsISearchEngine} The new engine.
+ * @returns {SearchEngine} The new engine.
  */
 async function addTestSuggestionsEngine(
   suggestionsFn = null,
@@ -248,7 +251,7 @@ async function addTestSuggestionsEngine(
     suggest_url: `http://localhost:${server.identity.primaryPort}/suggest`,
     suggest_url_get_params: "?q={searchTerms}",
   });
-  let engine = Services.search.getEngineByName(name);
+  let engine = SearchService.getEngineByName(name);
   return engine;
 }
 
@@ -261,7 +264,7 @@ async function addTestSuggestionsEngine(
  *        responses. See bug 1626897.
  *        NOTE: Consumers specifying suggestionsFn must include searchStr as a
  *              part of the array returned by suggestionsFn.
- * @returns {nsISearchEngine} The new engine.
+ * @returns {SearchEngine} The new engine.
  */
 async function addTestTailSuggestionsEngine(suggestionsFn = null) {
   // This port number should match the number in engine-tail-suggestions.xml.
@@ -303,7 +306,7 @@ async function addTestTailSuggestionsEngine(suggestionsFn = null) {
     suggest_url: `http://localhost:${server.identity.primaryPort}/suggest`,
     suggest_url_get_params: "?q={searchTerms}",
   });
-  let engine = Services.search.getEngineByName("Tail Suggestions");
+  let engine = SearchService.getEngineByName("Tail Suggestions");
   return engine;
 }
 
@@ -385,7 +388,7 @@ function testEngine_setup() {
   add_setup(async () => {
     await cleanupPlaces();
     let engine = await addTestSuggestionsEngine();
-    let oldDefaultEngine = await Services.search.getDefault();
+    let oldDefaultEngine = await SearchService.getDefault();
 
     registerCleanupFunction(async () => {
       Services.prefs.clearUserPref("browser.urlbar.suggest.searches");
@@ -393,16 +396,13 @@ function testEngine_setup() {
       Services.prefs.clearUserPref(
         "browser.search.separatePrivateDefault.ui.enabled"
       );
-      Services.search.setDefault(
+      SearchService.setDefault(
         oldDefaultEngine,
-        Ci.nsISearchService.CHANGE_REASON_UNKNOWN
+        SearchService.CHANGE_REASON.UNKNOWN
       );
     });
 
-    Services.search.setDefault(
-      engine,
-      Ci.nsISearchService.CHANGE_REASON_UNKNOWN
-    );
+    SearchService.setDefault(engine, SearchService.CHANGE_REASON.UNKNOWN);
     Services.prefs.setBoolPref(
       "browser.search.separatePrivateDefault.ui.enabled",
       false
@@ -429,7 +429,7 @@ async function cleanupPlaces() {
  *   The context that this result will be displayed in.
  * @param {object} options
  *   Options for the result.
- * @param {string} options.title
+ * @param {string} [options.title]
  *   The page title.
  * @param {string} options.uri
  *   The page URI.
@@ -458,12 +458,12 @@ function makeBookmarkResult(
     type: UrlbarUtils.RESULT_TYPE.URL,
     source,
     heuristic,
-    ...UrlbarResult.payloadAndSimpleHighlights(queryContext.tokens, {
-      url: [uri, UrlbarUtils.HIGHLIGHT.TYPED],
+    payload: {
+      url: uri,
+      title,
+      tags,
       // Check against undefined so consumers can pass in the empty string.
-      icon: [typeof iconUri != "undefined" ? iconUri : `page-icon:${uri}`],
-      title: [title, UrlbarUtils.HIGHLIGHT.TYPED],
-      tags: [tags, UrlbarUtils.HIGHLIGHT.TYPED],
+      icon: typeof iconUri != "undefined" ? iconUri : `page-icon:${uri}`,
       isBlockable:
         source == UrlbarUtils.RESULT_SOURCE.HISTORY ? true : undefined,
       blockL10n:
@@ -475,7 +475,7 @@ function makeBookmarkResult(
           ? Services.urlFormatter.formatURLPref("app.support.baseURL") +
             "awesome-bar-result-menu"
           : undefined,
-    }),
+    },
   });
 }
 
@@ -496,16 +496,17 @@ function makeFormHistoryResult(queryContext, { suggestion, engineName }) {
   return new UrlbarResult({
     type: UrlbarUtils.RESULT_TYPE.SEARCH,
     source: UrlbarUtils.RESULT_SOURCE.HISTORY,
-    ...UrlbarResult.payloadAndSimpleHighlights(queryContext.tokens, {
+    payload: {
       engine: engineName,
-      suggestion: [suggestion, UrlbarUtils.HIGHLIGHT.SUGGESTED],
+      suggestion,
+      title: suggestion,
       lowerCaseSuggestion: suggestion.toLocaleLowerCase(),
       isBlockable: true,
       blockL10n: { id: "urlbar-result-menu-remove-from-history" },
       helpUrl:
         Services.urlFormatter.formatURLPref("app.support.baseURL") +
         "awesome-bar-result-menu",
-    }),
+    },
   });
 }
 
@@ -532,17 +533,16 @@ function makeOmniboxResult(
   queryContext,
   { content, description, keyword, heuristic = false }
 ) {
-  let payload = {
-    title: [description, UrlbarUtils.HIGHLIGHT.TYPED],
-    content: [content, UrlbarUtils.HIGHLIGHT.TYPED],
-    keyword: [keyword, UrlbarUtils.HIGHLIGHT.TYPED],
-    icon: [UrlbarUtils.ICON.EXTENSION],
-  };
   return new UrlbarResult({
     type: UrlbarUtils.RESULT_TYPE.OMNIBOX,
     source: UrlbarUtils.RESULT_SOURCE.ADDON,
     heuristic,
-    ...UrlbarResult.payloadAndSimpleHighlights(queryContext.tokens, payload),
+    payload: {
+      title: description,
+      content,
+      keyword,
+      icon: UrlbarUtils.ICON.EXTENSION,
+    },
   });
 }
 
@@ -572,14 +572,14 @@ function makeTabSwitchResult(
   return new UrlbarResult({
     type: UrlbarUtils.RESULT_TYPE.TAB_SWITCH,
     source: UrlbarUtils.RESULT_SOURCE.TABS,
-    ...UrlbarResult.payloadAndSimpleHighlights(queryContext.tokens, {
-      url: [uri, UrlbarUtils.HIGHLIGHT.TYPED],
-      title: [title, UrlbarUtils.HIGHLIGHT.TYPED],
+    payload: {
+      url: uri,
+      title,
       // Check against undefined so consumers can pass in the empty string.
       icon: typeof iconUri != "undefined" ? iconUri : `page-icon:${uri}`,
-      userContextId: [userContextId || 0],
-      tabGroup: [tabGroup || null],
-    }),
+      userContextId: userContextId || 0,
+      tabGroup,
+    },
   });
 }
 
@@ -612,14 +612,14 @@ function makeKeywordSearchResult(
     type: UrlbarUtils.RESULT_TYPE.KEYWORD,
     source: UrlbarUtils.RESULT_SOURCE.BOOKMARKS,
     heuristic,
-    ...UrlbarResult.payloadAndSimpleHighlights(queryContext.tokens, {
-      title: [title ? title : uri, UrlbarUtils.HIGHLIGHT.TYPED],
-      url: [uri, UrlbarUtils.HIGHLIGHT.TYPED],
-      keyword: [keyword, UrlbarUtils.HIGHLIGHT.TYPED],
-      input: [queryContext.searchString, UrlbarUtils.HIGHLIGHT.TYPED],
+    payload: {
+      title: title || uri,
+      url: uri,
+      keyword,
+      input: queryContext.searchString,
       postData: postData || null,
       icon: typeof iconUri != "undefined" ? iconUri : `page-icon:${uri}`,
-    }),
+    },
   });
 }
 
@@ -648,8 +648,8 @@ function makeRemoteTabResult(
   { uri, device, title, iconUri, lastUsed = 0 }
 ) {
   let payload = {
-    url: [uri, UrlbarUtils.HIGHLIGHT.TYPED],
-    device: [device, UrlbarUtils.HIGHLIGHT.TYPED],
+    url: uri,
+    device,
     // Check against undefined so consumers can pass in the empty string.
     icon: typeof iconUri != "undefined" ? iconUri : `page-icon:${uri}`,
     lastUsed: lastUsed * 1000,
@@ -657,15 +657,15 @@ function makeRemoteTabResult(
 
   // Check against undefined so consumers can pass in the empty string.
   if (typeof title != "undefined") {
-    payload.title = [title, UrlbarUtils.HIGHLIGHT.TYPED];
+    payload.title = title;
   } else {
-    payload.title = [uri, UrlbarUtils.HIGHLIGHT.TYPED];
+    payload.title = uri;
   }
 
   return new UrlbarResult({
     type: UrlbarUtils.RESULT_TYPE.REMOTE_TAB,
     source: UrlbarUtils.RESULT_SOURCE.TABS,
-    ...UrlbarResult.payloadAndSimpleHighlights(queryContext.tokens, payload),
+    payload,
   });
 }
 
@@ -761,33 +761,35 @@ function makeSearchResult(
   }
 
   let payload = {
-    engine: [engineName, UrlbarUtils.HIGHLIGHT.TYPED],
-    suggestion: [suggestion, UrlbarUtils.HIGHLIGHT.SUGGESTED],
+    engine: engineName,
+    suggestion,
     tailPrefix,
-    tail: [tail, UrlbarUtils.HIGHLIGHT.SUGGESTED],
+    tail,
     tailOffsetIndex,
-    keyword: [
-      alias,
-      providesSearchMode
-        ? UrlbarUtils.HIGHLIGHT.TYPED
-        : UrlbarUtils.HIGHLIGHT.NONE,
-    ],
+    keyword: alias,
     // Check against undefined so consumers can pass in the empty string.
-    query: [
+    query:
       typeof query != "undefined" ? query : queryContext.trimmedSearchString,
-      UrlbarUtils.HIGHLIGHT.TYPED,
-    ],
     icon: engineIconUri,
     providesSearchMode,
     inPrivateWindow,
     isPrivateEngine,
   };
 
-  // Passing even an undefined URL in the payload creates a potentially-unwanted
-  // displayUrl parameter, so we add it only if specified.
+  if (providesSearchMode) {
+    // No title.
+  } else if (payload.tail && payload.tailOffsetIndex >= 0) {
+    payload.title = payload.tail;
+  } else if (payload.suggestion != undefined) {
+    payload.title = payload.suggestion;
+  } else if (payload.query != undefined) {
+    payload.title = payload.query;
+  }
+
   if (uri) {
     payload.url = uri;
   }
+
   if (providerName == "UrlbarProviderTabToSearch") {
     if (searchUrlDomainWithoutSuffix.startsWith("www.")) {
       searchUrlDomainWithoutSuffix = searchUrlDomainWithoutSuffix.substring(4);
@@ -807,8 +809,10 @@ function makeSearchResult(
   }
 
   if (isRichSuggestion) {
-    payload.icon =
-      "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==";
+    payload.icon = UrlbarUtils.getRemoteIconUrl(
+      "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==",
+      UrlbarProviderSearchSuggestions.RICH_ICON_SIZE
+    );
     payload.description = "description";
   }
 
@@ -818,7 +822,7 @@ function makeSearchResult(
     heuristic,
     isRichSuggestion,
     providerName,
-    ...UrlbarResult.payloadAndSimpleHighlights(queryContext.tokens, payload),
+    payload,
   });
 }
 
@@ -830,9 +834,6 @@ function makeSearchResult(
  * @param {object} options Options for the result.
  * @param {string} options.title
  *   The page title.
- * @param {string} [options.fallbackTitle]
- *   The provider has capability to use the actual page title though,
- *   when the provider can’t get the page title, use this value as the fallback.
  * @param {string} options.uri
  *   The page URI.
  * @param {Array} [options.tags]
@@ -852,7 +853,6 @@ function makeVisitResult(
   queryContext,
   {
     title,
-    fallbackTitle,
     uri,
     iconUri,
     providerName,
@@ -862,15 +862,11 @@ function makeVisitResult(
   }
 ) {
   let payload = {
-    url: [uri, UrlbarUtils.HIGHLIGHT.TYPED],
+    url: uri,
   };
 
-  if (title) {
-    payload.title = [title, UrlbarUtils.HIGHLIGHT.TYPED];
-  }
-
-  if (fallbackTitle) {
-    payload.fallbackTitle = [fallbackTitle, UrlbarUtils.HIGHLIGHT.TYPED];
+  if (title != undefined) {
+    payload.title = title;
   }
 
   if (
@@ -895,7 +891,7 @@ function makeVisitResult(
   }
 
   if (!heuristic && tags) {
-    payload.tags = [tags, UrlbarUtils.HIGHLIGHT.TYPED];
+    payload.tags = tags;
   }
 
   return new UrlbarResult({
@@ -903,7 +899,7 @@ function makeVisitResult(
     source,
     heuristic,
     providerName,
-    ...UrlbarResult.payloadAndSimpleHighlights(queryContext.tokens, payload),
+    payload,
   });
 }
 
@@ -943,10 +939,6 @@ function makeCalculatorResult(queryContext, { value }) {
  *  Original input length.
  * @param {boolean} [options.showOnboardingLabel]
  *   Whether the “press Tab” hint should appear.
- * @param {boolean} [options.providesSearchMode]
- *   Whether selecting an action enters a search mode.
- * @param {string | null} [options.engine]
- *   The engine name, if providesSearchMode is true.
  * @returns {UrlbarResult}
  */
 function makeGlobalActionsResult({
@@ -954,8 +946,6 @@ function makeGlobalActionsResult({
   query,
   inputLength,
   showOnboardingLabel = false,
-  providesSearchMode = false,
-  engine,
 }) {
   const payload = {
     actionsResults,
@@ -964,8 +954,6 @@ function makeGlobalActionsResult({
     input: query,
     inputLength,
     showOnboardingLabel,
-    providesSearchMode,
-    engine,
   };
 
   return new UrlbarResult({
@@ -991,6 +979,10 @@ function makeGlobalActionsResult({
  * @param {string} [options.completed]
  *   The value that would be filled if the autofill result was confirmed.
  *   Has no effect if `autofilled` is not specified.
+ * @param {object} [options.conditionalPayloadProperties]
+ *   An object mapping payload property names to objects
+ *   { optional, ignore, custom }.
+ *   See the code below.
  * @param {Array} options.matches
  *   An array of UrlbarResults.
  */
@@ -1000,6 +992,7 @@ async function check_results({
   autofilled,
   completed,
   matches = [],
+  conditionalPayloadProperties = {},
 } = {}) {
   if (!context) {
     return;
@@ -1013,7 +1006,6 @@ async function check_results({
 
   const controller = UrlbarTestUtils.newMockController({
     input: {
-      isAddressbar: true,
       isPrivate: context.isPrivate,
       onFirstResult() {
         return false;
@@ -1093,7 +1085,7 @@ async function check_results({
   //   Always ignore the property.
   // optional:
   //   Ignore the property if it's not in the expected result.
-  let conditionalPayloadProperties = {
+  conditionalPayloadProperties = {
     frecency: { optional: true },
     lastVisit: { optional: true },
     // `suggestionObject` is only used for dismissing Suggest Rust results, and
@@ -1101,6 +1093,7 @@ async function check_results({
     // payload object, so ignore it. There are Suggest tests specifically for
     // dismissals that indirectly test the important aspects of this property.
     suggestionObject: { ignore: true },
+    ...conditionalPayloadProperties,
   };
 
   for (let i = 0; i < matches.length; i++) {
@@ -1157,6 +1150,11 @@ async function check_results({
           condition?.ignore ||
           (condition?.optional && !expected.hasOwnProperty(key))
         ) {
+          continue;
+        }
+
+        if (condition?.custom?.(i, actual)) {
+          // The custom assertion consumed this assertion.
           continue;
         }
 
@@ -1223,4 +1221,10 @@ async function checkOriginsOrder(host, prefixOrder) {
     ).map(r => r.getResultByIndex(0));
     Assert.deepEqual(prefixes, prefixOrder);
   });
+}
+
+function daysAgo(days) {
+  let date = new Date();
+  date.setDate(date.getDate() - days);
+  return date;
 }

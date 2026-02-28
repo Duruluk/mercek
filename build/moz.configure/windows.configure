@@ -4,32 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-option(
-    "--with-windows-version",
-    nargs=1,
-    default="603",
-    help="Windows SDK version to target. Win 8.1 (603) is currently "
-    "the minimum supported version",
-)
-
-
-@depends("--with-windows-version")
-@imports(_from="__builtin__", _import="ValueError")
-def valid_windows_version(value):
-    if not value:
-        die("Cannot build with --without-windows-version")
-    try:
-        version = int(value[0], 16)
-        if version in (0x603,):
-            return version
-    except ValueError:
-        pass
-
-    die("Invalid value for --with-windows-version (%s)", value[0])
-
-
-option(env="WINDOWSSDKDIR", nargs=1, help="Directory containing the Windows SDK")
-
 
 @depends(
     "WINDOWSSDKDIR", "WINSYSROOT", winsysroot, target_windows_abi, host_windows_abi
@@ -59,31 +33,7 @@ def windows_sdk_dir(
     )
 
 
-@imports("glob")
-def get_sdk_dirs(sdk, subdir):
-    def get_dirs_containing(sdk, stem, subdir):
-        return [
-            os.path.dirname(p) for p in glob.glob(os.path.join(sdk, stem, "*", subdir))
-        ]
-
-    def categorize(dirs):
-        return {os.path.basename(d): d for d in dirs}
-
-    include_dirs = categorize(get_dirs_containing(sdk, "Include", subdir))
-    lib_dirs = categorize(get_dirs_containing(sdk, "Lib", subdir))
-
-    valid_versions = sorted(set(include_dirs) & set(lib_dirs), reverse=True)
-    return [
-        namespace(
-            path=sdk,
-            lib=lib_dirs[vv],
-            include=include_dirs[vv],
-        )
-        for vv in valid_versions
-    ]
-
-
-@imports(_from="mozbuild.shellutil", _import="quote")
+@imports(_from="mozshellutil", _import="quote")
 def valid_windows_sdk_dir_result(value):
     if value:
         return "0x%04x in %s" % (value.version, quote(value.path))
@@ -168,7 +118,7 @@ def valid_windows_sdk_dir(
     )
 
 
-@imports(_from="mozbuild.shellutil", _import="quote")
+@imports(_from="mozshellutil", _import="quote")
 def valid_ucrt_sdk_dir_result(value):
     if value:
         return "%s in %s" % (value.version, quote(value.path))
@@ -257,31 +207,6 @@ def valid_ucrt_sdk_dir(
         lib=sdk.lib,
         version=version,
     )
-
-
-@depends(target_windows_abi, host_windows_abi, vc_toolchain_search_path)
-@imports("os")
-def vc_path(target_windows_abi, host_windows_abi, vc_toolchain_search_path):
-    if target_windows_abi != "msvc" and host_windows_abi != "msvc":
-        return
-
-    # In clang-cl builds, we need the headers and libraries from an MSVC installation.
-    vc_program = find_program("cl.exe", paths=vc_toolchain_search_path)
-    if not vc_program:
-        die("Cannot find a Visual C++ install for e.g. ATL headers.")
-
-    result = os.path.dirname(vc_program)
-    while True:
-        next, p = os.path.split(result)
-        if next == result:
-            die(
-                "Cannot determine the Visual C++ directory the compiler (%s) "
-                "is in" % vc_program
-            )
-        result = next
-        if p.lower() == "bin":
-            break
-    return os.path.normpath(result)
 
 
 @depends(vc_path, valid_windows_sdk_dir, valid_ucrt_sdk_dir)
@@ -411,13 +336,13 @@ lib_path_for_host = lib_path_for(host)
 
 
 @depends_if(lib_path_for_host, when=host_is_windows)
-@imports(_from="mozbuild.shellutil", _import="quote")
+@imports(_from="mozshellutil", _import="quote")
 def host_linker_libpaths(libs):
     return ["-LIBPATH:%s" % quote(l) for l in libs]
 
 
 @depends_if(lib_path_for_host, when=host_is_windows)
-@imports(_from="mozbuild.shellutil", _import="quote")
+@imports(_from="mozshellutil", _import="quote")
 def host_linker_libpaths_bat(libs):
     # .bat files need a different style of quoting. Batch quoting is actually
     # not defined, and up to applications to handle, so it's not really clear
@@ -586,10 +511,14 @@ with only_when(depends(c_compiler)(lambda c: c.type == "clang-cl")):
         when=depends(target)(lambda target: target.cpu != "x86"),
     )
     set_config("MSVC_CXX_RUNTIME_DLL", "msvcp140.dll")
+    set_config("MSVC_CXX_RUNTIME_ATOMIC_WAIT_DLL", "msvcp140_atomic_wait.dll")
 
     # Disable warnings about using MSVC-specific secure CRT functions.
     set_define("_CRT_SECURE_NO_WARNINGS", True)
     set_define("_CRT_NONSTDC_NO_WARNINGS", True)
+
+    # Work around issues with newer STL and older runtimes, see bug 1994496.
+    set_define("_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR", True)
 
     set_define("HAVE_SEH_EXCEPTIONS", True)
     set_define("HAVE_IO_H", True)

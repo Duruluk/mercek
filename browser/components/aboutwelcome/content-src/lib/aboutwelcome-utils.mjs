@@ -14,7 +14,7 @@ export const AboutWelcomeUtils = {
   handleUserAction(action) {
     return window.AWSendToParent("SPECIAL_ACTION", action);
   },
-  sendImpressionTelemetry(messageId, context) {
+  sendImpressionTelemetry(messageId, context = {}) {
     window.AWSendEventTelemetry?.({
       event: "IMPRESSION",
       event_context: {
@@ -24,22 +24,28 @@ export const AboutWelcomeUtils = {
       message_id: messageId,
     });
   },
-  sendActionTelemetry(messageId, elementId, eventName = "CLICK_BUTTON") {
+  sendActionTelemetry(
+    messageId,
+    elementId,
+    eventName = "CLICK_BUTTON",
+    context = {}
+  ) {
     const ping = {
       event: eventName,
       event_context: {
         source: elementId,
         page,
+        ...context,
       },
       message_id: messageId,
     };
     window.AWSendEventTelemetry?.(ping);
   },
-  sendDismissTelemetry(messageId, elementId) {
+  sendDismissTelemetry(messageId, elementId, context = {}) {
     // Don't send DISMISS telemetry in spotlight modals since they already send
     // their own equivalent telemetry.
     if (page !== "spotlight") {
-      this.sendActionTelemetry(messageId, elementId, "DISMISS");
+      this.sendActionTelemetry(messageId, elementId, "DISMISS", context);
     }
   },
   async fetchFlowParams(metricsFlowUri) {
@@ -70,10 +76,15 @@ export const AboutWelcomeUtils = {
   getLoadingStrategyFor(url) {
     return url?.startsWith("http") ? "lazy" : "eager";
   },
-  handleCampaignAction(action, messageId) {
+  handleCampaignAction(action, messageId, context) {
     window.AWSendToParent("HANDLE_CAMPAIGN_ACTION", action).then(handled => {
       if (handled) {
-        this.sendActionTelemetry(messageId, "CAMPAIGN_ACTION");
+        this.sendActionTelemetry(
+          messageId,
+          "CAMPAIGN_ACTION",
+          "CLICK_BUTTON",
+          context
+        );
       }
     });
   },
@@ -99,48 +110,5 @@ export const AboutWelcomeUtils = {
       validStyle,
       true
     );
-  },
-
-  /**
-   * Normalize content.tiles into a single shape:
-   * tiles: { tile_items: Array<Tile> | Tile, container?: { style?: Object, header?: Object } }
-   *
-   * Supports legacy tiles array and single tile object and consumes
-   * legacy container `content.contentTilesContainer.style` and
-   * legacy header `content.tiles_header` properties.
-   */
-  normalizeContentTiles(content) {
-    const { tiles } = content;
-    const legacyContainer = content?.contentTilesContainer;
-    const legacyHeader = content?.tiles_header;
-
-    // Prefer tiles.container styles, fallback to legacy style, default {}
-    const style = tiles?.container?.style ?? legacyContainer?.style ?? {};
-
-    // Prefer tiles.container.header, fall back to legacy header
-    const header = tiles?.container?.header ?? legacyHeader;
-
-    let items;
-    // New shape
-    if (tiles?.tile_items !== undefined) {
-      items = Array.isArray(tiles.tile_items)
-        ? tiles.tile_items
-        : [tiles.tile_items];
-    }
-    // Legacy tiles array
-    else if (Array.isArray(tiles)) {
-      items = tiles;
-    }
-    // Legacy tiles object
-    else if (tiles && typeof tiles === "object" && tiles.type) {
-      items = [tiles];
-    } else {
-      items = [];
-    }
-
-    // Omit header when absent
-    const container = header ? { style, header } : { style };
-
-    return { tile_items: items, container };
   },
 };

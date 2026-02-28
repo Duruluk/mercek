@@ -1069,8 +1069,11 @@ nsresult mozInlineSpellChecker::MakeSpellCheckRange(nsINode* aStartNode,
       return rv;
     }
   } else {
+    if (NS_WARN_IF(!aEndNode->IsContent())) {
+      return NS_ERROR_FAILURE;
+    }
     rv = range->SetStartAndEnd(RawRangeBoundary(aStartNode, aStartOffset),
-                               RangeUtils::GetRawRangeBoundaryAfter(aEndNode));
+                               RawRangeBoundary::After(*aEndNode->AsContent()));
     if (NS_WARN_IF(NS_FAILED(rv))) {
       return rv;
     }
@@ -1144,10 +1147,8 @@ bool mozInlineSpellChecker::ShouldSpellCheckNode(EditorBase* aEditorBase,
     // Note that because of the previous check, at this point we know that the
     // node is editable.
     if (content->IsInNativeAnonymousSubtree()) {
-      nsIContent* node = content->GetParent();
-      while (node && node->IsInNativeAnonymousSubtree()) {
-        node = node->GetParent();
-      }
+      nsIContent* node =
+          content->GetClosestNativeAnonymousSubtreeRootParentOrHost();
       if (node && node->IsTextControlElement()) {
         return true;
       }

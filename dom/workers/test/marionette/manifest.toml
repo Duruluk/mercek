@@ -1,4 +1,5 @@
 [DEFAULT]
+subsuite = "integration"
 
 ["test_service_workers_at_startup.py"]
 

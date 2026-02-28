@@ -10,15 +10,7 @@
     },
     "FINAL_LIBRARY": "xul"
   },
-  "mozilla_flags": [
-    "-fobjc-arc",
-    "-mavx2",
-    "-mfma",
-    "-mfpu=neon",
-    "-msse2",
-    "-std=gnu++20",
-    "-std:c++20"
-  ],
+  "mozilla_flags": ["-fobjc-arc", "-mavx2", "-mfma", "-mfpu=neon", "-msse2"],
   "write_mozbuild_variables": {
     "INCLUDE_TK_CFLAGS_DIRS": [
       "third_party/libwebrtc/modules/desktop_capture/desktop_capture_gn",
@@ -77,6 +69,7 @@
     "third_party/libwebrtc/modules/audio_processing/aecm/aecm_core_mips.cc",
     "third_party/libwebrtc/modules/audio_processing/aecm/aecm_core_neon.cc",
     "third_party/libwebrtc/modules/audio_processing/aecm/echo_control_mobile.cc",
+    "third_party/libwebrtc/modules/audio_processing/agc2/speech_level_estimator_experimental_impl.cc",
     "third_party/libwebrtc/modules/audio_processing/echo_control_mobile_impl.cc",
     "third_party/libwebrtc/modules/audio_processing/echo_detector/normalized_covariance_estimator.cc",
     "third_party/libwebrtc/modules/audio_processing/gain_control_impl.cc",
@@ -114,6 +107,7 @@
     "third_party/libwebrtc/third_party/abseil-cpp/absl/synchronization/blocking_counter.cc",
     "third_party/libwebrtc/third_party/abseil-cpp/absl/time/internal/cctz/src/time_zone_posix.cc",
     "third_party/libwebrtc/third_party/abseil-cpp/absl/time/time.cc",
+    "third_party/libwebrtc/video/adaptation/pixel_limit_resource.cc",
     "third_party/libwebrtc/video/rtp_video_stream_receiver2.cc"
   ]
 }

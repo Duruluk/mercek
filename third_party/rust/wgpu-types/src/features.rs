@@ -1,4 +1,4 @@
-use crate::VertexFormat;
+use crate::{link_to_wgpu_docs, link_to_wgpu_item, VertexFormat};
 #[cfg(feature = "serde")]
 use alloc::fmt;
 use alloc::vec::Vec;
@@ -58,10 +58,16 @@ mod webgpu_impl {
     pub const WEBGPU_FEATURE_FLOAT32_FILTERABLE: u64 = 1 << 12;
 
     #[doc(hidden)]
-    pub const WEBGPU_FEATURE_DUAL_SOURCE_BLENDING: u64 = 1 << 13;
+    pub const WEBGPU_FEATURE_FLOAT32_BLENDABLE: u64 = 1 << 13;
 
     #[doc(hidden)]
-    pub const WEBGPU_FEATURE_CLIP_DISTANCES: u64 = 1 << 14;
+    pub const WEBGPU_FEATURE_DUAL_SOURCE_BLENDING: u64 = 1 << 14;
+
+    #[doc(hidden)]
+    pub const WEBGPU_FEATURE_CLIP_DISTANCES: u64 = 1 << 15;
+
+    #[doc(hidden)]
+    pub const WEBGPU_FEATURE_IMMEDIATES: u64 = 1 << 16;
 }
 
 macro_rules! bitflags_array_impl {
@@ -571,7 +577,6 @@ bitflags_array! {
         // ? const RW_STORAGE_TEXTURE_TIER_1 = 1 << ??; (https://github.com/gpuweb/gpuweb/issues/3838)
         // ? const NORM16_FILTERABLE = 1 << ??; (https://github.com/gpuweb/gpuweb/issues/3839)
         // ? const NORM16_RESOLVE = 1 << ??; (https://github.com/gpuweb/gpuweb/issues/3839)
-        // ? const FLOAT32_BLENDABLE = 1 << ??; (https://github.com/gpuweb/gpuweb/issues/3556)
         // ? const 32BIT_FORMAT_MULTISAMPLE = 1 << ??; (https://github.com/gpuweb/gpuweb/issues/3844)
         // ? const 32BIT_FORMAT_RESOLVE = 1 << ??; (https://github.com/gpuweb/gpuweb/issues/3844)
         // ? const TEXTURE_COMPRESSION_ASTC_HDR = 1 << ??; (https://github.com/gpuweb/gpuweb/issues/3856)
@@ -632,9 +637,9 @@ bitflags_array! {
         ///
         /// This is a native only feature with a [proposal](https://github.com/gpuweb/gpuweb/blob/0008bd30da2366af88180b511a5d0d0c1dffbc36/proposals/pipeline-statistics-query.md) for the web.
         ///
-        /// [`RenderPass::begin_pipeline_statistics_query`]: https://docs.rs/wgpu/latest/wgpu/struct.RenderPass.html#method.begin_pipeline_statistics_query
-        /// [`RenderPass::end_pipeline_statistics_query`]: https://docs.rs/wgpu/latest/wgpu/struct.RenderPass.html#method.end_pipeline_statistics_query
-        /// [`CommandEncoder::resolve_query_set`]: https://docs.rs/wgpu/latest/wgpu/struct.CommandEncoder.html#method.resolve_query_set
+        #[doc = link_to_wgpu_docs!(["`RenderPass::begin_pipeline_statistics_query`"]: "struct.RenderPass.html#method.begin_pipeline_statistics_query")]
+        #[doc = link_to_wgpu_docs!(["`RenderPass::end_pipeline_statistics_query`"]: "struct.RenderPass.html#method.end_pipeline_statistics_query")]
+        #[doc = link_to_wgpu_docs!(["`CommandEncoder::resolve_query_set`"]: "struct.CommandEncoder.html#method.resolve_query_set")]
         /// [`PipelineStatisticsTypes`]: super::PipelineStatisticsTypes
         const PIPELINE_STATISTICS_QUERY = 1 << 4;
         /// Allows for timestamp queries directly on command encoders.
@@ -642,16 +647,17 @@ bitflags_array! {
         /// Implies [`Features::TIMESTAMP_QUERY`] is supported.
         ///
         /// Additionally allows for timestamp writes on command encoders
-        /// using  [`CommandEncoder::write_timestamp`].
+        /// using [`CommandEncoder::write_timestamp`].
         ///
         /// Supported platforms:
         /// - Vulkan
         /// - DX12
         /// - Metal
+        /// - OpenGL (with GL_ARB_timer_query)
         ///
         /// This is a native only feature.
         ///
-        /// [`CommandEncoder::write_timestamp`]: https://docs.rs/wgpu/latest/wgpu/struct.CommandEncoder.html#method.write_timestamp
+        #[doc = link_to_wgpu_docs!(["`CommandEncoder::write_timestamp`"]: "struct.CommandEncoder.html#method.write_timestamp")]
         const TIMESTAMP_QUERY_INSIDE_ENCODERS = 1 << 5;
         /// Allows for timestamp queries directly on command encoders.
         ///
@@ -665,13 +671,14 @@ bitflags_array! {
         /// - Vulkan
         /// - DX12
         /// - Metal (AMD & Intel, not Apple GPUs)
+        /// - OpenGL (with GL_ARB_timer_query)
         ///
         /// This is generally not available on tile-based rasterization GPUs.
         ///
         /// This is a native only feature with a [proposal](https://github.com/gpuweb/gpuweb/blob/0008bd30da2366af88180b511a5d0d0c1dffbc36/proposals/timestamp-query-inside-passes.md) for the web.
         ///
-        /// [`RenderPass::write_timestamp`]: https://docs.rs/wgpu/latest/wgpu/struct.RenderPass.html#method.write_timestamp
-        /// [`ComputePass::write_timestamp`]: https://docs.rs/wgpu/latest/wgpu/struct.ComputePass.html#method.write_timestamp
+        #[doc = link_to_wgpu_docs!(["`RenderPass::write_timestamp`"]: "struct.RenderPass.html#method.write_timestamp")]
+        #[doc = link_to_wgpu_docs!(["`ComputePass::write_timestamp`"]: "struct.ComputePass.html#method.write_timestamp")]
         const TIMESTAMP_QUERY_INSIDE_PASSES = 1 << 6;
         /// Webgpu only allows the MAP_READ and MAP_WRITE buffer usage to be matched with
         /// COPY_DST and COPY_SRC respectively. This removes this requirement.
@@ -800,39 +807,11 @@ bitflags_array! {
         ///
         /// This is a native only feature.
         ///
-        /// [`RenderPass::multi_draw_indirect`]: ../wgpu/struct.RenderPass.html#method.multi_draw_indirect
-        /// [`RenderPass::multi_draw_indexed_indirect`]: ../wgpu/struct.RenderPass.html#method.multi_draw_indexed_indirect
-        /// [`RenderPass::multi_draw_indirect_count`]: ../wgpu/struct.RenderPass.html#method.multi_draw_indirect_count
-        /// [`RenderPass::multi_draw_indexed_indirect_count`]: ../wgpu/struct.RenderPass.html#method.multi_draw_indexed_indirect_count
+        #[doc = link_to_wgpu_docs!(["`RenderPass::multi_draw_indirect`"]: "struct.RenderPass.html#method.multi_draw_indirect")]
+        #[doc = link_to_wgpu_docs!(["`RenderPass::multi_draw_indexed_indirect`"]: "struct.RenderPass.html#method.multi_draw_indexed_indirect")]
+        #[doc = link_to_wgpu_docs!(["`RenderPass::multi_draw_indirect_count`"]: "struct.RenderPass.html#method.multi_draw_indirect_count")]
+        #[doc = link_to_wgpu_docs!(["`RenderPass::multi_draw_indexed_indirect_count`"]: "struct.RenderPass.html#method.multi_draw_indexed_indirect_count")]
         const MULTI_DRAW_INDIRECT_COUNT = 1 << 15;
-        /// Allows the use of push constants: small, fast bits of memory that can be updated
-        /// inside a [`RenderPass`].
-        ///
-        /// Allows the user to call [`RenderPass::set_push_constants`], provide a non-empty array
-        /// to [`PipelineLayoutDescriptor`], and provide a non-zero limit to [`Limits::max_push_constant_size`].
-        ///
-        /// A block of push constants can be declared in WGSL with `var<push_constant>`:
-        ///
-        /// ```rust,ignore
-        /// struct PushConstants { example: f32, }
-        /// var<push_constant> c: PushConstants;
-        /// ```
-        ///
-        /// In GLSL, this corresponds to `layout(push_constant) uniform Name {..}`.
-        ///
-        /// Supported platforms:
-        /// - DX12
-        /// - Vulkan
-        /// - Metal
-        /// - OpenGL (emulated with uniforms)
-        ///
-        /// This is a native only feature.
-        ///
-        /// [`RenderPass`]: ../wgpu/struct.RenderPass.html
-        /// [`PipelineLayoutDescriptor`]: ../wgpu/struct.PipelineLayoutDescriptor.html
-        /// [`RenderPass::set_push_constants`]: ../wgpu/struct.RenderPass.html#method.set_push_constants
-        /// [`Limits::max_push_constant_size`]: super::Limits
-        const PUSH_CONSTANTS = 1 << 16;
         /// Allows the use of [`AddressMode::ClampToBorder`] with a border color
         /// of [`SamplerBorderColor::Zero`].
         ///
@@ -915,10 +894,12 @@ bitflags_array! {
         ///
         /// This is a native only feature.
         const CLEAR_TEXTURE = 1 << 23;
-        /// Enables multiview render passes and `builtin(view_index)` in vertex shaders.
+        /// Enables multiview render passes and `builtin(view_index)` in vertex/mesh shaders.
         ///
         /// Supported platforms:
         /// - Vulkan
+        /// - Metal
+        /// - DX12
         /// - OpenGL (web only)
         ///
         /// This is a native only feature.
@@ -1126,7 +1107,7 @@ bitflags_array! {
         /// This is a native only feature.
         ///
         /// [VK_GOOGLE_display_timing]: https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/VK_GOOGLE_display_timing.html
-        /// [`Surface::as_hal()`]: https://docs.rs/wgpu/latest/wgpu/struct.Surface.html#method.as_hal
+        #[doc = link_to_wgpu_docs!(["`Surface::as_hal()`"]: "struct.Surface.html#method.as_hal")]
         const VULKAN_GOOGLE_DISPLAY_TIMING = 1 << 44;
 
         /// Allows using the [VK_KHR_external_memory_win32] Vulkan extension.
@@ -1166,16 +1147,30 @@ bitflags_array! {
         /// This is a native only feature.
         const UNIFORM_BUFFER_BINDING_ARRAYS = 1 << 47;
 
-        /// Enables mesh shaders and task shaders in mesh shader pipelines.
+        /// Enables mesh shaders and task shaders in mesh shader pipelines. This extension does NOT imply support for
+        /// compiling mesh shaders at runtime.
         ///
         /// Supported platforms:
         /// - Vulkan (with [VK_EXT_mesh_shader](https://registry.khronos.org/vulkan/specs/latest/man/html/VK_EXT_mesh_shader.html))
-        ///
-        /// Potential Platforms:
         /// - DX12
         /// - Metal
         ///
+        /// Naga is only supported on vulkan. On other platforms you will have to use passthrough shaders.
+        ///
+        /// It is recommended to use [`Device::create_shader_module_trusted`] with [`ShaderRuntimeChecks::unchecked()`]
+        /// to avoid workgroup memory zero initialization, which can be expensive due to zero initialization being
+        /// single-threaded currently.
+        ///
+        /// Some Mesa drivers including LLVMPIPE but not RADV fail to run the naga generated code.
+        /// [This may be our bug and will be investigated.](https://github.com/gfx-rs/wgpu/issues/8727)
+        /// However, due to the nature of the failure, the fact that it is unique, and the random changes
+        /// that make it go away, this is believed to be a Mesa bug. See
+        /// [this Mesa issue.](https://gitlab.freedesktop.org/mesa/mesa/-/issues/14376)
+        ///
         /// This is a native only feature.
+        ///
+        /// [`Device::create_shader_module_trusted`]: https://docs.rs/wgpu/latest/wgpu/struct.Device.html#method.create_shader_module_trusted
+        /// [`ShaderRuntimeChecks::unchecked()`]: crate::ShaderRuntimeChecks::unchecked
         const EXPERIMENTAL_MESH_SHADER = 1 << 48;
 
         /// ***THIS IS EXPERIMENTAL:*** Features enabled by this may have
@@ -1229,8 +1224,88 @@ bitflags_array! {
         /// Ideally, in the future, all platforms will be supported. For more info, see
         /// [this comment](https://github.com/gfx-rs/wgpu/issues/3103#issuecomment-2833058367).
         ///
-        /// [`Device::create_shader_module_passthrough`]: https://docs.rs/wgpu/latest/wgpu/struct.Device.html#method.create_shader_module_passthrough
-        const EXPERIMENTAL_PASSTHROUGH_SHADERS = 1 << 52;
+        #[doc = link_to_wgpu_docs!(["`Device::create_shader_module_passthrough`"]: "struct.Device.html#method.create_shader_module_passthrough")]
+        const PASSTHROUGH_SHADERS = 1 << 52;
+
+        /// Enables shader barycentric coordinates.
+        ///
+        /// Supported platforms:
+        /// - Vulkan (with VK_KHR_fragment_shader_barycentric)
+        /// - DX12 (with SM 6.1+)
+        /// - Metal (with MSL 2.2+)
+        ///
+        /// This is a native only feature.
+        const SHADER_BARYCENTRICS = 1 << 53;
+
+        /// Enables using multiview where not all texture array layers are rendered to in a single render pass/render pipeline. Making
+        /// use of this feature also requires enabling `Features::MULTIVIEW`.
+        ///
+        /// Supported platforms
+        /// - Vulkan
+        /// - DX12
+        ///
+        ///
+        /// While metal supports this in theory, the behavior of `view_index` differs from vulkan and dx12 so the feature isn't exposed.
+        const SELECTIVE_MULTIVIEW = 1 << 54;
+
+        /// Enables the use of point-primitive outputs from mesh shaders. Making use of this feature also requires enabling
+        /// `Features::EXPERIMENTAL_MESH_SHADER`.
+        ///
+        /// Supported platforms
+        /// - Vulkan
+        /// - Metal
+        ///
+        /// This is a native only feature.
+        const EXPERIMENTAL_MESH_SHADER_POINTS = 1 << 55;
+
+        /// Enables creating texture arrays that are also multisampled.
+        ///
+        /// Without this feature, you cannot create a texture that has both a `sample_count` higher
+        /// than 1, and a `depth_or_array_layers` higher than 1.
+        ///
+        /// Supported platforms:
+        /// - Vulkan (except VK_KHR_portability_subset if multisampleArrayImage is not available)
+        const MULTISAMPLE_ARRAY = 1 << 56;
+
+        /// Enables cooperative matrix operations (also known as tensor cores on NVIDIA GPUs
+        /// or simdgroup matrix operations on Apple GPUs).
+        ///
+        /// Cooperative matrices allow a workgroup to collectively load, store, and perform
+        /// matrix multiply-accumulate operations on small tiles of data, enabling
+        /// hardware-accelerated matrix math.
+        ///
+        /// **Current limitations:** The implementation currently only supports 8x8 f32 matrices.
+        /// On Vulkan, support is determined by querying `vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR`
+        /// for configurations matching 8x8x8 f32. Most Vulkan implementations (NVIDIA, AMD) primarily
+        /// support f16 inputs at larger sizes (e.g., 16x16), so Vulkan support may be limited.
+        ///
+        /// Supported platforms:
+        /// - Metal (with MSL 2.3+ and Apple7+/Mac2+, using simdgroup matrix operations)
+        /// - Vulkan (with [VK_KHR_cooperative_matrix](https://registry.khronos.org/vulkan/specs/latest/man/html/VK_KHR_cooperative_matrix.html), if 8x8 f32 is supported)
+        ///
+        /// This is a native only feature.
+        const EXPERIMENTAL_COOPERATIVE_MATRIX = 1 << 57;
+
+        /// Enables shader per-vertex attributes.
+        ///
+        /// Supported platforms:
+        /// - Vulkan (with VK_KHR_fragment_shader_barycentric)
+        ///
+        /// This is a native only feature.
+        const SHADER_PER_VERTEX = 1 << 58;
+
+        /// Enables shader `draw_index` builtin.
+        ///
+        /// Supported platforms:
+        /// - GLES
+        /// - Vulkan
+        ///
+        /// Potential platforms:
+        /// - DX12
+        /// - Metal
+        ///
+        /// This is a native only feature.
+        const SHADER_DRAW_INDEX = 1 << 59;
     }
 
     /// Features that are not guaranteed to be supported.
@@ -1259,6 +1334,7 @@ bitflags_array! {
         /// Supported platforms:
         /// - desktops
         /// - some mobile chips
+        /// - WebGPU
         ///
         /// This is a web and native feature.
         const DEPTH_CLIP_CONTROL = WEBGPU_FEATURE_DEPTH_CLIP_CONTROL;
@@ -1270,6 +1346,7 @@ bitflags_array! {
         /// - DX12
         /// - Metal
         /// - OpenGL
+        /// - WebGPU
         ///
         /// This is a web and native feature.
         ///
@@ -1290,6 +1367,7 @@ bitflags_array! {
         /// Supported Platforms:
         /// - desktops
         /// - Mobile (All Apple9 and some Apple7 and Apple8 devices)
+        /// - WebGPU
         ///
         /// This is a web and native feature.
         const TEXTURE_COMPRESSION_BC = WEBGPU_FEATURE_TEXTURE_COMPRESSION_BC;
@@ -1303,6 +1381,7 @@ bitflags_array! {
         /// Supported Platforms:
         /// - desktops
         /// - Mobile (All Apple9 and some Apple7 and Apple8 devices)
+        /// - WebGPU
         ///
         /// This is a web and native feature.
         const TEXTURE_COMPRESSION_BC_SLICED_3D = WEBGPU_FEATURE_TEXTURE_COMPRESSION_BC_SLICED_3D;
@@ -1319,6 +1398,7 @@ bitflags_array! {
         /// Supported Platforms:
         /// - Vulkan on Intel
         /// - Mobile (some)
+        /// - WebGPU
         ///
         /// This is a web and native feature.
         const TEXTURE_COMPRESSION_ETC2 = WEBGPU_FEATURE_TEXTURE_COMPRESSION_ETC2;
@@ -1338,6 +1418,7 @@ bitflags_array! {
         /// Supported Platforms:
         /// - Vulkan on Intel
         /// - Mobile (some)
+        /// - WebGPU
         ///
         /// This is a web and native feature.
         const TEXTURE_COMPRESSION_ASTC = WEBGPU_FEATURE_TEXTURE_COMPRESSION_ASTC;
@@ -1352,6 +1433,7 @@ bitflags_array! {
         /// - Vulkan (some)
         /// - Metal on Apple3+
         /// - OpenGL/WebGL (some)
+        /// - WebGPU
         ///
         /// Not Supported:
         /// - DX12
@@ -1379,13 +1461,15 @@ bitflags_array! {
         /// - Vulkan
         /// - DX12
         /// - Metal
+        /// - OpenGL (with GL_ARB_timer_query)
+        /// - WebGPU
         ///
         /// This is a web and native feature.
         ///
-        /// [`RenderPassDescriptor::timestamp_writes`]: https://docs.rs/wgpu/latest/wgpu/struct.RenderPassDescriptor.html#structfield.timestamp_writes
-        /// [`ComputePassDescriptor::timestamp_writes`]: https://docs.rs/wgpu/latest/wgpu/struct.ComputePassDescriptor.html#structfield.timestamp_writes
-        /// [`CommandEncoder::resolve_query_set`]: https://docs.rs/wgpu/latest/wgpu/struct.CommandEncoder.html#method.resolve_query_set
-        /// [`Queue::get_timestamp_period`]: https://docs.rs/wgpu/latest/wgpu/struct.Queue.html#method.get_timestamp_period
+        #[doc = link_to_wgpu_docs!(["`RenderPassDescriptor::timestamp_writes`"]: "struct.RenderPassDescriptor.html#structfield.timestamp_writes")]
+        #[doc = link_to_wgpu_docs!(["`ComputePassDescriptor::timestamp_writes`"]: "struct.ComputePassDescriptor.html#structfield.timestamp_writes")]
+        #[doc = link_to_wgpu_docs!(["`CommandEncoder::resolve_query_set`"]: "struct.CommandEncoder.html#method.resolve_query_set")]
+        #[doc = link_to_wgpu_docs!(["`Queue::get_timestamp_period`"]: "struct.Queue.html#method.get_timestamp_period")]
         const TIMESTAMP_QUERY = WEBGPU_FEATURE_TIMESTAMP_QUERY;
 
         /// Allows non-zero value for the `first_instance` member in indirect draw calls.
@@ -1400,6 +1484,7 @@ bitflags_array! {
         /// - DX12
         /// - Metal on Apple3+ or Mac1+
         /// - OpenGL (Desktop 4.2+ with ARB_shader_draw_parameters only)
+        /// - WebGPU
         ///
         /// Not Supported:
         /// - OpenGL ES / WebGL
@@ -1408,7 +1493,7 @@ bitflags_array! {
         const INDIRECT_FIRST_INSTANCE = WEBGPU_FEATURE_INDIRECT_FIRST_INSTANCE;
 
         /// Allows shaders to use 16-bit floating point types. You may use them uniform buffers,
-        /// storage buffers, and local variables. You may not use them in push constants.
+        /// storage buffers, and local variables. You may not use them in immediates.
         ///
         /// In order to use this in WGSL shaders, you must add `enable f16;` to the top of your shader,
         /// before any global items.
@@ -1417,6 +1502,7 @@ bitflags_array! {
         /// - Vulkan
         /// - Metal
         /// - DX12
+        /// - WebGPU
         ///
         /// This is a web and native feature.
         const SHADER_F16 = WEBGPU_FEATURE_SHADER_F16;
@@ -1427,6 +1513,7 @@ bitflags_array! {
         /// - Vulkan
         /// - DX12
         /// - Metal
+        /// - WebGPU
         ///
         /// This is a web and native feature.
         ///
@@ -1439,6 +1526,7 @@ bitflags_array! {
         /// - Vulkan
         /// - DX12
         /// - Metal
+        /// - WebGPU
         ///
         /// This is a web and native feature.
         ///
@@ -1454,9 +1542,17 @@ bitflags_array! {
         /// - DX12
         /// - Metal on macOS or Apple9+ GPUs, optional on iOS/iPadOS with Apple7/8 GPUs
         /// - GL with one of `GL_ARB_color_buffer_float`/`GL_EXT_color_buffer_float`/`OES_texture_float_linear`
+        /// - WebGPU
         ///
         /// This is a web and native feature.
         const FLOAT32_FILTERABLE = WEBGPU_FEATURE_FLOAT32_FILTERABLE;
+
+        /// Allows textures with formats "r32float", "rg32float", and "rgba32float" to be blendable.
+        ///
+        /// Supported Platforms:
+        /// - Vulkan
+        /// - WebGPU
+        const FLOAT32_BLENDABLE = WEBGPU_FEATURE_FLOAT32_BLENDABLE;
 
         /// Allows two outputs from a shader to be used for blending.
         /// Note that dual-source blending doesn't support multiple render targets.
@@ -1468,6 +1564,7 @@ bitflags_array! {
         /// - Metal (with MSL 1.2+)
         /// - Vulkan (with dualSrcBlend)
         /// - DX12
+        /// - WebGPU
         ///
         /// This is a web and native feature.
         const DUAL_SOURCE_BLENDING = WEBGPU_FEATURE_DUAL_SOURCE_BLENDING;
@@ -1476,10 +1573,44 @@ bitflags_array! {
         ///
         /// Supported platforms:
         /// - Vulkan (mainly on Desktop GPUs)
+        /// - Metal
         /// - GL (Desktop or `GL_EXT_clip_cull_distance`)
+        /// - WebGPU
         ///
         /// This is a web and native feature.
         const CLIP_DISTANCES = WEBGPU_FEATURE_CLIP_DISTANCES;
+
+        /// Allows the use of immediate data: small, fast bits of memory that can be updated
+        /// inside a [`RenderPass`].
+        ///
+        /// Allows the user to call [`RenderPass::set_immediates`], provide a non-zero immediate data size
+        /// to [`PipelineLayoutDescriptor`], and provide a non-zero limit to [`Limits::max_immediate_size`].
+        ///
+        /// A block of immediate data can be declared in WGSL with `var<immediate>`:
+        ///
+        /// ```rust,ignore
+        /// struct Immediates { example: f32, }
+        /// var<immediate> c: Immediates;
+        /// ```
+        ///
+        /// In GLSL, this corresponds to `layout(immediates) uniform Name {..}`.
+        ///
+        /// Supported platforms:
+        /// - DX12
+        /// - Vulkan
+        /// - Metal
+        /// - OpenGL (emulated with uniforms)
+        /// - WebGPU
+        ///
+        /// WebGPU support is currently a proposal and will be available in browsers in the future.
+        ///
+        /// This is a web and native feature.
+        ///
+        #[doc = link_to_wgpu_item!(struct RenderPass)]
+        #[doc = link_to_wgpu_item!(struct PipelineLayoutDescriptor)]
+        #[doc = link_to_wgpu_docs!(["`RenderPass::set_immediates`"]: "struct.RenderPass.html#method.set_immediates")]
+        /// [`Limits::max_immediate_size`]: super::Limits
+        const IMMEDIATES = WEBGPU_FEATURE_IMMEDIATES;
     }
 }
 
@@ -1508,9 +1639,10 @@ impl Features {
         Self::from_bits_truncate(FeatureBits([
             FeaturesWGPU::EXPERIMENTAL_MESH_SHADER.bits()
                 | FeaturesWGPU::EXPERIMENTAL_MESH_SHADER_MULTIVIEW.bits()
+                | FeaturesWGPU::EXPERIMENTAL_MESH_SHADER_POINTS.bits()
                 | FeaturesWGPU::EXPERIMENTAL_RAY_QUERY.bits()
                 | FeaturesWGPU::EXPERIMENTAL_RAY_HIT_VERTEX_RETURN.bits()
-                | FeaturesWGPU::EXPERIMENTAL_PASSTHROUGH_SHADERS.bits(),
+                | FeaturesWGPU::EXPERIMENTAL_COOPERATIVE_MATRIX.bits(),
             FeaturesWebGPU::empty().bits(),
         ]))
     }

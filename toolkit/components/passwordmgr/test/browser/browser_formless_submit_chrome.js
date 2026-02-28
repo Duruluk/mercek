@@ -48,13 +48,19 @@ function withTestPage(aTaskFn) {
 }
 
 add_setup(async function () {
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.urlbar.trustPanel.featureGate", false]],
+  });
   await SimpleTest.promiseFocus(window);
 });
 
 add_task(async function test_urlbar_new_URL() {
   await withTestPage(async aBrowser => {
     gURLBar.value = "";
-    let focusPromise = BrowserTestUtils.waitForEvent(gURLBar, "focus");
+    let focusPromise = BrowserTestUtils.waitForEvent(
+      gURLBar.inputField,
+      "focus"
+    );
     gURLBar.focus();
     await focusPromise;
     info("focused");
